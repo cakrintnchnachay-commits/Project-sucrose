@@ -378,6 +378,23 @@ textarea.input{resize:vertical;min-height:70px;}
 .more-drawer-item svg{width:20px;height:20px;flex-shrink:0;color:var(--grey-5);}
 .more-drawer-item.active-drawer-item svg,.more-drawer-item.active-drawer-item{color:var(--white);}
 .more-drawer-handle{width:36px;height:3px;background:var(--grey-4);border-radius:2px;margin:6px auto 12px;}
+
+/* MATCH HISTORY */
+.match-group{border-bottom:var(--border);}
+.match-group-header{display:flex;align-items:center;padding:14px 20px;cursor:pointer;transition:background 0.15s;gap:12px;}
+.match-group-header:hover{background:var(--grey-1);}
+.match-group-games{border-top:var(--border);}
+.match-group-header.expanded .match-chevron{transform:rotate(180deg);}
+
+/* MATCH DETAIL PAGE */
+.match-header{padding:20px;border-bottom:var(--border);}
+.match-series{display:flex;gap:4px;align-items:center;margin-bottom:8px;}
+.match-series-score{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:2px;line-height:1;}
+.match-game-row{display:flex;align-items:center;padding:12px 20px;border-bottom:var(--border);gap:10px;}
+.match-game-row:hover{background:var(--grey-1);}
+.match-mentality-panel{margin:0 20px 12px;background:var(--grey-1);border:var(--border);border-radius:2px;overflow:hidden;}
+.match-mentality-player{padding:12px 16px;border-bottom:var(--border);}
+.match-mentality-player:last-child{border-bottom:none;}
 </style>
 </head>
 <body>
@@ -550,8 +567,18 @@ textarea.input{resize:vertical;min-height:70px;}
         <textarea class="input" id="log-vod" placeholder="Match notes, timestamps..."></textarea>
       </div>
       <button class="btn btn-primary btn-full" onclick="logNextStep()">Next -- Score Players</button>
+      <button class="btn btn-full mt-8" onclick="openCreateMatchModal()">📋 Create Match First</button>
     </div>
     <div id="log-step-player" style="display:none;padding:0 20px 20px;"></div>
+    <div id="log-step-mentality" style="display:none;padding:0 20px 20px;">
+      <div class="section-label" style="padding:0 0 12px;">Match Mentality <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· RATED ONCE PER MATCH</span></div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);margin-bottom:16px;line-height:1.7;">Rate each active player's mentality for this entire match. These scores apply to all games in the session.</div>
+      <div id="log-mentality-players"></div>
+      <div style="display:flex;gap:10px;margin-top:12px;">
+        <button class="btn" style="flex:1;" onclick="logMentalityBack()">&#x2190; Back</button>
+        <button class="btn btn-primary" style="flex:2;" onclick="logMentalityNext()">Score Games &#x2192;</button>
+      </div>
+    </div>
     <div id="log-step-review" style="display:none;padding:0 20px 20px;">
       <div class="section-label" style="padding:0 0 12px;">Review &amp; Save</div>
       <div id="log-review-content"></div>
@@ -574,11 +601,17 @@ textarea.input{resize:vertical;min-height:70px;}
 
   <!-- HISTORY -->
   <div class="page" id="page-history">
-    <div style="padding:20px 20px 16px;border-bottom:var(--border);">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">HISTORY</div>
-      <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">All logged games</div>
+    <div style="padding:16px 20px 14px;border-bottom:var(--border);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">HISTORY</div>
+        <button class="btn btn-sm btn-primary" onclick="openCreateMatchModal()">+ Match</button>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <button class="tier-mode-btn active" id="hist-mode-matches" onclick="setHistoryMode('matches')">Matches</button>
+        <button class="tier-mode-btn" id="hist-mode-games" onclick="setHistoryMode('games')">All Games</button>
+      </div>
     </div>
-    <div id="history-list"><div class="empty"><div class="empty-icon">📂</div><div class="empty-text">No games logged yet</div></div></div>
+    <div id="history-list"></div>
     <div style="padding:16px 20px;border-top:var(--border);">
       <button class="btn btn-full" onclick="exportCSV()">Export Data as Text</button>
     </div>
@@ -683,6 +716,9 @@ textarea.input{resize:vertical;min-height:70px;}
     </div>
   </div>
 
+  <!-- MATCH DETAIL -->
+  <div class="page" id="page-match"><div id="match-content"></div></div>
+
   <!-- HEROES -->
   <div class="page" id="page-heroes">
     <div style="padding:16px 20px 14px;border-bottom:var(--border);">
@@ -773,7 +809,46 @@ textarea.input{resize:vertical;min-height:70px;}
   </div>
 </div>
 
-<!-- HERO DETAIL MODAL -->
+<!-- CREATE MATCH MODAL -->
+<div class="modal-overlay" id="create-match-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">NEW MATCH</div><button class="modal-close" onclick="closeModal('create-match-modal')">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="input-group"><label class="input-label">Match Name</label><input class="input" id="cm-name" placeholder="e.g. vs Team Phoenix or Internal Scrim"/></div>
+      <div class="row">
+        <div class="input-group mb-0"><label class="input-label">Date</label><input class="input" id="cm-date" type="date"/></div>
+        <div class="input-group mb-0"><label class="input-label">Type</label>
+          <select class="input" id="cm-type"><option value="Scrim">Scrim</option><option value="Tournament">Tournament</option></select>
+        </div>
+      </div>
+      <div class="input-group mt-16"><label class="input-label">Opponent Tier</label>
+        <select class="input" id="cm-opp-tier">
+          <option value="">Unknown</option><option value="A">A -- Full IC</option>
+          <option value="A+">A+ -- Strong IC/GR</option><option value="S-">S- -- 3-5 GR</option>
+          <option value="S">S -- Strong GR</option><option value="S+">S+ -- Semi-pro</option>
+        </select>
+      </div>
+      <div class="input-group"><label class="input-label">Notes (Optional)</label><textarea class="input" id="cm-notes" placeholder="VOD link, context..." style="min-height:60px;"></textarea></div>
+      <button class="btn btn-primary btn-full" onclick="saveCreateMatch()">Create Match &amp; Open</button>
+    </div>
+  </div>
+</div>
+
+<!-- ASSIGN GAME MODAL -->
+<div class="modal-overlay" id="assign-game-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">ASSIGN GAME</div><button class="modal-close" onclick="closeModal('assign-game-modal')">&#x2715;</button></div>
+    <div class="modal-body" id="assign-game-body"></div>
+  </div>
+</div>
+
+<!-- EDIT MATCH MODAL -->
+<div class="modal-overlay" id="edit-match-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">EDIT MATCH</div><button class="modal-close" onclick="closeModal('edit-match-modal')">&#x2715;</button></div>
+    <div class="modal-body" id="edit-match-body"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="hero-detail-modal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="hd-title">HERO STATS</div><button class="modal-close" onclick="closeModal('hero-detail-modal')">&#x2715;</button></div>
@@ -838,6 +913,8 @@ let _cache = {
   heroOverrides: {}, // from app_settings key='hero_overrides'
   players: [],       // from players table
   games: [],         // from games table
+  matches: [],       // from matches table
+  tournaments: [],   // from tournaments table (stub, future)
   metaTiers: {},     // from meta_tiers table (flattened to {heroName: tier})
   masteryTiers: {},  // from mastery_tiers table (flattened to {playerId: {heroName: tier}})
   patches: [],       // from patches table
@@ -860,11 +937,12 @@ function setLoading(on){
 async function bootApp(){
   setLoading(true);
   try{
-    const [heroRes, customRes, playerRes, gameRes, metaRes, masteryRes, patchRes, settingsRes] = await Promise.all([
+    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes] = await Promise.all([
       sb.from('heroes').select('*').order('name'),
       sb.from('custom_heroes').select('*').order('name'),
       sb.from('players').select('*').order('nick'),
       sb.from('games').select('*').order('created_at'),
+      sb.from('matches').select('*').order('created_at',{ascending:false}),
       sb.from('meta_tiers').select('*'),
       sb.from('mastery_tiers').select('*'),
       sb.from('patches').select('*').order('saved_at'),
@@ -878,11 +956,20 @@ async function bootApp(){
       rank:p.rank||'Unranked', active:p.active
     }));
     _cache.games = (gameRes.data||[]).map(g=>({
-      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.map?1:1,
+      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||g.map?1:1,
       result:g.result==='W'?'Win':'Loss',
       opponent:g.opponent||'', oppTier:'', notes:g.notes||'',
       playerScores:g.player_scores||{},
+      matchMentality:g.match_mentality||{},
+      matchId:g.match_id||null,
+      mvpPlayerId:g.mvp_player_id||null,
       savedAt:g.created_at
+    }));
+    _cache.matches = (matchRes.data||[]).map(m=>({
+      id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
+      oppTier:m.opp_tier||'', notes:m.notes||'',
+      tournamentId:m.tournament_id||null,
+      createdAt:m.created_at,
     }));
     // Flatten meta tiers
     _cache.metaTiers={};
@@ -949,10 +1036,12 @@ async function sbSaveGame(gameObj){
     is_tournament: gameObj.type==='Tournament',
     notes: gameObj.notes||null,
     player_scores: gameObj.playerScores||{},
+    match_mentality: gameObj.matchMentality||{},
+    match_id: gameObj.matchId||null,
+    mvp_player_id: gameObj.mvpPlayerId||null,
   };
   const {data,error}=await sb.from('games').upsert(row,{onConflict:'id'}).select().single();
   if(error) throw error;
-  // Update cache id to DB uuid if it was a new insert
   return data.id;
 }
 
@@ -1001,6 +1090,32 @@ async function sbSaveCustomHero(h){
 
 async function sbSavePatch(p){
   await sb.from('patches').upsert({name:p.name,meta_snapshot:p.metaTiers,saved_at:p.savedAt},{onConflict:'name'});
+}
+
+async function sbSaveMatch(matchObj){
+  const row={
+    id:matchObj.id,
+    name:matchObj.name,
+    date:matchObj.date||null,
+    type:matchObj.type||'Scrim',
+    opp_tier:matchObj.oppTier||null,
+    notes:matchObj.notes||null,
+    tournament_id:matchObj.tournamentId||null,
+  };
+  const {data,error}=await sb.from('matches').upsert(row,{onConflict:'id'}).select().single();
+  if(error) throw error;
+  return data.id;
+}
+
+async function sbDeleteMatch(matchId){
+  // Unlink games first, then delete match
+  await sb.from('games').update({match_id:null}).eq('match_id',matchId);
+  await sb.from('matches').delete().eq('id',matchId);
+}
+
+async function sbAssignGameToMatch(gameId,matchId){
+  const {error}=await sb.from('games').update({match_id:matchId}).eq('id',gameId);
+  if(error) throw error;
 }
 
 // ══════════════════════════════════════════
@@ -1314,9 +1429,27 @@ const ROLE_CRITERIA={
   ],
 };
 function getRolePillarLabel(role){return(ROLE_CRITERIA[role]||[])[2]?.pillar||'Role Phase';}
-function getCriteria(role){return[...MENTALITY_CRITERIA,...GAME_SENSE_CRITERIA,...(ROLE_CRITERIA[role]||[])];}
-function calcMentality(s){var c=s.communication||0,d=s.discipline||0,t=s.team_contribution||0;if(c+d+t===0)return 0;return(c*0.5+d*0.25+t*0.25)*2;}
-function calcGameScore(s,role){var rc=ROLE_CRITERIA[role]||[];var rolVals=rc.map(function(c){return s[c.key];}).filter(function(v){return v>0;});var rolAvg=rolVals.length?rolVals.reduce(function(a,b){return a+b;},0)/rolVals.length:0;var mentality=calcMentality(s);var gs=s.decision||0;var parts=[mentality,gs,rolAvg].filter(function(v){return v>0;});return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;}
+function getCriteria(role){return[...GAME_SENSE_CRITERIA,...(ROLE_CRITERIA[role]||[])];}  // Mentality now match-level only
+function getCriteriaWithMentality(role){return[...MENTALITY_CRITERIA,...GAME_SENSE_CRITERIA,...(ROLE_CRITERIA[role]||[])];} // for edit modal compat
+// mentObj = explicit {communication,discipline,team_contribution} OR fall back to s fields (old data)
+function calcMentality(s,mentObj){
+  var m=mentObj||s;
+  var c=m.communication||0,d=m.discipline||0,t=m.team_contribution||0;
+  if(c+d+t===0)return 0;
+  return(c*0.5+d*0.25+t*0.25)*2;
+}
+// game object passed so we can pull matchMentality; role for role criteria
+function calcGameScore(s,role,game,pid){
+  var rc=ROLE_CRITERIA[role]||[];
+  var rolVals=rc.map(function(c){return s[c.key];}).filter(function(v){return v>0;});
+  var rolAvg=rolVals.length?rolVals.reduce(function(a,b){return a+b;},0)/rolVals.length:0;
+  // Mentality: prefer matchMentality[pid], then fall back to s fields (legacy)
+  var mentObj=game&&pid&&game.matchMentality&&game.matchMentality[pid]?game.matchMentality[pid]:s;
+  var mentality=calcMentality(s,mentObj);
+  var gs=s.decision||0;
+  var parts=[mentality,gs,rolAvg].filter(function(v){return v>0;});
+  return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
+}
 function getRadarValues(playerId,games){
   PLAYERS=getPlayers();
   var player=PLAYERS.find(function(p){return p.id===playerId;});
@@ -1324,7 +1457,7 @@ function getRadarValues(playerId,games){
   var now=new Date();var cutoff=new Date(now-30*24*60*60*1000);
   var monthGames=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
   function avgKey(key,maxVal){var vals=monthGames.map(function(g){return g.playerScores[playerId][key];}).filter(function(v){return v>0;});if(!vals.length)return 0;return(vals.reduce(function(a,b){return a+b;},0)/vals.length/maxVal)*10;}
-  function avgMentality(){var vals=monthGames.map(function(g){return calcMentality(g.playerScores[playerId]);}).filter(function(v){return v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  function avgMentality(){var vals=monthGames.map(function(g){var mentObj=g.matchMentality&&g.matchMentality[playerId]?g.matchMentality[playerId]:g.playerScores[playerId];return calcMentality(g.playerScores[playerId],mentObj);}).filter(function(v){return v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
   return[
     {label:'Mentality',                     value:avgMentality()},
     {label:'Micro Play',                    value:rc[0]?avgKey(rc[0].key,10):0},
@@ -1348,6 +1481,7 @@ function parseDate(str){if(!str)return new Date(0);var parts=str.split('/');retu
 function loadData(){
   return {
     games: _cache.games||[],
+    matches: _cache.matches||[],
     metaTiers: _cache.metaTiers||{},
     masteryTiers: _cache.masteryTiers||{},
     patches: _cache.patches||[],
@@ -1385,7 +1519,7 @@ function showPage(id){
   var mobileMap={'page-home':'nav-home','page-roster':'nav-roster','page-heroes':'nav-heroes'};
   var drawerMap={'page-log':'drawer-log','page-history':'drawer-history','page-tiers':'drawer-tiers','page-settings':'drawer-settings'};
   if(mobileMap[id]) document.getElementById(mobileMap[id])?.classList.add('active');
-  else if(drawerMap[id]) document.getElementById('nav-more-btn')?.classList.add('active');
+  else if(drawerMap[id]||id==='page-match') document.getElementById('nav-more-btn')?.classList.add('active');
   // Highlight desktop sidebar
   var desktopMap={'page-home':'nav-home-d','page-log':'nav-log','page-roster':'nav-roster-d','page-history':'nav-history','page-tiers':'nav-tiers','page-heroes':'nav-heroes-d'};
   if(desktopMap[id]) document.getElementById(desktopMap[id])?.classList.add('active');
@@ -1433,10 +1567,25 @@ function renderHome(){
   });
   document.getElementById('home-alerts').innerHTML=alertsHtml;
   var c=document.getElementById('home-sessions');
-  if(!data.games.length){c.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No sessions logged yet</div></div>';}
-  else{
+  var matches=_cache.matches||[];
+  var recentMatches=matches.slice(0,5);
+  if(!data.games.length&&!recentMatches.length){c.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No sessions logged yet</div></div>';}
+  else if(recentMatches.length){
+    c.innerHTML=recentMatches.map(function(m){
+      var mGames=data.games.filter(function(g){return g.matchId===m.id;});
+      var wins=mGames.filter(function(g){return g.result==='Win';}).length;
+      var series=mGames.length?wins+'-'+(mGames.length-wins):'No games';
+      var lastResult=mGames.length?mGames[mGames.length-1].result:null;
+      return '<div class="player-row" data-open-match="'+m.id+'">'+
+        '<div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+m.name+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+(m.date||'')+'</div></div>'+
+        (lastResult?'<span class="tag '+(lastResult==='Win'?'tag-win':'tag-loss')+'">'+series+'</span>':
+          '<span class="tag tag-role" style="font-size:8px;">'+series+'</span>')+
+      '</div>';
+    }).join('');
+  } else {
     c.innerHTML=data.games.slice().reverse().slice(0,5).map(function(g){
-      return '<div class="player-row" onclick="openEditModal(\''+g.id+'\')"><div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+g.type+' -- Game '+g.gameNum+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+g.date+(g.opponent?' · '+g.opponent:'')+(g.oppTier?' · '+g.oppTier:'')+'</div></div><span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span></div>';
+      return '<div class="player-row" onclick="openEditModal(\''+g.id+'\')"><div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+g.type+' -- Game '+g.gameNum+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+g.date+(g.opponent?' · '+g.opponent:'')+'</div></div><span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span></div>';
     }).join('');
   }
   renderTeamSummary(data);
@@ -1486,39 +1635,232 @@ function selectHero(inputId,dropId,name){var inp=document.getElementById(inputId
 function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.ceil(max/2);var id=prefix+'-'+c.key;var dispId=prefix+'d-'+c.key;return '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;"><div><div style="font-size:12px;font-weight:500;">'+c.label+'</div><div style="font-size:10px;color:var(--grey-5);">'+c.desc+'</div></div><div style="display:flex;align-items:baseline;gap:3px;flex-shrink:0;"><div class="slider-val" id="'+dispId+'">'+v+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">/'+max+'</div></div></div><div class="slider-wrap"><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">1</span><input type="range" class="slider" min="1" max="'+max+'" value="'+v+'" id="'+id+'" oninput="document.getElementById(\''+dispId+'\').textContent=this.value"/><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+max+'</span></div></div>';}
 
 // ══════════════════════════════════════════
-// LOG GAME
+// LOG GAME — V8 (match → mentality → games)
 // ══════════════════════════════════════════
-var LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0};
-function initLog(){LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0};document.getElementById('log-step-0').style.display='block';document.getElementById('log-step-player').style.display='none';document.getElementById('log-step-review').style.display='none';buildDots();}
-function buildDots(){document.getElementById('step-indicator').innerHTML=Array(PLAYERS.length+2).fill(0).map(function(_,i){return '<div class="step-dot" id="sd-'+i+'"></div>';}).join('');updateDots();}
-function updateDots(){PLAYERS.forEach(function(p,i){var el=document.getElementById('sd-'+(i+1));if(!el)return;el.className='step-dot'+(i+1===LS.step?' active':i+1<LS.step?(LS.skipped[p.id]?' skipped':' done'):'');});var s0=document.getElementById('sd-0');if(s0)s0.className='step-dot'+(LS.step===0?' active':' done');var sL=document.getElementById('sd-'+(PLAYERS.length+1));if(sL)sL.className='step-dot'+(LS.step===PLAYERS.length+1?' active':'');}
-function logNextStep(){var dateVal=document.getElementById('log-date').value;var dateStr=dateVal?new Date(dateVal+'T00:00:00').toLocaleDateString('en-GB'):new Date().toLocaleDateString('en-GB');LS.matchInfo={type:document.getElementById('log-type').value,opponent:document.getElementById('log-opponent').value,oppTier:document.getElementById('log-opp-tier').value,result:document.getElementById('log-result').value,gameNum:document.getElementById('log-game-num').value,vod:document.getElementById('log-vod').value,date:dateStr};LS.step=1;LS.idx=0;document.getElementById('log-step-0').style.display='none';renderPlayerStep();}
+var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+
+function initLog(){
+  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+  document.getElementById('log-step-0').style.display='block';
+  document.getElementById('log-step-mentality').style.display='none';
+  document.getElementById('log-step-player').style.display='none';
+  document.getElementById('log-step-review').style.display='none';
+  buildDots();
+}
+
+function buildDots(){
+  var total=2+PLAYERS.length+1; // 0=match, 1=mentality, 2..N=players, N+1=review
+  document.getElementById('step-indicator').innerHTML=Array(total).fill(0).map(function(_,i){return '<div class="step-dot" id="sd-'+i+'"></div>';}).join('');
+  updateDots();
+}
+
+function updateDots(){
+  var step=LS.step;
+  var total=2+PLAYERS.length;
+  for(var i=0;i<=total;i++){
+    var el=document.getElementById('sd-'+i);
+    if(!el) continue;
+    var cls='step-dot';
+    if(i===step) cls+=' active';
+    else if(i<step){
+      // player steps: check if skipped
+      if(i>=2&&i<2+PLAYERS.length&&LS.skipped[PLAYERS[i-2]?.id]) cls+=' skipped';
+      else cls+=' done';
+    }
+    el.className=cls;
+  }
+}
+
+function logNextStep(){
+  var dateVal=document.getElementById('log-date').value;
+  var dateStr=dateVal?new Date(dateVal+'T00:00:00').toLocaleDateString('en-GB'):new Date().toLocaleDateString('en-GB');
+  LS.matchInfo={
+    type:document.getElementById('log-type').value,
+    opponent:document.getElementById('log-opponent').value,
+    oppTier:document.getElementById('log-opp-tier').value,
+    result:document.getElementById('log-result').value,
+    gameNum:document.getElementById('log-game-num').value,
+    vod:document.getElementById('log-vod').value,
+    date:dateStr,
+  };
+  if(!LS.matchId) LS.matchId=crypto.randomUUID();
+  LS.step=1;
+  document.getElementById('log-step-0').style.display='none';
+  renderMentalityStep();
+}
+
+function renderMentalityStep(){
+  updateDots();
+  document.getElementById('log-step-mentality').style.display='block';
+  document.getElementById('log-step-player').style.display='none';
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  document.getElementById('log-mentality-players').innerHTML=activePlayers.map(function(p){
+    var existing=LS.mentality[p.id]||{};
+    return '<div style="margin-bottom:20px;padding-bottom:16px;border-bottom:var(--border);">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'+
+        '<div class="player-avatar" style="width:28px;height:28px;font-size:11px;">'+p.nick[0]+'</div>'+
+        '<div style="font-size:13px;font-weight:600;">'+p.nick+'</div>'+
+        '<span class="tag tag-role" style="font-size:8px;">'+p.role+'</span>'+
+      '</div>'+
+      MENTALITY_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'ment-'+p.id);}).join('')+
+    '</div>';
+  }).join('');
+}
+
+function logMentalityBack(){
+  document.getElementById('log-step-mentality').style.display='none';
+  document.getElementById('log-step-0').style.display='block';
+  LS.step=0;
+  updateDots();
+}
+
+function logMentalityNext(){
+  // Save mentality scores
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  activePlayers.forEach(function(p){
+    var m={};
+    MENTALITY_CRITERIA.forEach(function(c){
+      var el=document.getElementById('ment-'+p.id+'-'+c.key);
+      m[c.key]=el?parseFloat(el.value):Math.ceil(c.max/2);
+    });
+    LS.mentality[p.id]=m;
+  });
+  document.getElementById('log-step-mentality').style.display='none';
+  LS.step=2;
+  LS.idx=0;
+  renderPlayerStep();
+}
+
 function renderPlayerStep(){
   updateDots();
-  var player=PLAYERS[LS.idx];var isSkipped=!!LS.skipped[player.id];var existing=LS.scores[player.id]||{};var rc=ROLE_CRITERIA[player.role]||[];
-  var container=document.getElementById('log-step-player');container.style.display='block';
+  var player=PLAYERS[LS.idx];
+  var isSkipped=!!LS.skipped[player.id];
+  var existing=LS.scores[player.id]||{};
+  var rc=ROLE_CRITERIA[player.role]||[];
+  var container=document.getElementById('log-step-player');
+  container.style.display='block';
+  var isMVP=LS.scores[player.id]?.mvp||false;
   container.innerHTML=
-    '<div style="display:flex;align-items:center;gap:12px;padding:14px 0 16px;border-bottom:var(--border);margin-bottom:16px;"><div class="player-avatar">'+player.nick[0]+'</div><div style="flex:1;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+player.nick+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+player.ign+' · <span class="tag tag-role" style="font-size:8px;">'+player.role+'</span>'+(player.status==='Substitute'?' · <span style="color:var(--grey-4)">Sub</span>':'')+'</div></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+PLAYERS.length+'</div></div>'+
-    '<div class="play-skip-row"><div class="play-skip-label">Playing this game?</div><div class="play-skip-btns"><button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="tog-play" onclick="logSetSkip(\''+player.id+'\',false)">Playing</button><button class="btn btn-sm btn-muted" id="tog-skip" onclick="logSetSkip(\''+player.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button></div></div>'+
-    '<div id="log-score-fields" style="display:'+(isSkipped?'none':'block')+';"><div id="log-hero-wrap"></div>'+
-    '<div class="score-sec">Mentality <span>· each out of 5 · weighted avg</span></div>'+MENTALITY_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
-    '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
-    '<div class="score-sec">Role Performance <span>· '+player.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
-    '<div class="input-group mt-8"><label class="input-label">Coach Comment (Optional)</label><textarea class="input" id="log-comment" style="min-height:56px;">'+(existing.comment||'')+'</textarea></div></div>'+
-    '<div style="display:flex;gap:10px;margin-top:12px;">'+(LS.idx>0?'<button class="btn" style="flex:1;" onclick="logPrev()">&#x2190; Back</button>':'')+'<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<PLAYERS.length-1?'Next &#x2192;':'Review &#x2192;')+'</button></div>';
+    '<div style="display:flex;align-items:center;gap:12px;padding:14px 0 16px;border-bottom:var(--border);margin-bottom:16px;">'+
+      '<div class="player-avatar">'+player.nick[0]+'</div>'+
+      '<div style="flex:1;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+player.nick+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+player.ign+' · <span class="tag tag-role" style="font-size:8px;">'+player.role+'</span>'+(player.status==='Substitute'?' · <span style="color:var(--grey-4)">Sub</span>':'')+'</div></div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+PLAYERS.length+'</div>'+
+    '</div>'+
+    '<div class="play-skip-row"><div class="play-skip-label">Playing this game?</div><div class="play-skip-btns">'+
+      '<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="tog-play" onclick="logSetSkip(\''+player.id+'\',false)">Playing</button>'+
+      '<button class="btn btn-sm btn-muted" id="tog-skip" onclick="logSetSkip(\''+player.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button>'+
+    '</div></div>'+
+    '<div id="log-score-fields" style="display:'+(isSkipped?'none':'block')+';">'+
+      '<div id="log-hero-wrap"></div>'+
+      '<div class="play-skip-row" style="padding:10px 0 12px;"><div class="play-skip-label">⭐ MVP of this game?</div>'+
+        '<button class="btn btn-sm '+(isMVP?'btn-primary':'btn-muted')+'" id="tog-mvp" onclick="logToggleMVP(\''+player.id+'\')">'+
+          (isMVP?'⭐ MVP':'Mark MVP')+
+        '</button>'+
+      '</div>'+
+      '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
+      '<div class="score-sec">Role Performance <span>· '+player.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
+      '<div class="input-group mt-8"><label class="input-label">Coach Comment (Optional)</label><textarea class="input" id="log-comment" style="min-height:56px;">'+(existing.comment||'')+'</textarea></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:10px;margin-top:12px;">'+
+      '<button class="btn" style="flex:1;" onclick="logPrev()">&#x2190; Back</button>'+
+      '<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<PLAYERS.length-1?'Next &#x2192;':'Review &#x2192;')+'</button>'+
+    '</div>';
   buildHeroInput('log-hero-wrap','log-hero-inp','log-hero-drop',existing.hero||'');
 }
-function logSetSkip(pid,skip){LS.skipped[pid]=skip;document.getElementById('tog-play').className='btn btn-sm '+(skip?'btn-muted':'btn-primary');document.getElementById('tog-skip').className='btn btn-sm btn-muted';document.getElementById('tog-skip').style.cssText=skip?'border-color:var(--grey-4);color:var(--grey-5);':'';document.getElementById('log-score-fields').style.display=skip?'none':'block';}
-function logSavePlayer(){var player=PLAYERS[LS.idx];if(LS.skipped[player.id]){LS.scores[player.id]={skipped:true};}else{var allC=getCriteria(player.role);var heroVal=(document.getElementById('log-hero-inp')?.value||'').trim();var s={hero:heroVal,comment:document.getElementById('log-comment')?.value||''};allC.forEach(function(c){s[c.key]=parseFloat(document.getElementById('sl-'+c.key)?.value||(c.max||10)/2);});LS.scores[player.id]=s;if(heroVal)addHeroToList(heroVal);}if(LS.idx<PLAYERS.length-1){LS.idx++;LS.step++;renderPlayerStep();}else{LS.step=PLAYERS.length+1;updateDots();showReview();}}
-function logPrev(){LS.idx--;LS.step--;renderPlayerStep();}
-function showReview(){
-  document.getElementById('log-step-player').style.display='none';document.getElementById('log-step-review').style.display='block';
-  var m=LS.matchInfo;
-  var rows=PLAYERS.map(function(p){var s=LS.scores[p.id]||{};if(s.skipped)return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);opacity:0.4;"><div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div><div style="flex:1;font-size:12px;color:var(--grey-5);">Did not play</div><span class="tag tag-dnp">DNP</span></div>';var score=calcGameScore(s,p.role);var g=score>0?scoreToGrade(score):null;return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);"><div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div><div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+p.nick+' <span style="color:var(--grey-5);font-weight:400;">'+(s.hero||'--')+'</span></div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</div></div><div style="text-align:right;">'+(g?'<div class="grade '+g.cls+'" style="font-size:18px;">'+g.grade+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+score.toFixed(1)+'/10</div>':'<div style="color:var(--grey-5);">--</div>')+'</div></div>';}).join('');
-  document.getElementById('log-review-content').innerHTML='<div class="card" style="margin:0 0 16px;"><div class="card-body"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"><span class="tag '+(m.type==='Tournament'?'tag-tourney':'tag-role')+'">'+m.type+'</span><span class="tag '+(m.result==='Win'?'tag-win':'tag-loss')+'">'+m.result+'</span>'+(m.oppTier?'<span class="tag tag-role">'+m.oppTier+'</span>':'')+'</div><div style="font-size:12px;color:var(--grey-5);">Game '+m.gameNum+' · '+m.date+(m.opponent?' · vs '+m.opponent:'')+'</div></div></div>'+rows+'<div style="height:16px;"></div>';
+
+function logSetSkip(pid,skip){
+  LS.skipped[pid]=skip;
+  document.getElementById('tog-play').className='btn btn-sm '+(skip?'btn-muted':'btn-primary');
+  document.getElementById('tog-skip').className='btn btn-sm btn-muted';
+  document.getElementById('tog-skip').style.cssText=skip?'border-color:var(--grey-4);color:var(--grey-5);':'';
+  document.getElementById('log-score-fields').style.display=skip?'none':'block';
 }
+
+function logToggleMVP(pid){
+  var cur=LS.scores[pid]?.mvp||false;
+  if(!LS.scores[pid]) LS.scores[pid]={};
+  LS.scores[pid].mvp=!cur;
+  var btn=document.getElementById('tog-mvp');
+  if(btn){btn.className='btn btn-sm '+(LS.scores[pid].mvp?'btn-primary':'btn-muted');btn.textContent=LS.scores[pid].mvp?'⭐ MVP':'Mark MVP';}
+}
+
+function logSavePlayer(){
+  var player=PLAYERS[LS.idx];
+  if(LS.skipped[player.id]){
+    LS.scores[player.id]={skipped:true};
+  } else {
+    var roleCriteria=ROLE_CRITERIA[player.role]||[];
+    var allC=[...GAME_SENSE_CRITERIA,...roleCriteria];
+    var heroVal=(document.getElementById('log-hero-inp')?.value||'').trim();
+    var existingMvp=LS.scores[player.id]?.mvp||false;
+    var s={hero:heroVal,comment:document.getElementById('log-comment')?.value||'',mvp:existingMvp};
+    allC.forEach(function(c){s[c.key]=parseFloat(document.getElementById('sl-'+c.key)?.value||(c.max||10)/2);});
+    LS.scores[player.id]=s;
+    if(heroVal)addHeroToList(heroVal);
+  }
+  if(LS.idx<PLAYERS.length-1){
+    LS.idx++;
+    LS.step++;
+    renderPlayerStep();
+  } else {
+    LS.step=2+PLAYERS.length;
+    updateDots();
+    showReview();
+  }
+}
+
+function logPrev(){
+  if(LS.idx>0){
+    LS.idx--;
+    LS.step--;
+    renderPlayerStep();
+  } else {
+    // Back to mentality step
+    document.getElementById('log-step-player').style.display='none';
+    LS.step=1;
+    renderMentalityStep();
+  }
+}
+
+function showReview(){
+  document.getElementById('log-step-player').style.display='none';
+  document.getElementById('log-step-review').style.display='block';
+  var m=LS.matchInfo;
+  var mvpId=Object.keys(LS.scores).find(function(pid){return LS.scores[pid]?.mvp;});
+  var rows=PLAYERS.map(function(p){
+    var s=LS.scores[p.id]||{};
+    if(s.skipped) return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);opacity:0.4;"><div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div><div style="flex:1;font-size:12px;color:var(--grey-5);">Did not play</div><span class="tag tag-dnp">DNP</span></div>';
+    var mentObj=LS.mentality[p.id];
+    var score=calcGameScore(s,p.role,{matchMentality:LS.mentality},p.id);
+    var g=score>0?scoreToGrade(score):null;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);">'+
+      '<div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div>'+
+      '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+p.nick+(s.mvp?' ⭐':'')+' <span style="color:var(--grey-5);font-weight:400;">'+(s.hero||'--')+'</span></div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</div></div>'+
+      '<div style="text-align:right;">'+(g?'<div class="grade '+g.cls+'" style="font-size:18px;">'+g.grade+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+score.toFixed(1)+'/10</div>':'<div style="color:var(--grey-5);">--</div>')+'</div>'+
+    '</div>';
+  }).join('');
+  document.getElementById('log-review-content').innerHTML=
+    '<div class="card" style="margin:0 0 16px;"><div class="card-body">'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'+
+        '<span class="tag '+(m.type==='Tournament'?'tag-tourney':'tag-role')+'">'+m.type+'</span>'+
+        '<span class="tag '+(m.result==='Win'?'tag-win':'tag-loss')+'">'+m.result+'</span>'+
+        (m.oppTier?'<span class="tag tag-role">'+m.oppTier+'</span>':'')+
+      '</div>'+
+      '<div style="font-size:12px;color:var(--grey-5);">Game '+m.gameNum+' · '+m.date+(m.opponent?' · vs '+m.opponent:'')+'</div>'+
+    '</div></div>'+rows+'<div style="height:16px;"></div>';
+}
+
 async function saveGame(){
-  const g=Object.assign({id:crypto.randomUUID()},LS.matchInfo,{playerScores:LS.scores,savedAt:new Date().toISOString()});
+  var mvpId=Object.keys(LS.scores).find(function(pid){return LS.scores[pid]?.mvp;});
+  const g=Object.assign({id:crypto.randomUUID()},LS.matchInfo,{
+    playerScores:LS.scores,
+    matchMentality:LS.mentality,
+    matchId:LS.matchId,
+    mvpPlayerId:mvpId||null,
+    savedAt:new Date().toISOString(),
+  });
   try{
     const dbId=await sbSaveGame(g);
     g.id=dbId;
@@ -1527,12 +1869,40 @@ async function saveGame(){
     showSessionSummary(g);
   }catch(e){showToast('Save failed: '+e.message);}
 }
-function resetLog(){LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0};document.getElementById('log-step-0').style.display='block';document.getElementById('log-step-player').style.display='none';document.getElementById('log-step-review').style.display='none';['log-opponent','log-vod'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});var gn=document.getElementById('log-game-num');if(gn)gn.value='1';var ld=document.getElementById('log-date');if(ld)ld.value='';buildDots();}
+
+function resetLog(){
+  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+  document.getElementById('log-step-0').style.display='block';
+  document.getElementById('log-step-mentality').style.display='none';
+  document.getElementById('log-step-player').style.display='none';
+  document.getElementById('log-step-review').style.display='none';
+  ['log-opponent','log-vod'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  var gn=document.getElementById('log-game-num');if(gn)gn.value='1';
+  var ld=document.getElementById('log-date');if(ld)ld.value='';
+  buildDots();
+}
+
+function logNextGameInMatch(){
+  // Keep same matchId, opponent, date, type — just bump game num and re-score
+  closeModal('summary-modal');
+  var prev=LS.matchInfo;
+  LS={step:0,matchInfo:{},mentality:LS.mentality,scores:{},skipped:{},idx:0,matchId:LS.matchId};
+  // Pre-fill step 0 fields
+  setTimeout(function(){
+    var typeEl=document.getElementById('log-type');if(typeEl)typeEl.value=prev.type||'Scrim';
+    var oppEl=document.getElementById('log-opponent');if(oppEl)oppEl.value=prev.opponent||'';
+    var tierEl=document.getElementById('log-opp-tier');if(tierEl)tierEl.value=prev.oppTier||'';
+    var dateEl=document.getElementById('log-date');if(dateEl)dateEl.value=dateToIso(prev.date);
+    var gnEl=document.getElementById('log-game-num');if(gnEl)gnEl.value=String(parseInt(prev.gameNum||1)+1);
+    buildDots();
+  },50);
+  showPage('page-log');
+}
 
 // ══════════════════════════════════════════
 // PLAYER STATS
 // ══════════════════════════════════════════
-function getPlayerStats(playerId,games){var player=PLAYERS.find(function(p){return p.id===playerId;});var now=new Date();var oneMonth=new Date(now-30*24*60*60*1000);var oneWeek=new Date(now-7*24*60*60*1000);var played=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});var monthGames=played.filter(function(g){return parseDate(g.date)>=oneMonth;});var weekGames=played.filter(function(g){return parseDate(g.date)>=oneWeek;});function avg(list){return list.length?list.reduce(function(a,g){return a+calcGameScore(g.playerScores[playerId],player.role);},0)/list.length:0;}return{games:played.length,monthAvg:avg(monthGames),weekAvg:avg(weekGames),playerGames:played};}
+function getPlayerStats(playerId,games){var player=PLAYERS.find(function(p){return p.id===playerId;});var now=new Date();var oneMonth=new Date(now-30*24*60*60*1000);var oneWeek=new Date(now-7*24*60*60*1000);var played=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});var monthGames=played.filter(function(g){return parseDate(g.date)>=oneMonth;});var weekGames=played.filter(function(g){return parseDate(g.date)>=oneWeek;});function avg(list){return list.length?list.reduce(function(a,g){return a+calcGameScore(g.playerScores[playerId],player.role,g,playerId);},0)/list.length:0;}return{games:played.length,monthAvg:avg(monthGames),weekAvg:avg(weekGames),playerGames:played};}
 
 // ══════════════════════════════════════════
 // ROSTER
@@ -1587,7 +1957,7 @@ function showProfile(playerId){
   var flagH=hp.flagged.length?'<div style="margin-top:10px;padding-top:10px;border-top:var(--border);"><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--warn);letter-spacing:1px;margin-bottom:4px;">⚠ '+hp.flagged.length+' meta hero'+(hp.flagged.length>1?'es':'')+' need mastery rating</div><div style="font-size:11px;color:var(--grey-5);">'+hp.flagged.map(function(h){return h.hero;}).join(', ')+'</div></div>':'';
   var mentBars=criteriaAvgs.filter(function(c){return MENTALITY_CRITERIA.find(function(m){return m.key===c.key;});}).map(function(c){return '<div class="stat-row"><div class="stat-name">'+c.label+'</div><div class="stat-bar-wrap"><div class="stat-bar" style="width:'+(c.avg/5*100)+'%"></div></div><div class="stat-score">'+(c.avg>0?c.avg.toFixed(1):'--')+'</div></div>';}).join('');
   var roleBars=criteriaAvgs.filter(function(c){return !MENTALITY_CRITERIA.find(function(m){return m.key===c.key;});}).map(function(c){return '<div class="stat-row"><div class="stat-name">'+c.label+'</div><div class="stat-bar-wrap"><div class="stat-bar" style="width:'+(c.avg*10)+'%"></div></div><div class="stat-score">'+(c.avg>0?c.avg.toFixed(1):'--')+'</div></div>';}).join('');
-  var recentGames=stats.playerGames.length?stats.playerGames.slice().reverse().slice(0,6).map(function(g){var s=g.playerScores[playerId];var score=calcGameScore(s,player.role);var gr=score>0?scoreToGrade(score):null;return '<div class="player-row" onclick="openEditModal(\''+g.id+'\')"><div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+(s.hero||'Unknown hero')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+g.date+' · '+g.type+' · Game '+g.gameNum+'</div>'+(s.comment?'<div style="font-size:11px;color:var(--grey-5);margin-top:3px;font-style:italic;">"'+s.comment+'"</div>':'')+'</div><div style="display:flex;gap:6px;align-items:center;"><span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span>'+(gr?'<span class="grade '+gr.cls+'" style="font-size:16px;">'+gr.grade+'</span>':'')+'</div></div>';}).join(''):'<div class="empty"><div class="empty-icon">🎮</div><div class="empty-text">No games logged yet</div></div>';
+  var recentGames=stats.playerGames.length?stats.playerGames.slice().reverse().slice(0,6).map(function(g){var s=g.playerScores[playerId];var score=calcGameScore(s,player.role,g,playerId);var gr=score>0?scoreToGrade(score):null;var isMVP=g.mvpPlayerId===playerId;return '<div class="player-row" onclick="openEditModal(\''+g.id+'\')"><div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+(isMVP?'⭐ ':'')+' '+(s.hero||'Unknown hero')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+g.date+' · '+g.type+' · Game '+g.gameNum+'</div>'+(s.comment?'<div style="font-size:11px;color:var(--grey-5);margin-top:3px;font-style:italic;">"'+s.comment+'"</div>':'')+'</div><div style="display:flex;gap:6px;align-items:center;"><span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span>'+(gr?'<span class="grade '+gr.cls+'" style="font-size:16px;">'+gr.grade+'</span>':'')+'</div></div>';}).join(''):'<div class="empty"><div class="empty-icon">🎮</div><div class="empty-text">No games logged yet</div></div>';
   var hpBarW=Math.min(hp.pct,100);
   var hpBarCol=hp.pct>=100?'var(--success)':hp.pct>=70?'var(--warn)':'var(--grey-5)';
   document.getElementById('profile-content').innerHTML=
@@ -1666,18 +2036,153 @@ function drawRadar(canvasId,radarData,options){
 // ══════════════════════════════════════════
 // HISTORY
 // ══════════════════════════════════════════
-function renderHistory(){var data=loadData();var c=document.getElementById('history-list');if(!data.games.length){c.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">No games logged yet</div></div>';return;}c.innerHTML=data.games.slice().reverse().map(function(g){return '<div class="player-row"><div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+g.type+' · Game '+g.gameNum+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+g.date+(g.opponent?' · vs '+g.opponent:'')+(g.oppTier?' · '+g.oppTier:'')+'</div></div><div style="display:flex;gap:6px;align-items:center;"><span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span><button class="btn btn-sm" onclick="openEditModal(\''+g.id+'\')">Edit</button></div></div>';}).join('');}
+var _historyMode='matches';
+function setHistoryMode(mode){
+  _historyMode=mode;
+  document.getElementById('hist-mode-matches').className='tier-mode-btn'+(mode==='matches'?' active':'');
+  document.getElementById('hist-mode-games').className='tier-mode-btn'+(mode==='games'?' active':'');
+  renderHistory();
+}
+
+function renderHistory(){
+  var data=loadData();
+  var c=document.getElementById('history-list');
+  if(_historyMode==='games'){
+    if(!data.games.length){c.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">No games logged yet</div></div>';return;}
+    c.innerHTML=data.games.slice().reverse().map(function(g){
+      var mvpP=g.mvpPlayerId?PLAYERS.find(function(p){return p.id===g.mvpPlayerId;}):null;
+      return '<div class="player-row">'+
+        '<div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+(g.opponent?'vs '+g.opponent:g.type)+' · G'+g.gameNum+(mvpP?' · ⭐':'')+
+        '</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+g.date+'</div></div>'+
+        '<div style="display:flex;gap:6px;align-items:center;">'+
+          '<span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span>'+
+          '<button class="btn btn-sm" data-edit-game="'+g.id+'">Edit</button>'+
+        '</div></div>';
+    }).join('');
+    return;
+  }
+  // Matches view
+  var matches=data.matches;
+  var unmatchedGames=data.games.filter(function(g){return !g.matchId;});
+  if(!matches.length&&!unmatchedGames.length){
+    c.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">No matches yet — tap + Match to create one</div></div>';
+    return;
+  }
+  var html='';
+  matches.forEach(function(m){
+    var mGames=data.games.filter(function(g){return g.matchId===m.id;});
+    var wins=mGames.filter(function(g){return g.result==='Win';}).length;
+    var losses=mGames.length-wins;
+    var seriesStr=mGames.length?wins+'-'+losses:'No games yet';
+    var lastResult=mGames.length?mGames[mGames.length-1].result:null;
+    var mvpGame=mGames.find(function(g){return g.mvpPlayerId;});
+    var mvpPlayer=mvpGame?PLAYERS.find(function(p){return p.id===mvpGame.mvpPlayerId;}):null;
+    html+='<div class="match-group-header" style="border-bottom:var(--border);" data-open-match="'+m.id+'">'+
+      '<div style="flex:1;">'+
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">'+
+          (lastResult?'<span class="tag '+(lastResult==='Win'?'tag-win':'tag-loss')+'" style="font-size:8px;">'+seriesStr+'</span>':'<span class="tag tag-role" style="font-size:8px;">'+seriesStr+'</span>')+
+          '<span class="tag tag-role" style="font-size:8px;">'+m.type+'</span>'+
+        '</div>'+
+        '<div style="font-weight:600;font-size:14px;">'+m.name+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+
+          (m.date||'No date')+' · '+mGames.length+' game'+(mGames.length!==1?'s':'')+
+          (mvpPlayer?' · ⭐ '+mvpPlayer.nick:'')+
+        '</div>'+
+      '</div>'+
+      '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--grey-5);flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>'+
+    '</div>';
+  });
+  if(unmatchedGames.length){
+    html+='<div style="padding:10px 20px 6px;font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-5);border-top:var(--border);margin-top:4px;">UNMATCHED GAMES</div>';
+    html+=unmatchedGames.slice().reverse().map(function(g){
+      return '<div class="player-row">'+
+        '<div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+(g.opponent?'vs '+g.opponent:g.type)+' · G'+g.gameNum+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+g.date+'</div></div>'+
+        '<div style="display:flex;gap:6px;">'+
+          '<span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span>'+
+          '<button class="btn btn-sm" data-edit-game="'+g.id+'">Edit</button>'+
+        '</div></div>';
+    }).join('');
+  }
+  c.innerHTML=html||'<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">No matches yet</div></div>';
+}
+
+
 
 // ══════════════════════════════════════════
 // EDIT MODAL
 // ══════════════════════════════════════════
 function openEditModal(gameId){
   var data=loadData();var game=data.games.find(function(g){return g.id===gameId;});if(!game)return;
-  document.getElementById('edit-modal-title').textContent='EDIT GAME';
-  var psec=PLAYERS.map(function(p){var s=game.playerScores&&game.playerScores[p.id]||{};var isSkipped=!!s.skipped;var rc=ROLE_CRITERIA[p.role]||[];return '<div id="esec-'+p.id+'" style="border-bottom:var(--border);padding-bottom:16px;margin-bottom:16px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><div class="player-avatar" style="width:28px;height:28px;font-size:11px;">'+p.nick[0]+'</div><div style="font-size:13px;font-weight:600;">'+p.nick+'</div><span class="tag tag-role" style="font-size:8px;">'+p.role+'</span></div><div style="display:flex;gap:8px;margin-bottom:12px;"><button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="eplay-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',false)">Playing</button><button class="btn btn-sm btn-muted" id="eskip-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button></div><div id="efields-'+p.id+'" style="display:'+(isSkipped?'none':'block')+';"><div id="ehero-wrap-'+p.id+'" style="margin-bottom:4px;"></div><div class="score-sec">Mentality <span>· out of 5</span></div>'+MENTALITY_CRITERIA.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+'<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+'<div class="score-sec">Role Performance <span>· '+p.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+'<div class="input-group mb-0"><label class="input-label">Comment</label><textarea class="input" id="ecomment-'+p.id+'" style="min-height:44px;">'+(s.comment||'')+'</textarea></div></div></div>';}).join('');
-  document.getElementById('edit-modal-body').innerHTML='<div class="input-group"><label class="input-label">Match Date</label><input class="input" id="edit-date" type="date" value="'+dateToIso(game.date)+'"/></div><div class="input-group"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div><div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod">'+(game.vod||'')+'</textarea></div><div class="divider"></div><div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:16px;">PLAYER SCORES</div>'+psec+'<div style="display:flex;gap:10px;margin-top:4px;"><button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')">Delete Game</button><button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')">Save Changes</button></div><div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')">Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')">Yes, Delete</button></div></div>';
+  document.getElementById('edit-modal-title').textContent='EDIT GAME '+game.gameNum+(game.opponent?' · vs '+game.opponent:'');
+  var matchMent=game.matchMentality||{};
+  // Match mentality panel — all active players
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  var mentalityPanel='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:12px;">MATCH MENTALITY <span style="color:var(--grey-4);font-size:8px;letter-spacing:0;">· rated once per match</span></div>'+
+    activePlayers.map(function(p){
+      var m=matchMent[p.id]||{};
+      return '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:var(--border);"><div style="font-size:11px;font-weight:600;margin-bottom:8px;">'+p.nick+'</div>'+
+        MENTALITY_CRITERIA.map(function(c){return makeSlider(c,m[c.key],'ement-'+p.id);}).join('')+
+      '</div>';
+    }).join('')+
+  '<div class="divider"></div>';
+  // Per-player game scoring (no mentality)
+  var psec=PLAYERS.map(function(p){
+    var s=game.playerScores&&game.playerScores[p.id]||{};
+    var isSkipped=!!s.skipped;
+    var isMVP=game.mvpPlayerId===p.id;
+    var rc=ROLE_CRITERIA[p.role]||[];
+    return '<div id="esec-'+p.id+'" style="border-bottom:var(--border);padding-bottom:16px;margin-bottom:16px;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
+        '<div class="player-avatar" style="width:28px;height:28px;font-size:11px;">'+p.nick[0]+'</div>'+
+        '<div style="font-size:13px;font-weight:600;">'+p.nick+'</div>'+
+        '<span class="tag tag-role" style="font-size:8px;">'+p.role+'</span>'+
+        '<button class="btn btn-sm '+(isMVP?'btn-primary':'btn-muted')+'" id="emvp-'+p.id+'" style="margin-left:auto;" onclick="editToggleMVP(\''+gameId+'\',\''+p.id+'\')">'+
+          (isMVP?'⭐ MVP':'MVP?')+
+        '</button>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
+        '<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="eplay-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',false)">Playing</button>'+
+        '<button class="btn btn-sm btn-muted" id="eskip-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button>'+
+      '</div>'+
+      '<div id="efields-'+p.id+'" style="display:'+(isSkipped?'none':'block')+';">'+
+        '<div id="ehero-wrap-'+p.id+'" style="margin-bottom:4px;"></div>'+
+        '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
+        '<div class="score-sec">Role Performance <span>· '+p.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
+        '<div class="input-group mb-0"><label class="input-label">Comment</label><textarea class="input" id="ecomment-'+p.id+'" style="min-height:44px;">'+(s.comment||'')+'</textarea></div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  document.getElementById('edit-modal-body').innerHTML=
+    '<div class="input-group"><label class="input-label">Match Date</label><input class="input" id="edit-date" type="date" value="'+dateToIso(game.date)+'"/></div>'+
+    '<div class="input-group"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div>'+
+    '<div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod">'+(game.vod||'')+'</textarea></div>'+
+    '<div class="divider"></div>'+
+    mentalityPanel+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:16px;">PLAYER SCORES</div>'+
+    psec+
+    '<div style="display:flex;gap:10px;margin-top:4px;">'+
+      '<button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')">Delete Game</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')">Save Changes</button>'+
+    '</div>'+
+    '<div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')">Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')">Yes, Delete</button></div></div>';
+  // Store current MVP in a temp variable for toggling
+  window._editMvpId=game.mvpPlayerId||null;
   document.getElementById('edit-modal').classList.add('open');
   PLAYERS.forEach(function(p){var s=game.playerScores&&game.playerScores[p.id]||{};if(!s.skipped)buildHeroInput('ehero-wrap-'+p.id,'ehero-'+p.id,'eherodrop-'+p.id,s.hero||'');});
+}
+
+function editToggleMVP(gameId,playerId){
+  var prevMvp=window._editMvpId;
+  var newMvp=(prevMvp===playerId)?null:playerId;
+  window._editMvpId=newMvp;
+  PLAYERS.forEach(function(p){
+    var btn=document.getElementById('emvp-'+p.id);
+    if(!btn) return;
+    var isNowMVP=newMvp===p.id;
+    btn.className='btn btn-sm '+(isNowMVP?'btn-primary':'btn-muted');
+    btn.textContent=isNowMVP?'⭐ MVP':'MVP?';
+  });
 }
 function showInlineDelete(id){document.getElementById('inline-del-'+id)?.classList.add('open');}
 function hideInlineDelete(id){document.getElementById('inline-del-'+id)?.classList.remove('open');}
@@ -1692,11 +2197,26 @@ async function saveEdit(gameId){
   if(newDateIso) _cache.games[idx].date=isoToDate(newDateIso);
   _cache.games[idx].result=document.getElementById('edit-result').value;
   _cache.games[idx].vod=document.getElementById('edit-vod').value;
+  _cache.games[idx].mvpPlayerId=window._editMvpId||null;
+  // Save match mentality
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  var newMent={};
+  activePlayers.forEach(function(p){
+    var m={};
+    MENTALITY_CRITERIA.forEach(function(c){
+      var el=document.getElementById('ement-'+p.id+'-'+c.key);
+      m[c.key]=el?parseFloat(el.value):Math.ceil(c.max/2);
+    });
+    newMent[p.id]=m;
+  });
+  _cache.games[idx].matchMentality=newMent;
+  // Save player scores (game sense + role only, no mentality)
   PLAYERS.forEach(function(p){
     var isPlay=document.getElementById('eplay-'+p.id)?.classList.contains('btn-primary');
     if(!isPlay){_cache.games[idx].playerScores[p.id]={skipped:true};}
     else{
-      var allC=getCriteria(p.role);
+      var roleCriteria=ROLE_CRITERIA[p.role]||[];
+      var allC=[...GAME_SENSE_CRITERIA,...roleCriteria];
       var heroEl=document.getElementById('ehero-'+p.id);
       var heroVal=heroEl?heroEl.value.trim():'';
       var s={hero:heroVal,comment:document.getElementById('ecomment-'+p.id)?.value||''};
@@ -1723,7 +2243,7 @@ function selectExportText(){var ta=document.getElementById('export-text');ta.sel
 // ══════════════════════════════════════════
 // TREND FLAGS
 // ══════════════════════════════════════════
-function computeTrends(playerId,games){var player=PLAYERS.find(function(p){return p.id===playerId;});var rc=ROLE_CRITERIA[player.role]||[];var now=new Date();var cut1=new Date(now-14*24*60*60*1000);var cut2=new Date(now-28*24*60*60*1000);var played=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});var recent=played.filter(function(g){return parseDate(g.date)>=cut1;});var prior=played.filter(function(g){return parseDate(g.date)>=cut2&&parseDate(g.date)<cut1;});function pAvg(list,getVal){var vals=list.map(getVal).filter(function(v){return v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null;}var pillars=[{pillar:'Mentality',getVal:function(g){return calcMentality(g.playerScores[playerId]);}},{pillar:'Micro Play',getVal:function(g){return g.playerScores[playerId][rc[0]&&rc[0].key]||0;}},{pillar:'Game Sense',getVal:function(g){return g.playerScores[playerId].decision||0;}},{pillar:'Tactical',getVal:function(g){return g.playerScores[playerId][rc[1]&&rc[1].key]||0;}},{pillar:getRolePillarLabel(player.role),getVal:function(g){return g.playerScores[playerId][rc[2]&&rc[2].key]||0;}}];return pillars.map(function(x){var r=pAvg(recent,x.getVal);var p=pAvg(prior,x.getVal);if(r===null&&p===null)return{pillar:x.pillar,dir:'flat',label:'Not enough data',delta:'--'};if(r===null)return{pillar:x.pillar,dir:'flat',label:'No recent games',delta:'--'};if(p===null)return{pillar:x.pillar,dir:'flat',label:'No prior data',delta:'--'};var diff=r-p;var dir=diff>0.3?'up':diff<-0.3?'down':'flat';var label=dir==='up'?'Improving ('+r.toFixed(1)+' vs '+p.toFixed(1)+')':dir==='down'?'Declining ('+r.toFixed(1)+' vs '+p.toFixed(1)+')':'Stable ('+r.toFixed(1)+' vs '+p.toFixed(1)+')';return{pillar:x.pillar,dir:dir,label:label,delta:(diff>0?'+':'')+diff.toFixed(1)};});}
+function computeTrends(playerId,games){var player=PLAYERS.find(function(p){return p.id===playerId;});var rc=ROLE_CRITERIA[player.role]||[];var now=new Date();var cut1=new Date(now-14*24*60*60*1000);var cut2=new Date(now-28*24*60*60*1000);var played=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});var recent=played.filter(function(g){return parseDate(g.date)>=cut1;});var prior=played.filter(function(g){return parseDate(g.date)>=cut2&&parseDate(g.date)<cut1;});function pAvg(list,getVal){var vals=list.map(getVal).filter(function(v){return v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null;}var pillars=[{pillar:'Mentality',getVal:function(g){var mentObj=g.matchMentality&&g.matchMentality[playerId]?g.matchMentality[playerId]:g.playerScores[playerId];return calcMentality(g.playerScores[playerId],mentObj);}},{pillar:'Micro Play',getVal:function(g){return g.playerScores[playerId][rc[0]&&rc[0].key]||0;}},{pillar:'Game Sense',getVal:function(g){return g.playerScores[playerId].decision||0;}},{pillar:'Tactical',getVal:function(g){return g.playerScores[playerId][rc[1]&&rc[1].key]||0;}},{pillar:getRolePillarLabel(player.role),getVal:function(g){return g.playerScores[playerId][rc[2]&&rc[2].key]||0;}}];return pillars.map(function(x){var r=pAvg(recent,x.getVal);var p=pAvg(prior,x.getVal);if(r===null&&p===null)return{pillar:x.pillar,dir:'flat',label:'Not enough data',delta:'--'};if(r===null)return{pillar:x.pillar,dir:'flat',label:'No recent games',delta:'--'};if(p===null)return{pillar:x.pillar,dir:'flat',label:'No prior data',delta:'--'};var diff=r-p;var dir=diff>0.3?'up':diff<-0.3?'down':'flat';var label=dir==='up'?'Improving ('+r.toFixed(1)+' vs '+p.toFixed(1)+')':dir==='down'?'Declining ('+r.toFixed(1)+' vs '+p.toFixed(1)+')':'Stable ('+r.toFixed(1)+' vs '+p.toFixed(1)+')';return{pillar:x.pillar,dir:dir,label:label,delta:(diff>0?'+':'')+diff.toFixed(1)};});}
 
 // ══════════════════════════════════════════
 // TREND GRAPH
@@ -1733,10 +2253,43 @@ function drawTrendGraph(playerId,playerGames){var canvas=document.getElementById
 // ══════════════════════════════════════════
 // SESSION SUMMARY
 // ══════════════════════════════════════════
-function showSessionSummary(game){var played=PLAYERS.filter(function(p){var s=game.playerScores&&game.playerScores[p.id];return s&&!s.skipped;});var bestPlayer=null,bestScore=0;played.forEach(function(p){var score=calcGameScore(game.playerScores[p.id],p.role);if(score>bestScore){bestScore=score;bestPlayer=p;}});var ckeys=[{key:'communication',label:'Communication',max:5},{key:'discipline',label:'Discipline',max:5},{key:'team_contribution',label:'Team Contrib.',max:5},{key:'decision',label:'Decision-Making',max:10}];played.forEach(function(p){(ROLE_CRITERIA[p.role]||[]).forEach(function(c){if(!ckeys.find(function(k){return k.key===c.key;}))ckeys.push({key:c.key,label:c.label,max:10});});});var weakLabel='',weakAvg=999;ckeys.forEach(function(ck){var vals=played.map(function(p){return game.playerScores[p.id][ck.key];}).filter(function(v){return v>0;});if(!vals.length)return;var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length/(ck.max/10);if(avg<weakAvg){weakAvg=avg;weakLabel=ck.label;}});var bestGrade=bestPlayer?scoreToGrade(bestScore):null;document.getElementById('summary-modal-title').textContent='GAME '+game.gameNum+' SUMMARY';document.getElementById('summary-modal-body').innerHTML='<div style="display:flex;gap:8px;margin-bottom:16px;"><span class="tag '+(game.result==='Win'?'tag-win':'tag-loss')+'">'+game.result+'</span><span class="tag" style="background:var(--grey-3);color:var(--grey-6);">'+game.type+'</span>'+(game.opponent?'<span style="font-size:12px;color:var(--grey-5);margin-top:4px;">vs '+game.opponent+'</span>':'')+'</div><div class="summary-best"><div class="player-avatar" style="width:44px;height:44px;font-size:18px;">'+(bestPlayer?bestPlayer.nick[0]:'?')+'</div><div style="flex:1;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:4px;">BEST PERFORMER</div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;">'+(bestPlayer?bestPlayer.nick:'--')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(bestPlayer?bestPlayer.role:'')+'</div></div><div class="grade '+(bestGrade?bestGrade.cls:'grade-am')+'" style="font-size:28px;">'+(bestGrade?bestGrade.grade:'--')+'</div></div>'+(weakLabel?'<div style="background:var(--grey-2);border:var(--border);padding:12px 14px;border-radius:2px;margin-bottom:16px;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:6px;">TEAM NEEDS WORK</div><div style="font-size:14px;font-weight:600;">'+weakLabel+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">Team avg '+weakAvg.toFixed(1)+'/10</div></div>':'')+
-  '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+played.map(function(p){var s=game.playerScores[p.id];var score=calcGameScore(s,p.role);var g=score>0?scoreToGrade(score):null;return '<div style="background:var(--black);padding:10px 8px;text-align:center;"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.nick+'</div><div class="grade '+(g?g.cls:'grade-am')+'" style="font-size:18px;margin-top:2px;">'+(g?g.grade:'--')+'</div></div>';}).join('')+'</div>'+
-  '<button class="btn btn-primary btn-full" onclick="closeSummaryAndGoHome()">Done</button>';
-  document.getElementById('summary-modal').classList.add('open');}
+function showSessionSummary(game){
+  var played=PLAYERS.filter(function(p){var s=game.playerScores&&game.playerScores[p.id];return s&&!s.skipped;});
+  var bestPlayer=null,bestScore=0;
+  played.forEach(function(p){var score=calcGameScore(game.playerScores[p.id],p.role,game,p.id);if(score>bestScore){bestScore=score;bestPlayer=p;}});
+  var mvpPlayer=game.mvpPlayerId?PLAYERS.find(function(p){return p.id===game.mvpPlayerId;}):null;
+  var roleCkeys=[];
+  played.forEach(function(p){(ROLE_CRITERIA[p.role]||[]).forEach(function(c){if(!roleCkeys.find(function(k){return k.key===c.key;}))roleCkeys.push({key:c.key,label:c.label,max:10});});});
+  var ckeys=[{key:'decision',label:'Decision-Making',max:10},...roleCkeys];
+  var weakLabel='',weakAvg=999;
+  ckeys.forEach(function(ck){var vals=played.map(function(p){return game.playerScores[p.id][ck.key];}).filter(function(v){return v>0;});if(!vals.length)return;var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length/(ck.max/10);if(avg<weakAvg){weakAvg=avg;weakLabel=ck.label;}});
+  var bestGrade=bestPlayer?scoreToGrade(bestScore):null;
+  var mvpHtml=mvpPlayer?'<div style="background:rgba(255,204,68,0.08);border:1px solid rgba(255,204,68,0.25);padding:12px 14px;border-radius:2px;margin-bottom:16px;display:flex;align-items:center;gap:10px;"><div style="font-size:20px;">⭐</div><div><div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--warn);margin-bottom:2px;">MVP</div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;">'+mvpPlayer.nick+'</div></div></div>':'';
+  document.getElementById('summary-modal-title').textContent='GAME '+game.gameNum+' SAVED';
+  document.getElementById('summary-modal-body').innerHTML=
+    '<div style="display:flex;gap:8px;margin-bottom:16px;">'+
+      '<span class="tag '+(game.result==='Win'?'tag-win':'tag-loss')+'">'+game.result+'</span>'+
+      '<span class="tag" style="background:var(--grey-3);color:var(--grey-6);">'+game.type+'</span>'+
+      (game.opponent?'<span style="font-size:12px;color:var(--grey-5);margin-top:4px;">vs '+game.opponent+'</span>':'')+
+    '</div>'+
+    mvpHtml+
+    '<div class="summary-best">'+
+      '<div class="player-avatar" style="width:44px;height:44px;font-size:18px;">'+(bestPlayer?bestPlayer.nick[0]:'?')+'</div>'+
+      '<div style="flex:1;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:4px;">BEST PERFORMER</div>'+
+      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;">'+(bestPlayer?bestPlayer.nick:'--')+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(bestPlayer?bestPlayer.role:'')+'</div></div>'+
+      '<div class="grade '+(bestGrade?bestGrade.cls:'grade-am')+'" style="font-size:28px;">'+(bestGrade?bestGrade.grade:'--')+'</div>'+
+    '</div>'+
+    (weakLabel?'<div style="background:var(--grey-2);border:var(--border);padding:12px 14px;border-radius:2px;margin-bottom:16px;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:6px;">TEAM NEEDS WORK</div><div style="font-size:14px;font-weight:600;">'+weakLabel+'</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">Team avg '+weakAvg.toFixed(1)+'/10</div></div>':'')+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+
+      played.map(function(p){var s=game.playerScores[p.id];var score=calcGameScore(s,p.role,game,p.id);var g=score>0?scoreToGrade(score):null;return '<div style="background:var(--black);padding:10px 8px;text-align:center;"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.nick+(s.mvp?' ⭐':'')+'</div><div class="grade '+(g?g.cls:'grade-am')+'" style="font-size:18px;margin-top:2px;">'+(g?g.grade:'--')+'</div></div>';}).join('')+
+    '</div>'+
+    '<div style="display:flex;gap:10px;">'+
+      '<button class="btn btn-full" onclick="logNextGameInMatch()">+ Next Game</button>'+
+      '<button class="btn btn-primary btn-full" onclick="closeSummaryAndGoHome()">Done</button>'+
+    '</div>';
+  document.getElementById('summary-modal').classList.add('open');
+}
 function closeSummaryAndGoHome(){closeModal('summary-modal');showPage('page-home');}
 
 // ══════════════════════════════════════════
@@ -1915,7 +2468,7 @@ function buildHeroStats(){
       var entry=heroMap[hname];
       entry.picks++;
       if(isWin) entry.wins++; else entry.losses++;
-      var score=calcGameScore(s,p.role);
+      var score=calcGameScore(s,p.role,g,p.id);
       if(score>0) entry.scores.push(score);
       if(!entry.players[p.id]){
         entry.players[p.id]={nick:p.nick,role:p.role,picks:0,wins:0,losses:0,scores:[]};
@@ -2039,7 +2592,7 @@ function buildTop3HeroesHtml(playerId,games){
     if(!heroMap[hname]) heroMap[hname]={name:hname,picks:0,wins:0,scores:[]};
     heroMap[hname].picks++;
     if(g.result==='Win') heroMap[hname].wins++;
-    var sc=calcGameScore(s,player.role);
+    var sc=calcGameScore(s,player.role,g,player.id);
     if(sc>0) heroMap[hname].scores.push(sc);
   });
   var sorted=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){
@@ -2123,9 +2676,248 @@ document.addEventListener('click',function(e){
   // Tier chip open
   var tc=e.target.closest('[data-tier-assign]');
   if(tc){openTierAssign(tc.dataset.type,decodeURIComponent(tc.dataset.hero),decodeURIComponent(tc.dataset.cls));return;}
+  // Open match detail
+  var om=e.target.closest('[data-open-match]');
+  if(om){showMatchDetail(om.dataset.openMatch);return;}
+  // Edit game button
+  var eg=e.target.closest('[data-edit-game]');
+  if(eg){openEditModal(eg.dataset.editGame);return;}
+  // Assign game to match (in assign modal)
+  var ag=e.target.closest('[data-assign-game]');
+  if(ag){assignGameToMatch(ag.dataset.assignGame,ag.dataset.assignTo);return;}
+  // Unassign game from match (↩ button in match detail)
+  var ug=e.target.closest('[data-unassign-game]');
+  if(ug){unassignGame(ug.dataset.unassignGame);return;}
   // Hero dropdowns close
   document.querySelectorAll('.hero-dropdown.open').forEach(function(drop){var wrap=drop.closest('.hero-search-wrap');if(wrap&&!wrap.contains(e.target))drop.classList.remove('open');});
 });
+
+// ══════════════════════════════════════════
+// MATCH MANAGEMENT — V8
+// ══════════════════════════════════════════
+
+function openCreateMatchModal(){
+  var dateEl=document.getElementById('cm-date');
+  if(dateEl&&!dateEl.value) dateEl.value=new Date().toISOString().split('T')[0];
+  document.getElementById('cm-name').value='';
+  document.getElementById('cm-notes').value='';
+  document.getElementById('create-match-modal').classList.add('open');
+}
+
+async function saveCreateMatch(){
+  var name=(document.getElementById('cm-name')?.value||'').trim();
+  if(!name){showToast('Enter a match name');return;}
+  var dateVal=document.getElementById('cm-date')?.value||'';
+  var dateStr=dateVal?isoToDate(dateVal):'';
+  var match={
+    id:crypto.randomUUID(),
+    name:name,
+    date:dateStr,
+    type:document.getElementById('cm-type')?.value||'Scrim',
+    oppTier:document.getElementById('cm-opp-tier')?.value||'',
+    notes:document.getElementById('cm-notes')?.value||'',
+    tournamentId:null,
+    createdAt:new Date().toISOString(),
+  };
+  try{
+    const dbId=await sbSaveMatch(match);
+    match.id=dbId;
+    _cache.matches.unshift(match);
+    closeModal('create-match-modal');
+    showToast('Match created');
+    renderHistory();
+    showMatchDetail(match.id);
+  }catch(e){showToast('Failed: '+e.message);}
+}
+
+function showMatchDetail(matchId){
+  var data=loadData();
+  var match=data.matches.find(function(m){return m.id===matchId;});
+  if(!match) return;
+  var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
+  var wins=mGames.filter(function(g){return g.result==='Win';}).length;
+  var losses=mGames.length-wins;
+  // Build mentality display — aggregate from games (show last game's mentality as current)
+  var lastGame=mGames.length?mGames[mGames.length-1]:null;
+  var mentality=lastGame&&lastGame.matchMentality||{};
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  var mentalityHtml=activePlayers.map(function(p){
+    var m=mentality[p.id]||{};
+    var hasData=MENTALITY_CRITERIA.some(function(c){return m[c.key]>0;});
+    if(!hasData) return '<div class="match-mentality-player"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:12px;font-weight:600;">'+p.nick+'</span><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">Not rated</span></div></div>';
+    var bars=MENTALITY_CRITERIA.map(function(c){var v=m[c.key]||0;return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><div style="font-size:10px;color:var(--grey-6);width:100px;flex-shrink:0;">'+c.label+'</div><div style="flex:1;height:2px;background:var(--grey-3);"><div style="height:100%;width:'+(v/5*100)+'%;background:var(--white);"></div></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;width:16px;text-align:right;">'+v+'</div></div>';}).join('');
+    return '<div class="match-mentality-player"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">'+p.nick+'</div>'+bars+'</div>';
+  }).join('');
+  // Game rows
+  var gameRowsHtml=mGames.length?mGames.map(function(g){
+    var mvpP=g.mvpPlayerId?PLAYERS.find(function(p){return p.id===g.mvpPlayerId;}):null;
+    var played=PLAYERS.filter(function(p){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+    var heroList=played.map(function(p){var s=g.playerScores[p.id];return (s.hero||'?');}).join(', ');
+    return '<div class="match-game-row">'+
+      '<div style="flex:1;">'+
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'+
+          '<span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'" style="font-size:8px;">'+g.result+'</span>'+
+          '<span style="font-size:12px;font-weight:600;">Game '+g.gameNum+'</span>'+
+          (mvpP?'<span style="font-size:11px;color:var(--warn);">⭐ '+mvpP.nick+'</span>':'')+
+        '</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+g.date+(heroList?' · '+heroList:'')+'</div>'+
+      '</div>'+
+      '<button class="btn btn-sm" data-edit-game="'+g.id+'">Edit</button>'+
+      '<button class="btn btn-sm btn-muted" data-unassign-game="'+g.id+'">↩</button>'+
+    '</div>';
+  }).join(''):'<div class="empty" style="padding:30px 20px;"><div class="empty-icon">🎮</div><div class="empty-text">No games yet — add one below</div></div>';
+
+  document.getElementById('match-content').innerHTML=
+    '<button class="back-btn" onclick="showPage(\'page-history\')">&#x2190; Back to History</button>'+
+    '<div class="match-header">'+
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;">'+
+        '<div>'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;line-height:1.1;">'+match.name+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:4px;">'+
+            (match.date||'No date')+' · '+match.type+(match.oppTier?' · '+match.oppTier:'')+
+          '</div>'+
+        '</div>'+
+        '<button class="btn btn-sm btn-muted" onclick="openEditMatch(\''+matchId+'\')">Edit</button>'+
+      '</div>'+
+      (mGames.length?
+        '<div style="display:flex;align-items:baseline;gap:8px;margin-top:12px;">'+
+          '<div class="match-series-score '+(wins>losses?'grade-s':wins<losses?'grade-am':'')+'">'+wins+' – '+losses+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(wins>losses?'LEAD':wins<losses?'TRAILING':'TIED')+'</div>'+
+        '</div>':
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);margin-top:8px;">No games logged yet</div>')+
+      (match.notes?'<div style="font-size:12px;color:var(--grey-5);margin-top:8px;line-height:1.5;">'+match.notes+'</div>':'')+
+    '</div>'+
+    '<div class="section-label">Games</div>'+
+    gameRowsHtml+
+    '<div style="padding:16px 20px;border-top:var(--border);display:flex;gap:10px;">'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="addGameToMatch(\''+matchId+'\')">+ Add Game</button>'+
+      '<button class="btn btn-full" onclick="openAssignGame(\''+matchId+'\')">Assign Existing</button>'+
+    '</div>'+
+    '<div class="section-label">Match Mentality <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· FROM LAST GAME</span></div>'+
+    '<div class="match-mentality-panel">'+mentalityHtml+'</div>'+
+    '<div style="padding:16px 20px;border-top:var(--border);">'+
+      '<button class="btn btn-danger btn-full" onclick="deleteMatch(\''+matchId+'\')">Delete Match</button>'+
+    '</div>'+
+    '<div style="height:20px;"></div>';
+
+  showPage('page-match');
+}
+
+function addGameToMatch(matchId){
+  // Prefill log with this match's context, set matchId, skip to mentality
+  var match=(_cache.matches||[]).find(function(m){return m.id===matchId;});
+  if(!match) return;
+  var mGames=(_cache.games||[]).filter(function(g){return g.matchId===matchId;});
+  var nextNum=mGames.length+1;
+  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:matchId};
+  showPage('page-log');
+  setTimeout(function(){
+    var nameEl=document.getElementById('log-opponent');if(nameEl) nameEl.value=match.name.replace(/^vs /,'');
+    var typeEl=document.getElementById('log-type');if(typeEl) typeEl.value=match.type||'Scrim';
+    var tierEl=document.getElementById('log-opp-tier');if(tierEl) tierEl.value=match.oppTier||'';
+    var dateEl=document.getElementById('log-date');if(dateEl&&match.date) dateEl.value=dateToIso(match.date);
+    var gnEl=document.getElementById('log-game-num');if(gnEl) gnEl.value=String(nextNum);
+    buildDots();
+  },50);
+}
+
+function openAssignGame(matchId){
+  var data=loadData();
+  // Games with no match OR already in another match (reassignable)
+  var assignable=data.games.filter(function(g){return !g.matchId||g.matchId!==matchId;}).slice().reverse();
+  if(!assignable.length){
+    document.getElementById('assign-game-body').innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No other games to assign</div></div>';
+    document.getElementById('assign-game-modal').classList.add('open');
+    return;
+  }
+  document.getElementById('assign-game-body').innerHTML=
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:12px;line-height:1.7;">Tap a game to assign it to this match.</div>'+
+    assignable.map(function(g){
+      var currentMatch=g.matchId?data.matches.find(function(m){return m.id===g.matchId;}):null;
+      return '<div class="player-row" style="cursor:pointer;" data-assign-game="'+g.id+'" data-assign-to="'+matchId+'">'+
+        '<div style="flex:1;">'+
+          '<div style="font-size:12px;font-weight:600;">'+(g.opponent?'vs '+g.opponent:g.type)+' · Game '+g.gameNum+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+g.date+
+            (currentMatch?' · currently in: '+currentMatch.name:' · unmatched')+
+          '</div>'+
+        '</div>'+
+        '<span class="tag '+(g.result==='Win'?'tag-win':'tag-loss')+'">'+g.result+'</span>'+
+      '</div>';
+    }).join('');
+  document.getElementById('assign-game-modal').classList.add('open');
+}
+
+function openEditMatch(matchId){
+  var match=(_cache.matches||[]).find(function(m){return m.id===matchId;});
+  if(!match) return;
+  document.getElementById('edit-match-body').innerHTML=
+    '<div class="input-group"><label class="input-label">Match Name</label><input class="input" id="em-name" value="'+match.name+'"/></div>'+
+    '<div class="row">'+
+      '<div class="input-group mb-0"><label class="input-label">Date</label><input class="input" id="em-date" type="date" value="'+dateToIso(match.date)+'"/></div>'+
+      '<div class="input-group mb-0"><label class="input-label">Type</label>'+
+        '<select class="input" id="em-type"><option value="Scrim"'+(match.type==='Scrim'?' selected':'')+'>Scrim</option><option value="Tournament"'+(match.type==='Tournament'?' selected':'')+'>Tournament</option></select>'+
+      '</div>'+
+    '</div>'+
+    '<div class="input-group mt-16"><label class="input-label">Opponent Tier</label>'+
+      '<select class="input" id="em-opp-tier">'+
+        ['','A','A+','S-','S','S+'].map(function(v){return '<option value="'+v+'"'+(match.oppTier===v?' selected':'')+'>'+( v||'Unknown')+'</option>';}).join('')+
+      '</select>'+
+    '</div>'+
+    '<div class="input-group"><label class="input-label">Notes</label><textarea class="input" id="em-notes" style="min-height:60px;">'+( match.notes||'')+'</textarea></div>'+
+    '<button class="btn btn-primary btn-full" onclick="saveEditMatch(\''+matchId+'\')">Save Changes</button>';
+  document.getElementById('edit-match-modal').classList.add('open');
+}
+
+async function saveEditMatch(matchId){
+  var idx=_cache.matches.findIndex(function(m){return m.id===matchId;});
+  if(idx===-1) return;
+  var dateVal=document.getElementById('em-date')?.value||'';
+  _cache.matches[idx].name=document.getElementById('em-name')?.value||_cache.matches[idx].name;
+  _cache.matches[idx].date=dateVal?isoToDate(dateVal):_cache.matches[idx].date;
+  _cache.matches[idx].type=document.getElementById('em-type')?.value||_cache.matches[idx].type;
+  _cache.matches[idx].oppTier=document.getElementById('em-opp-tier')?.value||'';
+  _cache.matches[idx].notes=document.getElementById('em-notes')?.value||'';
+  try{
+    await sbSaveMatch(_cache.matches[idx]);
+    closeModal('edit-match-modal');
+    showToast('Match updated');
+    showMatchDetail(matchId);
+  }catch(e){showToast('Failed: '+e.message);}
+}
+
+async function deleteMatch(matchId){
+  if(!confirm('Delete this match? Games will be unlinked but not deleted.')) return;
+  try{
+    await sbDeleteMatch(matchId);
+    _cache.matches=_cache.matches.filter(function(m){return m.id!==matchId;});
+    _cache.games.forEach(function(g){if(g.matchId===matchId)g.matchId=null;});
+    showPage('page-history');
+    renderHistory();
+    showToast('Match deleted');
+  }catch(e){showToast('Failed: '+e.message);}
+}
+
+async function assignGameToMatch(gameId,matchId){
+  try{
+    await sbAssignGameToMatch(gameId,matchId);
+    var g=_cache.games.find(function(g){return g.id===gameId;});
+    if(g) g.matchId=matchId;
+    closeModal('assign-game-modal');
+    showToast('Game assigned');
+    showMatchDetail(matchId);
+  }catch(e){showToast('Failed: '+e.message);}
+}
+
+async function unassignGame(gameId){
+  try{
+    await sbAssignGameToMatch(gameId,null);
+    var g=_cache.games.find(function(x){return x.id===gameId;});
+    var matchId=g?g.matchId:null;
+    if(g) g.matchId=null;
+    showToast('Game unlinked');
+    if(matchId) showMatchDetail(matchId);
+  }catch(e){showToast('Failed: '+e.message);}
+}
 
 bootApp();
 </script>
