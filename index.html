@@ -321,6 +321,42 @@ textarea.input{resize:vertical;min-height:70px;}
 .db-status-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
 .db-status-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;}
 .db-status-val{font-family:'DM Mono',monospace;font-size:10px;color:var(--white);}
+
+/* HEROES PAGE */
+.hero-search-bar{padding:10px 20px;border-bottom:var(--border);position:sticky;top:0;background:var(--black);z-index:10;}
+.hero-role-tabs{display:flex;overflow-x:auto;border-bottom:var(--border);scrollbar-width:none;}
+.hero-role-tabs::-webkit-scrollbar{display:none;}
+.hero-role-tab{flex-shrink:0;padding:9px 14px;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;color:var(--grey-5);border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;transition:all 0.15s;}
+.hero-role-tab.active{color:var(--white);border-bottom-color:var(--white);}
+.hero-sort-bar{display:flex;gap:4px;padding:8px 20px;border-bottom:var(--border);background:var(--grey-1);}
+.hero-sort-btn{padding:4px 10px;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;border:var(--border);background:none;color:var(--grey-5);cursor:pointer;border-radius:2px;transition:all 0.15s;}
+.hero-sort-btn.active{background:var(--white);color:var(--black);border-color:var(--white);}
+.hero-row{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:var(--border);cursor:pointer;transition:background 0.15s;}
+.hero-row:hover{background:var(--grey-1);}
+.hero-row-name{font-size:13px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hero-row-cls{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;margin-top:2px;}
+.hero-stat-col{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;min-width:48px;}
+.hero-stat-val{font-family:'DM Mono',monospace;font-size:11px;}
+.hero-stat-label{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1px;text-transform:uppercase;margin-top:1px;}
+.hero-wr-bar{width:48px;height:3px;background:var(--grey-3);border-radius:2px;margin-top:3px;}
+.hero-wr-fill{height:100%;border-radius:2px;transition:width 0.4s;}
+.low-conf{color:var(--warn);font-family:'DM Mono',monospace;font-size:9px;margin-left:4px;}
+.hd-player-row{display:flex;align-items:center;padding:10px 0;border-bottom:var(--border);}
+.hd-player-row:last-child{border-bottom:none;}
+.hd-wl{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);}
+
+/* TOP HEROES CHIPS */
+.top3-row{display:flex;gap:8px;padding:12px 20px;overflow-x:auto;border-bottom:var(--border);scrollbar-width:none;}
+.top3-row::-webkit-scrollbar{display:none;}
+.top3-chip{flex-shrink:0;background:var(--grey-1);border:var(--border);border-radius:3px;padding:8px 12px;cursor:pointer;transition:background 0.15s;min-width:90px;}
+.top3-chip:hover{background:var(--grey-2);}
+.top3-medal{font-size:14px;margin-bottom:3px;}
+.top3-hero{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.top3-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;}
+
+/* PIN MODALS */
+.pin-input{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:8px;text-align:center;width:100%;padding:14px;background:var(--grey-2);border:var(--border);color:var(--white);border-radius:2px;outline:none;}
+.pin-input:focus{border-color:var(--grey-5);}
 </style>
 </head>
 <body>
@@ -362,6 +398,10 @@ textarea.input{resize:vertical;min-height:70px;}
     <button class="nav-btn" onclick="showPage('page-tiers')" id="nav-tiers">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
       Tiers
+    </button>
+    <button class="nav-btn" onclick="showPage('page-heroes')" id="nav-heroes">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+      Heroes
     </button>
     <button class="nav-btn" onclick="showPage('page-settings')" id="nav-settings">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -580,55 +620,24 @@ textarea.input{resize:vertical;min-height:70px;}
     </div>
   </div>
 
+  <!-- HEROES -->
+  <div class="page" id="page-heroes">
+    <div style="padding:16px 20px 14px;border-bottom:var(--border);">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">HEROES</div>
+      <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">Pick rates &amp; win rates from logged games</div>
+    </div>
+    <div class="hero-search-bar">
+      <input class="input" id="hero-search-inp" placeholder="Search hero..." oninput="renderHeroes()" style="margin:0;"/>
+    </div>
+    <div class="hero-role-tabs" id="heroes-role-tabs"></div>
+    <div class="hero-sort-bar" id="heroes-sort-bar"></div>
+    <div id="heroes-list"></div>
+  </div>
+
   </div><!-- end desktop-main -->
 </div><!-- end app -->
 
 <!-- MODALS -->
-<!-- PIN Entry Modal -->
-<div class="modal-overlay" id="pin-entry-modal">
-  <div class="modal" style="max-width:340px;">
-    <div class="modal-header">
-      <div class="modal-title">🔒 SETTINGS PIN</div>
-    </div>
-    <div class="modal-body">
-      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--grey-5);margin-bottom:16px;line-height:1.6;">Enter the PIN to access Settings.</div>
-      <div class="input-group">
-        <label class="input-label">PIN</label>
-        <input class="input" id="pin-entry-input" type="password" inputmode="numeric" maxlength="8" placeholder="Enter PIN" onkeydown="if(event.key==='Enter')submitPin()"/>
-      </div>
-      <div id="pin-entry-error" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;">Incorrect PIN</div>
-      <div style="display:flex;gap:10px;">
-        <button class="btn btn-muted" style="flex:1;" onclick="closeModal('pin-entry-modal')">Cancel</button>
-        <button class="btn btn-primary" style="flex:1;" onclick="submitPin()">Unlock</button>
-      </div>
-    </div>
-  </div>
-</div>
-<!-- PIN Change Modal -->
-<div class="modal-overlay" id="pin-change-modal">
-  <div class="modal" style="max-width:340px;">
-    <div class="modal-header">
-      <div class="modal-title">CHANGE PIN</div>
-      <button class="modal-close" onclick="closeModal('pin-change-modal')">&#x2715;</button>
-    </div>
-    <div class="modal-body">
-      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--grey-5);margin-bottom:16px;line-height:1.6;">Set a numeric PIN to protect Settings. Leave blank to remove PIN.</div>
-      <div class="input-group">
-        <label class="input-label">New PIN (4–8 digits)</label>
-        <input class="input" id="pin-new-input" type="password" inputmode="numeric" maxlength="8" placeholder="e.g. 1234"/>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Confirm PIN</label>
-        <input class="input" id="pin-confirm-input" type="password" inputmode="numeric" maxlength="8" placeholder="Repeat PIN"/>
-      </div>
-      <div id="pin-change-error" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;"></div>
-      <div style="display:flex;gap:10px;">
-        <button class="btn btn-muted" style="flex:1;" onclick="closeModal('pin-change-modal')">Cancel</button>
-        <button class="btn btn-primary" style="flex:1;" onclick="savePin()">Save PIN</button>
-      </div>
-    </div>
-  </div>
-</div>
 <div class="modal-overlay" id="edit-modal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="edit-modal-title">EDIT GAME</div><button class="modal-close" onclick="closeModal('edit-modal')">&#x2715;</button></div>
@@ -701,6 +710,42 @@ textarea.input{resize:vertical;min-height:70px;}
   </div>
 </div>
 
+<!-- HERO DETAIL MODAL -->
+<div class="modal-overlay" id="hero-detail-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="hd-title">HERO STATS</div><button class="modal-close" onclick="closeModal('hero-detail-modal')">&#x2715;</button></div>
+    <div class="modal-body" id="hd-body"></div>
+  </div>
+</div>
+
+<!-- PIN ENTRY MODAL -->
+<div class="modal-overlay" id="pin-entry-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">🔒 SETTINGS LOCKED</div><button class="modal-close" onclick="closeModal('pin-entry-modal')">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="input-group"><label class="input-label">Enter PIN</label><input class="pin-input" id="pin-entry-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div id="pin-entry-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;">Incorrect PIN</div>
+      <button class="btn btn-primary btn-full" onclick="submitPin()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN CHANGE MODAL -->
+<div class="modal-overlay" id="pin-change-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">🔒 CHANGE PIN</div><button class="modal-close" onclick="closeModal('pin-change-modal')">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="input-group"><label class="input-label">New PIN (4–8 digits)</label><input class="pin-input" id="pin-new-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div class="input-group"><label class="input-label">Confirm PIN</label><input class="pin-input" id="pin-confirm-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div id="pin-change-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-danger btn-sm" onclick="clearPin()">Remove PIN</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="savePin()">Save PIN</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="global-loader" style="display:flex;position:fixed;inset:0;background:var(--black);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
   <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:4px;color:var(--white);">SUCROSE</div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:2px;">CONNECTING TO DATABASE...</div>
@@ -735,10 +780,11 @@ let _cache = {
   patches: [],       // from patches table
   pfp: {},           // from app_settings key='pfp'
   dismissed: {},     // localStorage only (UI state)
-  settingsPin: '',   // from app_settings key='settings_pin'
   sheetUrl: '',
   lastSync: '',
   loaded: false,
+  settingsPin: '',   // from app_settings key='settings_pin'
+  _pinUnlocked: false,
 };
 
 // Show/hide global loading overlay
@@ -882,13 +928,8 @@ async function sbSaveMasteryTier(playerId,heroName,tier){
 
 async function sbSaveHeroes(heroArr){
   if(!heroArr.length) return;
-  // Chunk into 50 rows to avoid payload/stack limits
-  const CHUNK=50;
-  for(let i=0;i<heroArr.length;i+=CHUNK){
-    const rows=heroArr.slice(i,i+CHUNK).map(h=>({name:h.name,cls:h.cls,roles:Array.isArray(h.roles)?h.roles:[]}));
-    const {error}=await sb.from('heroes').upsert(rows,{onConflict:'name'});
-    if(error) console.error('Hero upsert error:',error.message);
-  }
+  const rows=heroArr.map(h=>({name:h.name,cls:h.cls,roles:h.roles}));
+  await sb.from('heroes').upsert(rows,{onConflict:'name'});
 }
 
 async function sbSaveCustomHero(h){
@@ -921,8 +962,7 @@ window.addEventListener('resize',initLayout);
 // HERO DATABASE (Supabase-backed, cache reads)
 // ══════════════════════════════════════════
 function getHeroDB(){ return _cache.heroes; }
-// saveHeroDB only updates cache; callers that need persistence call sbSaveHeroes directly
-function saveHeroDB(arr){ _cache.heroes=arr; }
+function saveHeroDB(arr){ _cache.heroes=arr; sbSaveHeroes(arr); }
 function getHeroOverrides(){ return _cache.heroOverrides||{}; }
 function saveHeroOverrides(obj){ _cache.heroOverrides=obj; sbSaveSetting('hero_overrides',obj); }
 
@@ -1136,12 +1176,12 @@ const MASTERY_WEIGHTS={'S':1.0,'A':0.8,'B':0.6,'C':0.4,'D':0.2};
 // HERO POOL SCORE
 // ══════════════════════════════════════════
 function calcHeroPoolScore(playerId){
-  // Read directly from cache — avoids repeated loadData() calls in loops
-  const metaTiers=_cache.metaTiers||{};
-  const playerMastery=(_cache.masteryTiers||{})[playerId]||{};
+  const data=loadData();
+  const metaTiers=data.metaTiers||{};
+  const playerMastery=(data.masteryTiers||{})[playerId]||{};
   const player=PLAYERS.find(function(p){return p.id===playerId;});
   if(!player) return {pct:0,topSlice:[],scored:[],flagged:[],benchmarkCount:0,N:0,heroCount:0};
-  const allHeroes=getLiveHeroes().concat(_cache.customHeroes||[]);
+  const allHeroes=getLiveHeroes().concat(data.customHeroes||[]);
   const roleHeroes=allHeroes.filter(function(h){return h.roles.includes(player.role);});
   const metaRatedForRole=roleHeroes.filter(function(h){return metaTiers[h.name];});
   const N=metaRatedForRole.length;
@@ -1160,6 +1200,7 @@ function calcHeroPoolScore(playerId){
   });
   scored.sort(function(a,b){return b.heroScore-a.heroScore;});
   const topSlice=scored.slice(0,benchmarkCount);
+  // Max = top benchmark heroes sorted by meta weight, each scored at A mastery
   const benchmarkHeroes=metaRatedForRole.slice().sort(function(a,b){
     return (META_WEIGHTS[metaTiers[b.name]]||0)-(META_WEIGHTS[metaTiers[a.name]]||0);
   }).slice(0,benchmarkCount);
@@ -1269,17 +1310,17 @@ function saveData(d){
 // NAVIGATION
 // ══════════════════════════════════════════
 function showPage(id){
-  // Gate settings behind PIN if one is set
-  if(id==='page-settings' && _cache.settingsPin && !_cache._pinUnlocked){
-    document.getElementById('pin-entry-input').value='';
-    document.getElementById('pin-entry-error').style.display='none';
+  // PIN gate for settings
+  if(id==='page-settings'&&_cache.settingsPin&&!_cache._pinUnlocked){
+    document.getElementById('pin-entry-inp').value='';
+    document.getElementById('pin-entry-err').style.display='none';
     document.getElementById('pin-entry-modal').classList.add('open');
     return;
   }
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   var pg=document.getElementById(id);if(pg) pg.classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
-  var nm={'page-home':'nav-home','page-log':'nav-log','page-roster':'nav-roster','page-history':'nav-history','page-tiers':'nav-tiers','page-settings':'nav-settings'};
+  var nm={'page-home':'nav-home','page-log':'nav-log','page-roster':'nav-roster','page-history':'nav-history','page-tiers':'nav-tiers','page-heroes':'nav-heroes','page-settings':'nav-settings'};
   if(nm[id]) document.getElementById(nm[id])?.classList.add('active');
   if(id==='page-home')    renderHome();
   if(id==='page-roster')  renderRoster();
@@ -1287,44 +1328,9 @@ function showPage(id){
   if(id==='page-log')     initLog();
   if(id==='page-compare') renderCompare();
   if(id==='page-tiers')   initTiers();
+  if(id==='page-heroes')  renderHeroes();
   if(id==='page-settings'){updateDBStatusCard();}
   window.scrollTo(0,0);
-}
-
-// PIN functions
-function submitPin(){
-  var entered=document.getElementById('pin-entry-input').value.trim();
-  if(entered===String(_cache.settingsPin)){
-    _cache._pinUnlocked=true;
-    closeModal('pin-entry-modal');
-    showPage('page-settings');
-    // Auto-lock after 5 minutes of inactivity
-    clearTimeout(window._pinLockTimer);
-    window._pinLockTimer=setTimeout(function(){_cache._pinUnlocked=false;},5*60*1000);
-  } else {
-    document.getElementById('pin-entry-error').style.display='block';
-    document.getElementById('pin-entry-input').value='';
-    document.getElementById('pin-entry-input').focus();
-  }
-}
-
-function showPinChange(){
-  document.getElementById('pin-new-input').value='';
-  document.getElementById('pin-confirm-input').value='';
-  document.getElementById('pin-change-error').style.display='none';
-  document.getElementById('pin-change-modal').classList.add('open');
-}
-
-async function savePin(){
-  var p1=document.getElementById('pin-new-input').value.trim();
-  var p2=document.getElementById('pin-confirm-input').value.trim();
-  var errEl=document.getElementById('pin-change-error');
-  if(p1 && (p1.length<4||!/^\d+$/.test(p1))){errEl.textContent='PIN must be 4–8 digits.';errEl.style.display='block';return;}
-  if(p1!==p2){errEl.textContent='PINs do not match.';errEl.style.display='block';return;}
-  _cache.settingsPin=p1; // empty string = no PIN
-  await sbSaveSetting('settings_pin',p1);
-  closeModal('pin-change-modal');
-  showToast(p1?'PIN saved — settings now locked':'PIN removed');
 }
 
 // ══════════════════════════════════════════
@@ -1393,7 +1399,7 @@ function renderTeamSummary(data){
 function buildHeroInput(wrapId,inputId,dropId,val){var el=document.getElementById(wrapId);if(!el)return;el.innerHTML='<label class="input-label">Hero Played</label><div class="hero-search-wrap"><input class="input" id="'+inputId+'" placeholder="Type to search..." autocomplete="off" value="'+(val||'')+'" oninput="filterHeroes(\''+inputId+'\',\''+dropId+'\')" onfocus="filterHeroes(\''+inputId+'\',\''+dropId+'\')"/><div class="hero-dropdown" id="'+dropId+'"></div></div>';}
 function filterHeroes(inputId,dropId){var inp=document.getElementById(inputId);var drop=document.getElementById(dropId);if(!inp||!drop)return;var val=inp.value.trim().toLowerCase();var heroes=getHeroList();var filtered=val?heroes.filter(function(h){return h.toLowerCase().includes(val);}):heroes;var html=filtered.slice(0,10).map(function(h){return '<div class="hero-option" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+h.replace(/'/g,"\\'")+'\')">'+h+'</div>';}).join('');var raw=inp.value.trim();if(raw&&!heroes.find(function(h){return h.toLowerCase()===raw.toLowerCase();})) html+='<div class="hero-option new-hero" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+raw.replace(/'/g,"\\'")+'\')">+ Add "'+raw+'"</div>';if(!html) html='<div class="hero-option new-hero" style="cursor:default;">Type a hero name</div>';drop.innerHTML=html;drop.classList.add('open');}
 function selectHero(inputId,dropId,name){var inp=document.getElementById(inputId);var drop=document.getElementById(dropId);if(inp)inp.value=name;if(drop)drop.classList.remove('open');}
-document.addEventListener('click',function(e){document.querySelectorAll('.hero-dropdown.open').forEach(function(drop){var wrap=drop.closest('.hero-search-wrap');if(wrap&&!wrap.contains(e.target))drop.classList.remove('open');});});
+
 
 // ══════════════════════════════════════════
 // SLIDER BUILDER
@@ -1519,6 +1525,8 @@ function showProfile(playerId){
       '</div></div>'+
       '<button class="btn btn-sm btn-muted" style="align-self:flex-start;flex-shrink:0;" onclick="openPlayerEdit(\''+playerId+'\')"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:12px;height:12px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>Edit</button>'+
     '</div>'+
+    '<div class="section-label">Top Heroes <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· BY AVG SCORE</span></div>'+
+    buildTop3HeroesHtml(playerId,data.games)+
     '<div class="section-label">Ability Radar <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· LAST 30 DAYS vs STARTER AVG</span></div>'+
     '<div class="radar-wrap"><canvas id="radar-'+playerId+'" width="440" height="440" style="width:100%;max-width:440px;"></canvas></div>'+
     '<div style="display:flex;gap:16px;justify-content:center;padding:0 20px 8px;margin-top:-10px;">'+
@@ -1799,8 +1807,241 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 function showToast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2200);}
 
 // ══════════════════════════════════════════
-// INIT — boot from Supabase
+// HEROES TAB — V7
 // ══════════════════════════════════════════
+var _heroState={role:'All',sort:'picks'};
+
+function buildHeroStats(){
+  var games=_cache.games||[];
+  var heroMap={};
+  var players=_cache.players||[];
+  games.forEach(function(g){
+    if(!g.playerScores) return;
+    var isWin=g.result==='Win';
+    players.forEach(function(p){
+      var s=g.playerScores[p.id];
+      if(!s||s.skipped||!s.hero) return;
+      var hname=s.hero;
+      var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
+      var hobj=allH.find(function(h){return h.name===hname;})||{name:hname,cls:'Custom',roles:[]};
+      if(!heroMap[hname]){
+        heroMap[hname]={name:hname,cls:hobj.cls,roles:hobj.roles,picks:0,wins:0,losses:0,scores:[],players:{}};
+      }
+      var entry=heroMap[hname];
+      entry.picks++;
+      if(isWin) entry.wins++; else entry.losses++;
+      var score=calcGameScore(s,p.role);
+      if(score>0) entry.scores.push(score);
+      if(!entry.players[p.id]){
+        entry.players[p.id]={nick:p.nick,role:p.role,picks:0,wins:0,losses:0,scores:[]};
+      }
+      var pe=entry.players[p.id];
+      pe.picks++;
+      if(isWin) pe.wins++; else pe.losses++;
+      if(score>0) pe.scores.push(score);
+    });
+  });
+  return Object.values(heroMap);
+}
+
+function renderHeroes(){
+  var heroes=buildHeroStats();
+  var role=_heroState.role||'All';
+  var sort=_heroState.sort||'picks';
+  var q=(document.getElementById('hero-search-inp')?.value||'').trim().toLowerCase();
+  // Role tabs
+  var roles=['All'].concat(GAME_ROLES);
+  document.getElementById('heroes-role-tabs').innerHTML=roles.map(function(r){
+    return '<button class="hero-role-tab '+(role===r?'active':'')+'" data-hero-role="'+r+'">'+r+'</button>';
+  }).join('');
+  // Sort bar
+  var sorts=[{k:'picks',l:'Most Picked'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'}];
+  document.getElementById('heroes-sort-bar').innerHTML=sorts.map(function(s){
+    return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" data-hero-sort="'+s.k+'">'+s.l+'</button>';
+  }).join('');
+  // Filter
+  var filtered=heroes.filter(function(h){
+    if(q&&!h.name.toLowerCase().includes(q)) return false;
+    if(role!=='All'&&!h.roles.includes(role)) return false;
+    return true;
+  });
+  // Sort
+  filtered.sort(function(a,b){
+    if(sort==='wr'){
+      var wa=a.picks?a.wins/a.picks:0,wb=b.picks?b.wins/b.picks:0;
+      return wb-wa;
+    }
+    if(sort==='score'){
+      var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
+      var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
+      return sb-sa;
+    }
+    return b.picks-a.picks;
+  });
+  if(!filtered.length){
+    document.getElementById('heroes-list').innerHTML='<div class="empty"><div class="empty-icon">⭐</div><div class="empty-text">No hero data yet — log some games</div></div>';
+    return;
+  }
+  document.getElementById('heroes-list').innerHTML=filtered.map(function(h){
+    var wr=h.picks?Math.round(h.wins/h.picks*100):0;
+    var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+    var grade=avgScore>0?scoreToGrade(avgScore):null;
+    var wrCol=wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)';
+    var lowConf=h.picks<3?'<span class="low-conf">·</span>':'';
+    return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
+      '<div style="flex:1;min-width:0;">'+
+        '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
+        '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
+      '</div>'+
+      '<div class="hero-stat-col" style="margin-right:8px;">'+
+        '<div class="hero-stat-val">'+h.picks+'</div>'+
+        '<div class="hero-stat-label">Picks</div>'+
+      '</div>'+
+      '<div class="hero-stat-col" style="margin-right:8px;">'+
+        '<div class="hero-stat-val" style="color:'+wrCol+';">'+wr+'%</div>'+
+        '<div class="hero-wr-bar"><div class="hero-wr-fill" style="width:'+wr+'%;background:'+wrCol+';"></div></div>'+
+      '</div>'+
+      '<div class="hero-stat-col">'+
+        '<div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:18px;">'+(grade?grade.grade:'--')+'</div>'+
+      '</div>'+
+      '<div style="color:var(--grey-4);font-size:16px;margin-left:6px;">›</div>'+
+    '</div>';
+  }).join('');
+}
+
+function openHeroDetail(heroName){
+  var heroes=buildHeroStats();
+  var h=heroes.find(function(x){return x.name===heroName;});
+  if(!h){showToast('No data for '+heroName);return;}
+  var wr=h.picks?Math.round(h.wins/h.picks*100):0;
+  var wrCol=wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)';
+  var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+  var grade=avgScore>0?scoreToGrade(avgScore):null;
+  var lowWarn=h.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);margin-bottom:12px;">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
+  var playerRows=Object.values(h.players).map(function(pe){
+    var pwr=pe.picks?Math.round(pe.wins/pe.picks*100):0;
+    var pavgScore=pe.scores.length?pe.scores.reduce(function(a,b){return a+b;},0)/pe.scores.length:0;
+    var pgr=pavgScore>0?scoreToGrade(pavgScore):null;
+    return '<div class="hd-player-row">'+
+      '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+pe.nick+'</div><div class="hd-wl">'+pe.wins+'W / '+pe.losses+'L · '+pwr+'% WR · '+pe.picks+' game'+(pe.picks!==1?'s':'')+'</div></div>'+
+      '<div class="grade '+(pgr?pgr.cls:'grade-am')+'" style="font-size:18px;">'+(pgr?pgr.grade:'--')+'</div>'+
+    '</div>';
+  }).join('');
+  document.getElementById('hd-title').textContent=heroName.toUpperCase();
+  document.getElementById('hd-body').innerHTML=
+    lowWarn+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+
+      '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;">'+h.picks+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">PICKS</div></div>'+
+      '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;color:'+wrCol+';">'+wr+'%</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">WIN RATE</div></div>'+
+      '<div style="background:var(--black);padding:12px;text-align:center;"><div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:28px;">'+(grade?grade.grade:'--')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">GRADE</div></div>'+
+    '</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin-bottom:8px;">BY PLAYER</div>'+
+    (playerRows||'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No player breakdown</div>');
+  document.getElementById('hero-detail-modal').classList.add('open');
+}
+
+// ══════════════════════════════════════════
+// TOP 3 HEROES IN PLAYER PROFILE — V7
+// ══════════════════════════════════════════
+function buildTop3HeroesHtml(playerId,games){
+  var heroMap={};
+  var player=(_cache.players||[]).find(function(p){return p.id===playerId;});
+  if(!player) return '';
+  games.forEach(function(g){
+    var s=g.playerScores&&g.playerScores[playerId];
+    if(!s||s.skipped||!s.hero) return;
+    var hname=s.hero;
+    if(!heroMap[hname]) heroMap[hname]={name:hname,picks:0,wins:0,scores:[]};
+    heroMap[hname].picks++;
+    if(g.result==='Win') heroMap[hname].wins++;
+    var sc=calcGameScore(s,player.role);
+    if(sc>0) heroMap[hname].scores.push(sc);
+  });
+  var sorted=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){
+    var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
+    var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
+    if(sb!==sa) return sb-sa;
+    return b.picks-a.picks;
+  });
+  var top3=sorted.slice(0,3);
+  if(!top3.length) return '<div style="padding:8px 20px 12px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No hero data yet</div>';
+  var medals=['🥇','🥈','🥉'];
+  var chips=top3.map(function(h,i){
+    var wr=h.picks?Math.round(h.wins/h.picks*100):0;
+    var avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+    var gr=avgSc>0?scoreToGrade(avgSc):null;
+    return '<div class="top3-chip" data-open-hero="'+encodeURIComponent(h.name)+'">'+
+      '<div class="top3-medal">'+medals[i]+'</div>'+
+      '<div class="top3-hero">'+h.name+'</div>'+
+      '<div class="top3-meta">'+wr+'% WR · '+h.picks+'G · '+(gr?gr.grade:'--')+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="top3-row">'+chips+'</div>';
+}
+
+// ══════════════════════════════════════════
+// SETTINGS PIN — V7
+// ══════════════════════════════════════════
+function submitPin(){
+  var entered=(document.getElementById('pin-entry-inp')?.value||'').trim();
+  if(entered===String(_cache.settingsPin)){
+    _cache._pinUnlocked=true;
+    setTimeout(function(){_cache._pinUnlocked=false;},5*60*1000);
+    closeModal('pin-entry-modal');
+    showPage('page-settings');
+  } else {
+    document.getElementById('pin-entry-err').style.display='block';
+  }
+}
+
+function showPinChange(){
+  document.getElementById('pin-new-inp').value='';
+  document.getElementById('pin-confirm-inp').value='';
+  document.getElementById('pin-change-err').style.display='none';
+  document.getElementById('pin-change-modal').classList.add('open');
+}
+
+async function savePin(){
+  var nw=(document.getElementById('pin-new-inp')?.value||'').trim();
+  var cf=(document.getElementById('pin-confirm-inp')?.value||'').trim();
+  var errEl=document.getElementById('pin-change-err');
+  if(!/^\d{4,8}$/.test(nw)){errEl.textContent='PIN must be 4–8 digits';errEl.style.display='block';return;}
+  if(nw!==cf){errEl.textContent='PINs do not match';errEl.style.display='block';return;}
+  _cache.settingsPin=nw;
+  _cache._pinUnlocked=true;
+  await sbSaveSetting('settings_pin',nw);
+  closeModal('pin-change-modal');
+  showToast('PIN saved');
+}
+
+async function clearPin(){
+  _cache.settingsPin='';
+  _cache._pinUnlocked=false;
+  await sbSaveSetting('settings_pin','');
+  closeModal('pin-change-modal');
+  showToast('PIN removed');
+}
+
+// ══════════════════════════════════════════
+// DELEGATED CLICK HANDLER (heroes + tier chips)
+// ══════════════════════════════════════════
+document.addEventListener('click',function(e){
+  // Hero detail opener (hero rows + top3 chips)
+  var hd=e.target.closest('[data-open-hero]');
+  if(hd){openHeroDetail(decodeURIComponent(hd.dataset.openHero));return;}
+  // Heroes role tab
+  var rt=e.target.closest('[data-hero-role]');
+  if(rt){_heroState.role=rt.dataset.heroRole;renderHeroes();return;}
+  // Heroes sort btn
+  var sb=e.target.closest('[data-hero-sort]');
+  if(sb){_heroState.sort=sb.dataset.heroSort;renderHeroes();return;}
+  // Tier chip open
+  var tc=e.target.closest('[data-tier-assign]');
+  if(tc){openTierAssign(tc.dataset.type,decodeURIComponent(tc.dataset.hero),decodeURIComponent(tc.dataset.cls));return;}
+  // Hero dropdowns close
+  document.querySelectorAll('.hero-dropdown.open').forEach(function(drop){var wrap=drop.closest('.hero-search-wrap');if(wrap&&!wrap.contains(e.target))drop.classList.remove('open');});
+});
+
 bootApp();
 </script>
 </body>
