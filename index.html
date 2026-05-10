@@ -531,7 +531,12 @@ textarea.input{resize:vertical;min-height:70px;}
     </div>
     <div class="step-indicator" id="step-indicator"></div>
     <div id="log-step-0" style="padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Match Details</div>
+      <div class="section-label" style="padding:0 0 12px;">Game Details</div>
+      <div class="input-group">
+        <label class="input-label">Game Name</label>
+        <input class="input" id="log-game-name" placeholder="e.g. vs Team Phoenix – Game 1"/>
+        <div style="font-size:10px;color:var(--grey-5);margin-top:4px;">Auto-filled from match if linked. Edit freely.</div>
+      </div>
       <div class="input-group">
         <label class="input-label">Game Type</label>
         <select class="input" id="log-type"><option value="Scrim">Scrim</option><option value="Tournament">Tournament / Official</option></select>
@@ -556,7 +561,7 @@ textarea.input{resize:vertical;min-height:70px;}
       </div>
       <div class="input-group mt-16">
         <label class="input-label">Game Number in Session</label>
-        <input class="input" id="log-game-num" type="number" min="1" max="10" value="1"/>
+        <input class="input" id="log-game-num" type="number" min="1" max="10" value="1" oninput="autoFillGameName()"/>
       </div>
       <div class="input-group">
         <label class="input-label">Match Date</label>
@@ -570,15 +575,6 @@ textarea.input{resize:vertical;min-height:70px;}
       <button class="btn btn-full mt-8" onclick="openCreateMatchModal()">📋 Create Match First</button>
     </div>
     <div id="log-step-player" style="display:none;padding:0 20px 20px;"></div>
-    <div id="log-step-mentality" style="display:none;padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Match Mentality <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· RATED ONCE PER MATCH</span></div>
-      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);margin-bottom:16px;line-height:1.7;">Rate each active player's mentality for this entire match. These scores apply to all games in the session.</div>
-      <div id="log-mentality-players"></div>
-      <div style="display:flex;gap:10px;margin-top:12px;">
-        <button class="btn" style="flex:1;" onclick="logMentalityBack()">&#x2190; Back</button>
-        <button class="btn btn-primary" style="flex:2;" onclick="logMentalityNext()">Score Games &#x2192;</button>
-      </div>
-    </div>
     <div id="log-step-review" style="display:none;padding:0 20px 20px;">
       <div class="section-label" style="padding:0 0 12px;">Review &amp; Save</div>
       <div id="log-review-content"></div>
@@ -976,6 +972,7 @@ async function bootApp(){
     _cache.matches = (matchRes.data||[]).map(m=>({
       id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
       oppTier:m.opp_tier||'', notes:m.notes||'',
+      mentality:m.mentality||{},
       tournamentId:m.tournament_id||null,
       createdAt:m.created_at,
     }));
@@ -1108,6 +1105,7 @@ async function sbSaveMatch(matchObj){
     type:matchObj.type||'Scrim',
     opp_tier:matchObj.oppTier||null,
     notes:matchObj.notes||null,
+    mentality:matchObj.mentality||null,
     tournament_id:matchObj.tournamentId||null,
   };
   const {data,error}=await sb.from('matches').upsert(row,{onConflict:'id'}).select().single();
@@ -1446,16 +1444,22 @@ function calcMentality(s,mentObj){
   if(c+d+t===0)return 0;
   return(c*0.5+d*0.25+t*0.25)*2;
 }
-// game object passed so we can pull matchMentality; role for role criteria
+// game object passed so we can pull matchMentality (match-level only); role for role criteria
+// Mentality is skipped entirely if no matchMentality data exists on a parent match
 function calcGameScore(s,role,game,pid){
   var rc=ROLE_CRITERIA[role]||[];
   var rolVals=rc.map(function(c){return s[c.key];}).filter(function(v){return v>0;});
   var rolAvg=rolVals.length?rolVals.reduce(function(a,b){return a+b;},0)/rolVals.length:0;
-  // Mentality: prefer matchMentality[pid], then fall back to s fields (legacy)
-  var mentObj=game&&pid&&game.matchMentality&&game.matchMentality[pid]?game.matchMentality[pid]:s;
-  var mentality=calcMentality(s,mentObj);
   var gs=s.decision||0;
-  var parts=[mentality,gs,rolAvg].filter(function(v){return v>0;});
+  // Look up mentality from the match this game belongs to
+  var mentality=0;
+  var matchId=game&&game.matchId;
+  if(matchId&&pid){
+    var parentMatch=(_cache.matches||[]).find(function(m){return m.id===matchId;});
+    var mentObj=parentMatch&&parentMatch.mentality&&parentMatch.mentality[pid]?parentMatch.mentality[pid]:null;
+    if(mentObj) mentality=calcMentality(null,mentObj);
+  }
+  var parts=(mentality>0?[mentality]:[]).concat([gs,rolAvg]).filter(function(v){return v>0;});
   return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
 }
 function getRadarValues(playerId,games){
@@ -1465,7 +1469,7 @@ function getRadarValues(playerId,games){
   var now=new Date();var cutoff=new Date(now-30*24*60*60*1000);
   var monthGames=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
   function avgKey(key,maxVal){var vals=monthGames.map(function(g){return g.playerScores[playerId][key];}).filter(function(v){return v>0;});if(!vals.length)return 0;return(vals.reduce(function(a,b){return a+b;},0)/vals.length/maxVal)*10;}
-  function avgMentality(){var vals=monthGames.map(function(g){var mentObj=g.matchMentality&&g.matchMentality[playerId]?g.matchMentality[playerId]:g.playerScores[playerId];return calcMentality(g.playerScores[playerId],mentObj);}).filter(function(v){return v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  function avgMentality(){var vals=monthGames.map(function(g){var parentMatch=g.matchId?(_cache.matches||[]).find(function(m){return m.id===g.matchId;}):null;var mentObj=parentMatch&&parentMatch.mentality&&parentMatch.mentality[playerId]?parentMatch.mentality[playerId]:null;return mentObj?calcMentality(null,mentObj):null;}).filter(function(v){return v!==null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
   return[
     {label:'Mentality',                     value:avgMentality()},
     {label:'Micro Play',                    value:rc[0]?avgKey(rc[0].key,10):0},
@@ -1648,41 +1652,57 @@ function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.cei
 var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
 
 function initLog(){
-  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null};
   document.getElementById('log-step-0').style.display='block';
-  document.getElementById('log-step-mentality').style.display='none';
   document.getElementById('log-step-player').style.display='none';
   document.getElementById('log-step-review').style.display='none';
   buildDots();
 }
 
 function buildDots(){
-  var total=2+PLAYERS.length+1; // 0=match, 1=mentality, 2..N=players, N+1=review
+  var total=1+PLAYERS.length+1; // 0=details, 1..N=players, N+1=review
   document.getElementById('step-indicator').innerHTML=Array(total).fill(0).map(function(_,i){return '<div class="step-dot" id="sd-'+i+'"></div>';}).join('');
   updateDots();
 }
 
 function updateDots(){
   var step=LS.step;
-  var total=2+PLAYERS.length;
+  var total=1+PLAYERS.length;
   for(var i=0;i<=total;i++){
     var el=document.getElementById('sd-'+i);
     if(!el) continue;
     var cls='step-dot';
     if(i===step) cls+=' active';
     else if(i<step){
-      // player steps: check if skipped
-      if(i>=2&&i<2+PLAYERS.length&&LS.skipped[PLAYERS[i-2]?.id]) cls+=' skipped';
+      if(i>=1&&i<1+PLAYERS.length&&LS.skipped[PLAYERS[i-1]?.id]) cls+=' skipped';
       else cls+=' done';
     }
     el.className=cls;
   }
 }
 
+function autoFillGameName(){
+  var nameEl=document.getElementById('log-game-name');
+  if(!nameEl||nameEl.dataset.userEdited) return;
+  var num=document.getElementById('log-game-num')?.value||'1';
+  var opp=document.getElementById('log-opponent')?.value||'';
+  var match=LS.matchId&&(_cache.matches||[]).find(function(m){return m.id===LS.matchId;});
+  var base=match?match.name:(opp?'vs '+opp:'Scrim');
+  nameEl.value=base+' \u2013 Game '+num;
+}
+
 function logNextStep(){
   var dateVal=document.getElementById('log-date').value;
   var dateStr=dateVal?new Date(dateVal+'T00:00:00').toLocaleDateString('en-GB'):new Date().toLocaleDateString('en-GB');
+  var gameName=(document.getElementById('log-game-name')?.value||'').trim();
+  if(!gameName){
+    var num=document.getElementById('log-game-num')?.value||'1';
+    var opp=document.getElementById('log-opponent')?.value||'';
+    var match2=LS.matchId&&(_cache.matches||[]).find(function(m){return m.id===LS.matchId;});
+    gameName=(match2?match2.name:(opp?'vs '+opp:'Scrim'))+' \u2013 Game '+num;
+  }
   LS.matchInfo={
+    gameName:gameName,
     type:document.getElementById('log-type').value,
     opponent:document.getElementById('log-opponent').value,
     oppTier:document.getElementById('log-opp-tier').value,
@@ -1693,49 +1713,8 @@ function logNextStep(){
   };
   if(!LS.matchId) LS.matchId=crypto.randomUUID();
   LS.step=1;
-  document.getElementById('log-step-0').style.display='none';
-  renderMentalityStep();
-}
-
-function renderMentalityStep(){
-  updateDots();
-  document.getElementById('log-step-mentality').style.display='block';
-  document.getElementById('log-step-player').style.display='none';
-  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  document.getElementById('log-mentality-players').innerHTML=activePlayers.map(function(p){
-    var existing=LS.mentality[p.id]||{};
-    return '<div style="margin-bottom:20px;padding-bottom:16px;border-bottom:var(--border);">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'+
-        '<div class="player-avatar" style="width:28px;height:28px;font-size:11px;">'+p.nick[0]+'</div>'+
-        '<div style="font-size:13px;font-weight:600;">'+p.nick+'</div>'+
-        '<span class="tag tag-role" style="font-size:8px;">'+p.role+'</span>'+
-      '</div>'+
-      MENTALITY_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'ment-'+p.id);}).join('')+
-    '</div>';
-  }).join('');
-}
-
-function logMentalityBack(){
-  document.getElementById('log-step-mentality').style.display='none';
-  document.getElementById('log-step-0').style.display='block';
-  LS.step=0;
-  updateDots();
-}
-
-function logMentalityNext(){
-  // Save mentality scores
-  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  activePlayers.forEach(function(p){
-    var m={};
-    MENTALITY_CRITERIA.forEach(function(c){
-      var el=document.getElementById('ment-'+p.id+'-'+c.key);
-      m[c.key]=el?parseFloat(el.value):Math.ceil(c.max/2);
-    });
-    LS.mentality[p.id]=m;
-  });
-  document.getElementById('log-step-mentality').style.display='none';
-  LS.step=2;
   LS.idx=0;
+  document.getElementById('log-step-0').style.display='none';
   renderPlayerStep();
 }
 
@@ -1824,10 +1803,11 @@ function logPrev(){
     LS.step--;
     renderPlayerStep();
   } else {
-    // Back to mentality step
+    // Back to details step
     document.getElementById('log-step-player').style.display='none';
-    LS.step=1;
-    renderMentalityStep();
+    LS.step=0;
+    document.getElementById('log-step-0').style.display='block';
+    updateDots();
   }
 }
 
@@ -1839,8 +1819,7 @@ function showReview(){
   var rows=PLAYERS.map(function(p){
     var s=LS.scores[p.id]||{};
     if(s.skipped) return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);opacity:0.4;"><div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div><div style="flex:1;font-size:12px;color:var(--grey-5);">Did not play</div><span class="tag tag-dnp">DNP</span></div>';
-    var mentObj=LS.mentality[p.id];
-    var score=calcGameScore(s,p.role,{matchMentality:LS.mentality},p.id);
+    var score=calcGameScore(s,p.role,null,p.id);
     var g=score>0?scoreToGrade(score):null;
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);">'+
       '<div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div>'+
@@ -1864,7 +1843,7 @@ async function saveGame(){
   var mvpId=Object.keys(LS.scores).find(function(pid){return LS.scores[pid]?.mvp;});
   const g=Object.assign({id:crypto.randomUUID()},LS.matchInfo,{
     playerScores:LS.scores,
-    matchMentality:LS.mentality,
+    matchMentality:{},
     matchId:LS.matchId,
     mvpPlayerId:mvpId||null,
     savedAt:new Date().toISOString(),
@@ -1879,12 +1858,11 @@ async function saveGame(){
 }
 
 function resetLog(){
-  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null};
   document.getElementById('log-step-0').style.display='block';
-  document.getElementById('log-step-mentality').style.display='none';
   document.getElementById('log-step-player').style.display='none';
   document.getElementById('log-step-review').style.display='none';
-  ['log-opponent','log-vod'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  ['log-opponent','log-vod','log-game-name'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
   var gn=document.getElementById('log-game-num');if(gn)gn.value='1';
   var ld=document.getElementById('log-date');if(ld)ld.value='';
   buildDots();
@@ -1894,14 +1872,17 @@ function logNextGameInMatch(){
   // Keep same matchId, opponent, date, type — just bump game num and re-score
   closeModal('summary-modal');
   var prev=LS.matchInfo;
-  LS={step:0,matchInfo:{},mentality:LS.mentality,scores:{},skipped:{},idx:0,matchId:LS.matchId};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:LS.matchId};
   // Pre-fill step 0 fields
   setTimeout(function(){
     var typeEl=document.getElementById('log-type');if(typeEl)typeEl.value=prev.type||'Scrim';
     var oppEl=document.getElementById('log-opponent');if(oppEl)oppEl.value=prev.opponent||'';
     var tierEl=document.getElementById('log-opp-tier');if(tierEl)tierEl.value=prev.oppTier||'';
     var dateEl=document.getElementById('log-date');if(dateEl)dateEl.value=dateToIso(prev.date);
-    var gnEl=document.getElementById('log-game-num');if(gnEl)gnEl.value=String(parseInt(prev.gameNum||1)+1);
+    var newNum=String(parseInt(prev.gameNum||1)+1);
+    var gnEl=document.getElementById('log-game-num');if(gnEl)gnEl.value=newNum;
+    var nameEl=document.getElementById('log-game-name');
+    if(nameEl){var match2=LS.matchId&&(_cache.matches||[]).find(function(m){return m.id===LS.matchId;});var base=match2?match2.name:(prev.opponent?'vs '+prev.opponent:'Scrim');nameEl.value=base+' – Game '+newNum;}
     buildDots();
   },50);
   showPage('page-log');
@@ -2768,10 +2749,9 @@ function showMatchDetail(matchId){
       if(!played.length) return null;
       var avgScore=played.map(function(g){return calcGameScore(g.playerScores[p.id],p.role,g,p.id);}).reduce(function(a,b){return a+b;},0)/played.length;
       // avg mentality across games that have matchMentality data
-      var mentVals=played.map(function(g){
-        var mentObj=g.matchMentality&&g.matchMentality[p.id]?g.matchMentality[p.id]:null;
-        return mentObj?calcMentality(g.playerScores[p.id],mentObj):null;
-      }).filter(function(v){return v!==null;});
+      // Mentality lives on the match, not individual games
+      var mentObj=match.mentality&&match.mentality[p.id]?match.mentality[p.id]:null;
+      var mentVals=mentObj?[calcMentality(null,mentObj)]:[];
       var avgMent=mentVals.length?mentVals.reduce(function(a,b){return a+b;},0)/mentVals.length:null;
       var grd=scoreToGrade(avgScore);
       return '<div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:var(--border);">'+
@@ -2880,10 +2860,8 @@ function saveMatchNotes(matchId){
 
 function openRateMentalityModal(matchId){
   var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  var data=loadData();
-  var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
-  var lastGame=mGames.length?mGames[mGames.length-1]:null;
-  var existingMent=lastGame&&lastGame.matchMentality||{};
+  var match=(_cache.matches||[]).find(function(m){return m.id===matchId;});
+  var existingMent=match&&match.mentality||{};
 
   var html='<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:16px;line-height:1.7;">'+
     'Rate each player\'s mentality for this match. Scores are saved to the most recent game.</div>';
@@ -2911,10 +2889,6 @@ function openRateMentalityModal(matchId){
 }
 
 async function saveRateMentality(matchId){
-  var data=loadData();
-  var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
-  if(!mGames.length){showToast('No games in this match yet');return;}
-  var lastGame=mGames[mGames.length-1];
   var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
   var mentality={};
   activePlayers.forEach(function(p){
@@ -2925,11 +2899,11 @@ async function saveRateMentality(matchId){
     });
     mentality[p.id]=obj;
   });
-  lastGame.matchMentality=mentality;
+  var idx=_cache.matches.findIndex(function(m){return m.id===matchId;});
+  if(idx===-1){showToast('Match not found');return;}
+  _cache.matches[idx].mentality=mentality;
   try{
-    await sbSaveGame(lastGame);
-    var cg=_cache.games.find(function(g){return g.id===lastGame.id;});
-    if(cg) cg.matchMentality=mentality;
+    await sbSaveMatch(_cache.matches[idx]);
     closeModal('rate-mentality-modal');
     showToast('Mentality saved');
     showMatchDetail(matchId);
@@ -2947,6 +2921,7 @@ function addGameToMatch(matchId){
   setTimeout(function(){
     var nameEl=document.getElementById('log-opponent');if(nameEl) nameEl.value=match.name.replace(/^vs /,'');
     var typeEl=document.getElementById('log-type');if(typeEl) typeEl.value=match.type||'Scrim';
+    var gameNameEl=document.getElementById('log-game-name');if(gameNameEl) gameNameEl.value=match.name+' – Game '+nextNum;
     var tierEl=document.getElementById('log-opp-tier');if(tierEl) tierEl.value=match.oppTier||'';
     var dateEl=document.getElementById('log-date');if(dateEl&&match.date) dateEl.value=dateToIso(match.date);
     var gnEl=document.getElementById('log-game-num');if(gnEl) gnEl.value=String(nextNum);
