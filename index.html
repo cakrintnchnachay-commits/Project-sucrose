@@ -1405,11 +1405,23 @@ function resetHeroOverride(heroName){
 // ══════════════════════════════════════════
 // HERO IMAGE HELPERS
 // ══════════════════════════════════════════
+const HERO_IMG_BASE='https://res.cloudinary.com/dtzdhbllb/image/upload/';
+const HERO_IMG_MAP={
+  "Azzen'Ka":'AzzenKa',"D'Arcy":'Darcy','Diaochan':'Diao_Chan',
+  "Eland'orr":'Elandorr',"Kil'Groth":'Kil_Groth',"Tel'Annas":'Tel_Annas',
+  'Wukong':'Wu_Kong','The Flash':'The_Flash','Brunhilda':'Celica',
+  'Arthur':'Mortos','Jinnar':'Jinna','Lu Bu':'Lu_Bu',
+  'Wonder Woman':'Wonder_Woman','Bolt Baron':'Bolt_Baron',"Y'bneth":'Y_bneth',
+  'Flowborn':'v1775747198/Flowborn.png'
+};
+
 function heroImgUrl(name){
   var ov=getHeroOverrides();
   if(ov[name]&&ov[name].img) return ov[name].img;
-  var fileName=(name||'').replace(/[^a-zA-Z0-9]/g,'_')+'.webp';
-  return SUPABASE_URL+'/storage/v1/object/public/hero-images/'+encodeURIComponent(fileName);
+  if(!name) return '';
+  var mapped=HERO_IMG_MAP[name];
+  if(mapped) return HERO_IMG_BASE+(mapped.includes('/')?mapped:mapped+'.jpg');
+  return HERO_IMG_BASE+name+'.jpg';
 }
 
 function heroPortraitHtml(name,px,showName){
@@ -3004,7 +3016,7 @@ function renderHeroes(){
     var lowConf=h.picks<3?'<span class="low-conf">·</span>':'';
     return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
       heroPortraitHtml(h.name,44,false)+
-      '<div style="flex:1;min-width:0;margin-left:10px;">'
+      '<div style="flex:1;min-width:0;margin-left:10px;">'+
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
         '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
       '</div>'+
