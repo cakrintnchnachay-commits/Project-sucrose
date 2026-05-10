@@ -1341,11 +1341,8 @@ function openHeroEditModal(heroName){
     '<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;padding-bottom:16px;border-bottom:var(--border);">'+
       '<div id="he-img-preview">'+heroPortraitHtml(heroName,80,false)+'</div>'+
       '<div style="flex:1;">'+
-        '<div class="input-label" style="margin-bottom:6px;">Portrait Image</div>'+
-        '<label class="btn btn-muted btn-sm" style="width:100%;text-align:center;cursor:pointer;font-size:11px;margin-bottom:6px;" for="he-img-file">Upload image (200×200)</label>'+
-        '<input type="file" id="he-img-file" accept="image/*" style="display:none;" onchange="previewHeroImg()"/>'+
-        '<div class="input-label" style="margin-bottom:4px;font-size:9px;">Or paste URL</div>'+
-        '<input class="input" id="he-img-url" placeholder="https://..." value="'+storedImg+'" oninput="previewHeroImg()" style="font-size:11px;"/>'+
+        '<div class="input-label" style="margin-bottom:6px;">Image URL <span style="color:var(--grey-5);font-weight:400;">(override)</span></div>'+
+        '<input class="input" id="he-img" placeholder="Leave blank to use auto-loaded image" value="'+storedImg+'" oninput="previewHeroImg()" style="font-size:11px;"/>'+
       '</div>'+
     '</div>'+
     '<div class="input-group"><label class="input-label">Class</label>'+
@@ -1368,57 +1365,27 @@ function openHeroEditModal(heroName){
 }
 
 function previewHeroImg(){
-  var fileInput=document.getElementById('he-img-file');
-  var urlInput=document.getElementById('he-img-url');
+  var url=(document.getElementById('he-img')?.value||'').trim();
   var prev=document.getElementById('he-img-preview');
   if(!prev) return;
-  var file=fileInput&&fileInput.files&&fileInput.files[0];
-  if(file){
-    var reader=new FileReader();
-    reader.onload=function(e){
-      prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
-        '<img class="hero-img" src="'+e.target.result+'" alt="" style="z-index:1;"/>'+
-      '</div>';
-    };
-    reader.readAsDataURL(file);
+  if(url){
+    prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
+      '<img class="hero-img" src="'+url+'" alt="" loading="eager" onerror="this.style.display=\'none\'"/>'+
+    '</div>';
   } else {
-    var url=(urlInput&&urlInput.value||'').trim();
     var name=(document.getElementById('hero-edit-title')?.textContent||'').replace('EDIT: ','');
-    if(url){
-      prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
-        '<img class="hero-img" src="'+url+'" alt="" onerror="this.style.display=\'none\'"/>'+
-      '</div>';
-    } else {
-      prev.innerHTML=heroPortraitHtml(name,80,false);
-    }
+    prev.innerHTML=heroPortraitHtml(name,80,false);
   }
 }
 
-async function saveHeroEdit(heroName){
+function saveHeroEdit(heroName){
   const cls=document.getElementById('he-class').value;
   const roles=[...document.querySelectorAll('#hero-edit-body input[type=checkbox]:checked')].map(function(cb){return cb.value;});
   if(!roles.length){showToast('Select at least one role');return;}
-  const fileInput=document.getElementById('he-img-file');
-  const urlInput=document.getElementById('he-img-url');
-  const file=fileInput&&fileInput.files&&fileInput.files[0];
-  const manualUrl=(urlInput&&urlInput.value||'').trim();
+  const imgUrl=(document.getElementById('he-img')?.value||'').trim();
   const overrides=getHeroOverrides();
   overrides[heroName]={cls:cls,roles:roles};
-  if(file){
-    showToast('Uploading image...');
-    try{
-      const publicUrl=await uploadHeroImage(heroName,file);
-      overrides[heroName].img=publicUrl;
-    }catch(err){
-      showToast('Image upload failed: '+err.message);
-      return;
-    }
-  } else if(manualUrl){
-    overrides[heroName].img=manualUrl;
-  } else {
-    const existing=getHeroOverrides()[heroName];
-    if(existing&&existing.img) overrides[heroName].img=existing.img;
-  }
+  if(imgUrl) overrides[heroName].img=imgUrl;
   saveHeroOverrides(overrides);
   closeModal('hero-edit-modal');
   showToast('Hero updated');
@@ -1441,7 +1408,8 @@ function resetHeroOverride(heroName){
 function heroImgUrl(name){
   var ov=getHeroOverrides();
   if(ov[name]&&ov[name].img) return ov[name].img;
-  return '';
+  var fileName=(name||'').replace(/[^a-zA-Z0-9]/g,'_')+'.webp';
+  return SUPABASE_URL+'/storage/v1/object/public/hero-images/'+encodeURIComponent(fileName);
 }
 
 function heroPortraitHtml(name,px,showName){
@@ -1454,45 +1422,6 @@ function heroPortraitHtml(name,px,showName){
   '</div>';
   if(showName) wrap+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;text-align:center;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+px+'px;">'+name+'</div>';
   return wrap;
-}
-
-function _compressHeroImage(file,maxW,maxH){
-  return new Promise(function(resolve,reject){
-    var reader=new FileReader();
-    reader.onload=function(e){
-      var img=new Image();
-      img.onload=function(){
-        var canvas=document.createElement('canvas');
-        canvas.width=maxW; canvas.height=maxH;
-        var ctx=canvas.getContext('2d');
-        var scale=Math.max(maxW/img.width,maxH/img.height);
-        var sw=maxW/scale,sh=maxH/scale;
-        var sx=(img.width-sw)/2,sy=(img.height-sh)/2;
-        ctx.drawImage(img,sx,sy,sw,sh,0,0,maxW,maxH);
-        canvas.toBlob(function(blob){resolve(blob);},'image/webp',0.85);
-      };
-      img.onerror=reject;
-      img.src=e.target.result;
-    };
-    reader.onerror=reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function uploadHeroImage(heroName,file){
-  var blob=await _compressHeroImage(file,200,200);
-  var fileName=heroName.replace(/[^a-zA-Z0-9]/g,'_')+'.webp';
-  var resp=await fetch(SUPABASE_URL+'/storage/v1/object/hero-images/'+encodeURIComponent(fileName),{
-    method:'PUT',
-    headers:{
-      'Authorization':'Bearer '+SUPABASE_KEY,
-      'Content-Type':'image/webp',
-      'x-upsert':'true'
-    },
-    body:blob
-  });
-  if(!resp.ok){var e=await resp.text();throw new Error('Upload failed: '+e);}
-  return SUPABASE_URL+'/storage/v1/object/public/hero-images/'+encodeURIComponent(fileName);
 }
 
 // ══════════════════════════════════════════
