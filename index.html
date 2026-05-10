@@ -372,7 +372,7 @@ textarea.input{resize:vertical;min-height:70px;}
 .hero-sort-bar{display:flex;gap:4px;padding:8px 20px;border-bottom:var(--border);background:var(--grey-1);}
 .hero-sort-btn{padding:4px 10px;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;border:var(--border);background:none;color:var(--grey-5);cursor:pointer;border-radius:2px;transition:all 0.15s;}
 .hero-sort-btn.active{background:var(--white);color:var(--black);border-color:var(--white);}
-.hero-row{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:var(--border);cursor:pointer;transition:background 0.15s;}
+.hero-row{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:var(--border);cursor:pointer;transition:background 0.15s;}
 .hero-row:hover{background:var(--grey-1);}
 .hero-row-name{font-size:13px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .hero-row-cls{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;margin-top:2px;}
@@ -381,6 +381,10 @@ textarea.input{resize:vertical;min-height:70px;}
 .hero-stat-label{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1px;text-transform:uppercase;margin-top:1px;}
 .hero-wr-bar{width:48px;height:3px;background:var(--grey-3);border-radius:2px;margin-top:3px;}
 .hero-wr-fill{height:100%;border-radius:2px;transition:width 0.4s;}
+/* HERO PORTRAIT */
+.hero-img-wrap{position:relative;background:var(--grey-2);border-radius:2px;overflow:hidden;flex-shrink:0;}
+.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;}
+.hero-img-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;color:var(--grey-5);}
 .low-conf{color:var(--warn);font-family:'DM Mono',monospace;font-size:9px;margin-left:4px;}
 .hd-player-row{display:flex;align-items:center;padding:10px 0;border-bottom:var(--border);}
 .hd-player-row:last-child{border-bottom:none;}
@@ -1325,9 +1329,19 @@ const ALL_CLASSES=['Warrior','Tank','Support','Marksman','Mage','Assassin'];
 function openHeroEditModal(heroName){
   const heroes=getLiveHeroes();
   const h=heroes.find(function(x){return x.name===heroName;})||{name:heroName,cls:'',roles:[]};
+  const ov=getHeroOverrides();
+  const storedImg=(ov[heroName]&&ov[heroName].img)||'';
+  const suggestedUrl='https://arenaofvalor.fandom.com/wiki/Special:FilePath/'+encodeURIComponent(heroName.replace(/ /g,'_'))+'_Portrait.png';
   document.getElementById('hero-edit-title').textContent='EDIT: '+heroName;
   document.getElementById('hero-edit-body').innerHTML=
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:16px;">Changes saved locally -- won\'t be overwritten on re-sync.</div>'+
+    '<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;padding-bottom:16px;border-bottom:var(--border);">'+
+      '<div id="he-img-preview">'+heroPortraitHtml(heroName,80,false)+'</div>'+
+      '<div style="flex:1;">'+
+        '<div class="input-label" style="margin-bottom:6px;">Image URL</div>'+
+        '<input class="input" id="he-img" placeholder="https://static.wikia.nocookie.net/..." value="'+storedImg+'" oninput="previewHeroImg()" style="font-size:11px;"/>'+
+        '<button class="btn btn-sm btn-muted" style="margin-top:6px;width:100%;font-size:9px;" onclick="document.getElementById(\'he-img\').value=\''+suggestedUrl+'\';previewHeroImg()">Use Wiki URL</button>'+
+      '</div>'+
+    '</div>'+
     '<div class="input-group"><label class="input-label">Class</label>'+
     '<select class="input" id="he-class">'+
       ALL_CLASSES.map(function(c){return '<option value="'+c+'"'+(h.cls===c?' selected':'')+'>'+c+'</option>';}).join('')+
@@ -1339,23 +1353,41 @@ function openHeroEditModal(heroName){
           '<input type="checkbox" value="'+r+'"'+(h.roles.includes(r)?' checked':'')+'/> '+r+'</label>';
       }).join('')+
     '</div></div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:12px;">Changes saved locally — won\'t be overwritten on re-sync.</div>'+
     '<div style="display:flex;gap:10px;">'+
-      '<button class="btn btn-danger btn-sm" onclick="resetHeroOverride(\''+heroName.replace(/'/g,"\\'")+'\')" >Reset to Default</button>'+
+      '<button class="btn btn-danger btn-sm" onclick="resetHeroOverride(\''+heroName.replace(/'/g,"\\'")+'\')" >Reset</button>'+
       '<button class="btn btn-primary" style="flex:1;" onclick="saveHeroEdit(\''+heroName.replace(/'/g,"\\'")+'\')">Save</button>'+
     '</div>';
   document.getElementById('hero-edit-modal').classList.add('open');
+}
+
+function previewHeroImg(){
+  var url=(document.getElementById('he-img')?.value||'').trim();
+  var prev=document.getElementById('he-img-preview');
+  if(!prev) return;
+  if(url){
+    prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
+      '<img class="hero-img" src="'+url+'" alt="" loading="eager" onerror="this.style.display=\'none\'"/>'+
+    '</div>';
+  } else {
+    var name=(document.getElementById('hero-edit-title')?.textContent||'').replace('EDIT: ','');
+    prev.innerHTML=heroPortraitHtml(name,80,false);
+  }
 }
 
 function saveHeroEdit(heroName){
   const cls=document.getElementById('he-class').value;
   const roles=[...document.querySelectorAll('#hero-edit-body input[type=checkbox]:checked')].map(function(cb){return cb.value;});
   if(!roles.length){showToast('Select at least one role');return;}
+  const imgUrl=(document.getElementById('he-img')?.value||'').trim();
   const overrides=getHeroOverrides();
   overrides[heroName]={cls:cls,roles:roles};
+  if(imgUrl) overrides[heroName].img=imgUrl;
   saveHeroOverrides(overrides);
   closeModal('hero-edit-modal');
   showToast('Hero updated');
   renderTierMode();
+  renderHeroes();
 }
 
 function resetHeroOverride(heroName){
@@ -2900,6 +2932,24 @@ function buildHeroStats(){
   return Object.values(heroMap);
 }
 
+function heroImgUrl(name){
+  var ov=getHeroOverrides();
+  if(ov[name]&&ov[name].img) return ov[name].img;
+  return 'https://arenaofvalor.fandom.com/wiki/Special:FilePath/'+encodeURIComponent((name||'').replace(/ /g,'_'))+'_Portrait.png';
+}
+
+function heroPortraitHtml(name,px,showName){
+  var url=heroImgUrl(name);
+  var init=(name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase()||'?';
+  var fs=Math.max(9,Math.round(px*0.36));
+  var wrap='<div class="hero-img-wrap" style="width:'+px+'px;height:'+px+'px;">'+
+    '<span class="hero-img-fallback" style="font-size:'+fs+'px;">'+init+'</span>'+
+    '<img class="hero-img" src="'+url+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>'+
+  '</div>';
+  if(showName) wrap+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;text-align:center;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+px+'px;">'+name+'</div>';
+  return wrap;
+}
+
 function renderHeroes(){
   var heroes=buildHeroStats();
   var role=_heroState.role||'All';
@@ -2945,6 +2995,7 @@ function renderHeroes(){
     var wrCol=wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)';
     var lowConf=h.picks<3?'<span class="low-conf">·</span>':'';
     return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
+      heroPortraitHtml(h.name,44,false)+
       '<div style="flex:1;min-width:0;">'+
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
         '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
@@ -3001,6 +3052,11 @@ function openHeroDetail(heroName){
   :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games together to show synergy</div>';
   document.getElementById('hd-title').textContent=heroName.toUpperCase();
   document.getElementById('hd-body').innerHTML=
+    '<div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 8px;">'+
+      heroPortraitHtml(heroName,160,false)+
+      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;margin-top:10px;">'+heroName+'</div>'+
+      (function(){var hdb=getLiveHeroes().find(function(x){return x.name===heroName;});return hdb?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+hdb.cls+(hdb.roles.length?' · '+hdb.roles.join(', '):'')+'</div>':'';})() +
+    '</div>'+
     lowWarn+
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+
       '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;">'+h.picks+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">PICKS</div></div>'+
@@ -3046,10 +3102,11 @@ function buildTop3HeroesHtml(playerId,games){
     var wr=h.picks?Math.round(h.wins/h.picks*100):0;
     var avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
     var gr=avgSc>0?scoreToGrade(avgSc):null;
-    return '<div class="top3-chip" data-open-hero="'+encodeURIComponent(h.name)+'">'+
-      '<div class="top3-medal">'+medals[i]+'</div>'+
-      '<div class="top3-hero">'+h.name+'</div>'+
-      '<div class="top3-meta">'+wr+'% WR · '+h.picks+'G · '+(gr?gr.grade:'--')+'</div>'+
+    return '<div class="top3-chip" data-open-hero="'+encodeURIComponent(h.name)+'" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
+      '<div class="top3-medal" style="margin-bottom:5px;">'+medals[i]+'</div>'+
+      heroPortraitHtml(h.name,56,false)+
+      '<div class="top3-hero" style="text-align:center;margin-top:6px;">'+h.name+'</div>'+
+      '<div class="top3-meta" style="text-align:center;">'+wr+'% WR · '+h.picks+'G · '+(gr?gr.grade:'--')+'</div>'+
     '</div>';
   }).join('');
   return '<div class="top3-row">'+chips+'</div>';
