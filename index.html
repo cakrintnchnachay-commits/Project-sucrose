@@ -960,7 +960,7 @@ async function bootApp(){
       rank:p.rank||'Unranked', active:p.active
     }));
     _cache.games = (gameRes.data||[]).map(g=>({
-      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||g.map?1:1,
+      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||1, gameName:g.game_name||'',
       result:g.result==='W'?'Win':'Loss',
       opponent:g.opponent||'', oppTier:'', notes:g.notes||'',
       playerScores:g.player_scores||{},
@@ -1040,6 +1040,8 @@ async function sbSaveGame(gameObj){
     opponent: gameObj.opponent||null,
     is_tournament: gameObj.type==='Tournament',
     notes: gameObj.notes||null,
+    game_num: gameObj.gameNum||1,
+    game_name: gameObj.gameName||null,
     player_scores: gameObj.playerScores||{},
     match_mentality: gameObj.matchMentality||{},
     match_id: gameObj.matchId||null,
@@ -1990,18 +1992,24 @@ function showProfile(playerId){
     '</div></div>'+
     '<div class="section-label">Recent Games</div>'+recentGames+
     '<div style="height:20px;"></div>'+
-    '<div class="section-label">Performance Trend <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· LAST 30 DAYS</span></div>'+
-    '<div class="trend-graph-wrap" style="padding:0 20px 20px;"><canvas id="trend-'+playerId+'" style="width:100%;height:160px;display:block;"></canvas></div>'+
-    '<div class="section-label">Trend Flags <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· VS PRIOR 2 WEEKS</span></div>'+
+    '<div class="section-label">Performance Trend</div>'+
+    '<div style="display:flex;gap:4px;padding:0 20px 12px;">'+
+      ['1W','2W','1M'].map(function(w){return '<button class="tier-mode-btn'+(w===(window._trendWindow||'1M')?' active':'')+' onclick="setTrendWindow(\''+playerId+'\',\''+w+'\')"  >'+w+'</button>';}).join('')+
+    '</div>'+
+    '<div class="trend-graph-wrap" style="padding:0 20px 8px;"><canvas id="trend-'+playerId+'" style="width:100%;height:160px;display:block;"></canvas></div>'+
+    '<div id="trend-match-list-'+playerId+'" style="margin:0 20px 4px;"></div>'+
+    '<div class="section-label" style="margin-top:8px;">Trend Flags <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· VS PRIOR 2 WEEKS</span></div>'+
     '<div style="margin:0 20px 20px;border:var(--border);">'+
-      computeTrends(playerId,data.games).map(function(t){return '<div class="trend-row"><div class="trend-dot '+(t.dir==='up'?'trend-up':t.dir==='down'?'trend-down':'trend-flat')+'"></div><div class="trend-pillar">'+t.pillar+'</div><div class="trend-label">'+t.label+'</div><div class="trend-delta" style="color:'+(t.dir==='up'?'var(--success)':t.dir==='down'?'var(--danger)':'var(--warn)')+';">'+t.delta+'</div></div>';}).join('')+
+      computeTrends(playerId,data.games).map(function(t){var dc=t.dir==='up'?'trend-up':t.dir==='down'?'trend-down':'trend-flat';var col=t.dir==='up'?'var(--success)':t.dir==='down'?'var(--danger)':'var(--warn)';return '<div class="trend-row"><div class="trend-dot '+dc+'"></div><div class="trend-pillar">'+t.pillar+'</div><div class="trend-label">'+t.label+'</div><div class="trend-delta" style="color:'+col+';">'+t.delta+'</div></div>';}).join('')+
     '</div><div style="height:20px;"></div>';
   showPage('page-profile');
   window._currentProfileId=playerId;
   setTimeout(function(){
     var starterAvg=getStarterAvgRadar(data.games);
     drawRadar(playerId,radarData,{overlayData:starterAvg,colour1:'rgba(100,180,255,1)',colour2:'rgba(80,220,140,1)',showLabels:true,showGrades:true});
-    drawTrendGraph(playerId,stats.playerGames);
+    var tw=window._trendWindow||'1M';
+    drawTrendGraph(playerId,tw);
+    renderTrendMatchList(playerId,tw);
   },60);
 }
 
@@ -2148,19 +2156,21 @@ function openEditModal(gameId){
     '</div>';
   }).join('');
   document.getElementById('edit-modal-body').innerHTML=
+    '<div class="row">'+
+      '<div class="input-group mb-0"><label class="input-label">Game No.</label><input class="input" id="edit-gamenum" type="number" min="1" max="20" value="'+(game.gameNum||1)+'"/></div>'+
+      '<div class="input-group mb-0"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div>'+
+    '</div>'+
+    '<div class="input-group mt-16"><label class="input-label">Game Name</label><input class="input" id="edit-gamename" value="'+(game.gameName||'')+'" placeholder="e.g. vs Team Phoenix – Game 1"/></div>'+
     '<div class="input-group"><label class="input-label">Match Date</label><input class="input" id="edit-date" type="date" value="'+dateToIso(game.date)+'"/></div>'+
-    '<div class="input-group"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div>'+
     '<div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod">'+(game.vod||'')+'</textarea></div>'+
     '<div class="divider"></div>'+
-    mentalityPanel+
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:16px;">PLAYER SCORES</div>'+
     psec+
     '<div style="display:flex;gap:10px;margin-top:4px;">'+
-      '<button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')">Delete Game</button>'+
-      '<button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')">Save Changes</button>'+
+      '<button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')"  >Delete Game</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')"  >Save Changes</button>'+
     '</div>'+
-    '<div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')">Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')">Yes, Delete</button></div></div>';
-  // Store current MVP in a temp variable for toggling
+    '<div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')"  >Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')"  >Yes, Delete</button></div></div>';
   window._editMvpId=game.mvpPlayerId||null;
   document.getElementById('edit-modal').classList.add('open');
   PLAYERS.forEach(function(p){var s=game.playerScores&&game.playerScores[p.id]||{};if(!s.skipped)buildHeroInput('ehero-wrap-'+p.id,'ehero-'+p.id,'eherodrop-'+p.id,s.hero||'');});
@@ -2192,18 +2202,10 @@ async function saveEdit(gameId){
   _cache.games[idx].result=document.getElementById('edit-result').value;
   _cache.games[idx].vod=document.getElementById('edit-vod').value;
   _cache.games[idx].mvpPlayerId=window._editMvpId||null;
-  // Save match mentality
-  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  var newMent={};
-  activePlayers.forEach(function(p){
-    var m={};
-    MENTALITY_CRITERIA.forEach(function(c){
-      var el=document.getElementById('ement-'+p.id+'-'+c.key);
-      m[c.key]=el?parseFloat(el.value):Math.ceil(c.max/2);
-    });
-    newMent[p.id]=m;
-  });
-  _cache.games[idx].matchMentality=newMent;
+  var gnEl=document.getElementById('edit-gamenum');
+  if(gnEl&&gnEl.value) _cache.games[idx].gameNum=parseInt(gnEl.value)||_cache.games[idx].gameNum;
+  var gnameEl=document.getElementById('edit-gamename');
+  if(gnameEl) _cache.games[idx].gameName=gnameEl.value.trim()||_cache.games[idx].gameName;
   // Save player scores (game sense + role only, no mentality)
   PLAYERS.forEach(function(p){
     var isPlay=document.getElementById('eplay-'+p.id)?.classList.contains('btn-primary');
@@ -2242,7 +2244,114 @@ function computeTrends(playerId,games){var player=PLAYERS.find(function(p){retur
 // ══════════════════════════════════════════
 // TREND GRAPH
 // ══════════════════════════════════════════
-function drawTrendGraph(playerId,playerGames){var canvas=document.getElementById('trend-'+playerId);if(!canvas||!playerGames.length)return;var player=PLAYERS.find(function(p){return p.id===playerId;});var dpr=window.devicePixelRatio||1;var dW=canvas.offsetWidth||440;var dH=canvas.offsetHeight||160;canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.width=dW+'px';canvas.style.height=dH+'px';var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);var W=dW,H=dH;ctx.clearRect(0,0,W,H);var sorted=playerGames.slice().sort(function(a,b){return parseDate(a.date)-parseDate(b.date);});var scores=sorted.map(function(g){return calcGameScore(g.playerScores[playerId],player.role);});if(scores.every(function(s){return s===0;}))return;var valid=scores.filter(function(s){return s>0;});var minS=Math.max(0,Math.min.apply(null,valid)-1);var maxS=Math.min(10,Math.max.apply(null,valid)+1);var pad={t:10,b:28,l:28,r:12};var gW=W-pad.l-pad.r,gH=H-pad.t-pad.b;function xPos(i){return pad.l+(i/(scores.length-1||1))*gW;}function yPos(s){return pad.t+gH-((s-minS)/(maxS-minS||1))*gH;}[5,8].forEach(function(v){if(v<minS||v>maxS)return;var y=yPos(v);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1;ctx.stroke();ctx.font='9px DM Mono,monospace';ctx.fillStyle='rgba(255,255,255,0.25)';ctx.textAlign='right';ctx.fillText(v,pad.l-4,y+3);});ctx.beginPath();scores.forEach(function(s,i){var x=xPos(i),y=s>0?yPos(s):yPos(minS);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='rgba(244,244,240,0.7)';ctx.lineWidth=1.5;ctx.stroke();ctx.beginPath();scores.forEach(function(s,i){var x=xPos(i),y=s>0?yPos(s):yPos(minS);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.lineTo(xPos(scores.length-1),H-pad.b);ctx.lineTo(xPos(0),H-pad.b);ctx.closePath();ctx.fillStyle='rgba(244,244,240,0.05)';ctx.fill();scores.forEach(function(s,i){if(s<=0)return;var x=xPos(i),y=yPos(s);ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fillStyle='rgba(244,244,240,0.9)';ctx.fill();if(i===0||i===scores.length-1||i%3===0){var parts=sorted[i].date.split('/');ctx.font='8px DM Mono,monospace';ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='center';ctx.fillText(parts[0]+'/'+parts[1],x,H-pad.b+12);}});}
+function setTrendWindow(playerId,w){
+  window._trendWindow=w;
+  drawTrendGraph(playerId,w);
+  renderTrendMatchList(playerId,w);
+  // Update button states
+  var btns=document.querySelectorAll('.tier-mode-btn');
+  btns.forEach(function(b){if(['1W','2W','1M'].includes(b.textContent.trim()))b.classList.toggle('active',b.textContent.trim()===w);});
+}
+
+function getMatchesForWindow(w){
+  var now=new Date();
+  var days=w==='1W'?7:w==='2W'?14:30;
+  var cutoff=new Date(now-days*24*60*60*1000);
+  return (_cache.matches||[]).filter(function(m){return m.date&&parseDate(m.date)>=cutoff;});
+}
+
+function getMatchAvgScore(match,playerId){
+  var player=PLAYERS.find(function(p){return p.id===playerId;});
+  if(!player) return null;
+  var mGames=(_cache.games||[]).filter(function(g){return g.matchId===match.id;});
+  var played=mGames.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});
+  if(!played.length) return null;
+  var total=played.reduce(function(sum,g){return sum+calcGameScore(g.playerScores[playerId],player.role,g,playerId);},0);
+  return {avg:total/played.length,gamesPlayed:played.length,gamesTotal:mGames.length};
+}
+
+function renderTrendMatchList(playerId,w){
+  var el=document.getElementById('trend-match-list-'+playerId);
+  if(!el) return;
+  var matches=getMatchesForWindow(w).slice().sort(function(a,b){return parseDate(b.date)-parseDate(a.date);});
+  if(!matches.length){el.innerHTML='<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);padding:8px 0 4px;">No matches in this window</div>';return;}
+  el.innerHTML='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);padding:8px 0 6px;text-transform:uppercase;">Matches</div>'+
+    matches.map(function(m){
+      var stat=getMatchAvgScore(m,playerId);
+      if(!stat) return '';
+      var mGames=(_cache.games||[]).filter(function(g){return g.matchId===m.id;});
+      var wins=mGames.filter(function(g){return g.result==='Win';}).length;
+      var losses=mGames.length-wins;
+      var gr=stat.avg>0?scoreToGrade(stat.avg):null;
+      return '<div class="player-row" onclick="showMatchDetail(\''+m.id+'\')" style="padding:10px 0;">'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+m.name+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+
+            (m.date||'')+(mGames.length?' · '+wins+'–'+losses:'')+'</div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+stat.gamesPlayed+'/'+stat.gamesTotal+' G</div>'+
+          (gr?'<div class="grade '+gr.cls+'" style="font-size:16px;">'+gr.grade+'</div>':'')+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:10px;min-width:28px;text-align:right;">'+stat.avg.toFixed(1)+'</div>'+
+        '</div>'+
+      '</div>';
+    }).filter(Boolean).join('');
+}
+
+function drawTrendGraph(playerId,w){var canvas=document.getElementById('trend-'+playerId);
+  var player=PLAYERS.find(function(p){return p.id===playerId;});
+  if(!canvas||!player) return;
+  var dpr=window.devicePixelRatio||1;
+  var dW=canvas.offsetWidth||440;var dH=canvas.offsetHeight||160;
+  canvas.width=dW*dpr;canvas.height=dH*dpr;
+  canvas.style.width=dW+'px';canvas.style.height=dH+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  var W=dW,H=dH;ctx.clearRect(0,0,W,H);
+  // Build match data points
+  var matches=getMatchesForWindow(w||'1M').slice().sort(function(a,b){return parseDate(a.date)-parseDate(b.date);});
+  var points=matches.map(function(m){var s=getMatchAvgScore(m,playerId);return s?{label:m.date,avg:s.avg,gamesPlayed:s.gamesPlayed,gamesTotal:s.gamesTotal}:null;}).filter(Boolean);
+  if(!points.length){ctx.font='10px DM Mono,monospace';ctx.fillStyle='rgba(255,255,255,0.2)';ctx.textAlign='center';ctx.fillText('No match data in this window',W/2,H/2);return;}
+  // Fixed Y axis 0-10
+  var minS=0,maxS=10;
+  var pad={t:14,b:28,l:30,r:12};
+  var gW=W-pad.l-pad.r,gH=H-pad.t-pad.b;
+  function xPos(i){return pad.l+(i/(points.length-1||1))*gW;}
+  function yPos(s){return pad.t+gH-((s-minS)/(maxS-minS))*gH;}
+  // Grid lines at 2,4,6,8,10
+  [2,4,6,8,10].forEach(function(v){
+    var y=yPos(v);
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);
+    ctx.strokeStyle=v===6?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.05)';
+    ctx.lineWidth=1;ctx.stroke();
+    ctx.font='8px DM Mono,monospace';ctx.fillStyle='rgba(255,255,255,0.25)';
+    ctx.textAlign='right';ctx.fillText(v,pad.l-4,y+3);
+  });
+  // Fill under line
+  if(points.length>1){
+    ctx.beginPath();
+    points.forEach(function(p,i){var x=xPos(i),y=yPos(p.avg);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+    ctx.lineTo(xPos(points.length-1),H-pad.b);ctx.lineTo(xPos(0),H-pad.b);ctx.closePath();
+    ctx.fillStyle='rgba(244,244,240,0.04)';ctx.fill();
+  }
+  // Line
+  ctx.beginPath();
+  points.forEach(function(p,i){var x=xPos(i),y=yPos(p.avg);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+  ctx.strokeStyle='rgba(244,244,240,0.8)';ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.stroke();
+  // Dots + labels
+  points.forEach(function(p,i){
+    var x=xPos(i),y=yPos(p.avg);
+    var lowConf=p.gamesPlayed===1;
+    ctx.beginPath();ctx.arc(x,y,lowConf?3:4,0,Math.PI*2);
+    ctx.fillStyle=lowConf?'rgba(255,204,68,0.8)':'rgba(244,244,240,0.95)';ctx.fill();
+    if(lowConf){ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.strokeStyle='rgba(255,204,68,0.4)';ctx.lineWidth=1;ctx.stroke();}
+    // Date label — always show first and last, otherwise every other
+    if(i===0||i===points.length-1||(points.length<=6)||(i%2===0)){
+      var parts=p.label.split('/');
+      ctx.font='8px DM Mono,monospace';ctx.fillStyle='rgba(255,255,255,0.3)';
+      ctx.textAlign=i===0?'left':i===points.length-1?'right':'center';
+      ctx.fillText(parts[0]+'/'+parts[1],x,H-pad.b+12);
+    }
+  });}
 
 // ══════════════════════════════════════════
 // SESSION SUMMARY
