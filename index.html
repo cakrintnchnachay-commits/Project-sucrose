@@ -139,6 +139,21 @@ textarea.input{resize:vertical;min-height:70px;}
 .step-dot.active{background:var(--white);}
 .step-dot.done{background:var(--grey-5);}
 .step-dot.skipped{background:var(--grey-3);opacity:0.3;}
+.draft-side-wrap{display:flex;gap:8px;margin-bottom:16px;}
+.draft-side-btn{flex:1;padding:10px;border:var(--border);background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:2px;transition:all 0.15s;}
+.draft-side-btn.blue-on{border-color:rgba(68,119,255,0.6);background:rgba(68,119,255,0.12);color:#7799ff;}
+.draft-side-btn.red-on{border-color:rgba(255,68,68,0.6);background:rgba(255,68,68,0.12);color:#ff7777;}
+.draft-grid{border:var(--border);border-radius:2px;margin-bottom:20px;}
+.draft-col-headers{display:grid;grid-template-columns:1fr 1fr;border-bottom:var(--border);}
+.draft-col-hdr{padding:9px 10px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;text-align:center;}
+.draft-col-hdr.blue{color:#7799ff;border-right:var(--border);}
+.draft-col-hdr.red{color:#ff7777;}
+.draft-row{display:grid;grid-template-columns:1fr 1fr;border-bottom:var(--border);}
+.draft-row:last-child{border-bottom:none;}
+.draft-cell{padding:8px 10px;}
+.draft-cell.blue-cell{border-right:var(--border);}
+.draft-cell-role{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--grey-5);margin-bottom:4px;}
+.draft-cell-role.ours{color:var(--grey-6);}
 
 .play-skip-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0 16px;border-bottom:var(--border);margin-bottom:16px;}
 .play-skip-label{font-size:12px;color:var(--grey-5);}
@@ -575,10 +590,12 @@ textarea.input{resize:vertical;min-height:70px;}
       <button class="btn btn-full mt-8" onclick="openCreateMatchModal()">📋 Create Match First</button>
     </div>
     <div id="log-step-player" style="display:none;padding:0 20px 20px;"></div>
+    <div id="log-step-draft" style="display:none;padding:0 20px 20px;"></div>
     <div id="log-step-review" style="display:none;padding:0 20px 20px;">
       <div class="section-label" style="padding:0 0 12px;">Review &amp; Save</div>
       <div id="log-review-content"></div>
       <button class="btn btn-primary btn-full" onclick="saveGame()">Save Game</button>
+      <button class="btn btn-full mt-8" onclick="showDraftFromReview()">← Back to Draft</button>
       <button class="btn btn-full mt-8" onclick="resetLog()">Start Over</button>
     </div>
   </div>
@@ -1651,18 +1668,19 @@ function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.cei
 // ══════════════════════════════════════════
 // LOG GAME — V8 (match → mentality → games)
 // ══════════════════════════════════════════
-var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null};
+var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null,draft:null};
 
 function initLog(){
-  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null};
   document.getElementById('log-step-0').style.display='block';
   document.getElementById('log-step-player').style.display='none';
+  document.getElementById('log-step-draft').style.display='none';
   document.getElementById('log-step-review').style.display='none';
   buildDots();
 }
 
 function buildDots(){
-  var total=1+PLAYERS.length+1; // 0=details, 1..N=players, N+1=review
+  var total=1+PLAYERS.length+2; // 0=details, 1..N=players, N+1=draft, N+2=review
   document.getElementById('step-indicator').innerHTML=Array(total).fill(0).map(function(_,i){return '<div class="step-dot" id="sd-'+i+'"></div>';}).join('');
   updateDots();
 }
@@ -1793,9 +1811,8 @@ function logSavePlayer(){
     LS.step++;
     renderPlayerStep();
   } else {
-    LS.step=2+PLAYERS.length;
-    updateDots();
-    showReview();
+    LS.step=1+PLAYERS.length;
+    renderDraftStep();
   }
 }
 
@@ -1811,6 +1828,101 @@ function logPrev(){
     document.getElementById('log-step-0').style.display='block';
     updateDots();
   }
+}
+
+function renderDraftStep(){
+  if(!LS.draft) LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
+  // Auto-fill our picks from player scores (only fill empty slots)
+  GAME_ROLES.forEach(function(role,i){
+    if(LS.draft.ourPicks[i]) return;
+    var player=PLAYERS.find(function(p){return p.role===role&&!LS.skipped[p.id];});
+    if(player&&LS.scores[player.id]&&!LS.scores[player.id].skipped&&LS.scores[player.id].hero){
+      LS.draft.ourPicks[i]=LS.scores[player.id].hero;
+    }
+  });
+  updateDots();
+  document.getElementById('log-step-player').style.display='none';
+  var container=document.getElementById('log-step-draft');
+  container.style.display='block';
+  var isBlue=LS.draft.side==='Blue';
+  function buildCell(roleIdx,colColor,val,isOurs){
+    var role=GAME_ROLES[roleIdx];
+    var inpId='draft-'+colColor+'-inp-'+roleIdx;
+    var dropId='draft-'+colColor+'-drop-'+roleIdx;
+    return '<div class="draft-cell '+colColor+'-cell">'+
+      '<div class="draft-cell-role'+(isOurs?' ours':'')+'">'+role+(isOurs?' · auto':'')+'</div>'+
+      '<div class="hero-search-wrap" style="margin-bottom:0;">'+
+        '<input class="input" id="'+inpId+'" placeholder="Hero..." autocomplete="off" value="'+(val||'').replace(/"/g,'&quot;')+'" style="padding:7px 10px;font-size:12px;'+(isOurs?'color:var(--grey-6);':'')+'" oninput="filterHeroes(\''+inpId+'\',\''+dropId+'\')" onfocus="filterHeroes(\''+inpId+'\',\''+dropId+'\')"/>'+
+        '<div class="hero-dropdown" id="'+dropId+'"></div>'+
+      '</div>'+
+    '</div>';
+  }
+  var rows=GAME_ROLES.map(function(_,i){
+    var blueVal=isBlue?LS.draft.ourPicks[i]:LS.draft.oppPicks[i];
+    var redVal=isBlue?LS.draft.oppPicks[i]:LS.draft.ourPicks[i];
+    return '<div class="draft-row">'+buildCell(i,'blue',blueVal,isBlue)+buildCell(i,'red',redVal,!isBlue)+'</div>';
+  }).join('');
+  container.innerHTML=
+    '<div class="section-label" style="padding:0 0 12px;">Draft Record</div>'+
+    '<div class="input-group" style="margin-bottom:4px;"><label class="input-label">Drafting Side</label></div>'+
+    '<div class="draft-side-wrap">'+
+      '<button class="draft-side-btn'+(isBlue?' blue-on':'')+'" onclick="setDraftSide(\'Blue\')">🔵 Blue Side</button>'+
+      '<button class="draft-side-btn'+(!isBlue?' red-on':'')+'" onclick="setDraftSide(\'Red\')">🔴 Red Side</button>'+
+    '</div>'+
+    '<div class="draft-grid">'+
+      '<div class="draft-col-headers">'+
+        '<div class="draft-col-hdr blue">🔵 Blue'+(isBlue?' · Ours':'')+'</div>'+
+        '<div class="draft-col-hdr red">🔴 Red'+(!isBlue?' · Ours':'')+'</div>'+
+      '</div>'+
+      rows+
+    '</div>'+
+    '<div style="display:flex;gap:10px;">'+
+      '<button class="btn" style="flex:1;" onclick="logDraftPrev()">&#x2190; Back</button>'+
+      '<button class="btn btn-primary" style="flex:2;" onclick="saveDraftAndReview()">Review &#x2192;</button>'+
+    '</div>';
+}
+
+function saveDraftInputs(){
+  var isBlue=LS.draft&&LS.draft.side==='Blue';
+  GAME_ROLES.forEach(function(_,i){
+    var blueInp=document.getElementById('draft-blue-inp-'+i);
+    var redInp=document.getElementById('draft-red-inp-'+i);
+    if(!LS.draft) return;
+    if(isBlue){
+      if(blueInp) LS.draft.ourPicks[i]=blueInp.value;
+      if(redInp) LS.draft.oppPicks[i]=redInp.value;
+    } else {
+      if(redInp) LS.draft.ourPicks[i]=redInp.value;
+      if(blueInp) LS.draft.oppPicks[i]=blueInp.value;
+    }
+  });
+}
+
+function setDraftSide(side){
+  saveDraftInputs();
+  if(LS.draft) LS.draft.side=side;
+  renderDraftStep();
+}
+
+function logDraftPrev(){
+  saveDraftInputs();
+  document.getElementById('log-step-draft').style.display='none';
+  LS.idx=PLAYERS.length-1;
+  LS.step=PLAYERS.length;
+  renderPlayerStep();
+}
+
+function saveDraftAndReview(){
+  saveDraftInputs();
+  document.getElementById('log-step-draft').style.display='none';
+  LS.step=PLAYERS.length+2;
+  showReview();
+}
+
+function showDraftFromReview(){
+  document.getElementById('log-step-review').style.display='none';
+  LS.step=PLAYERS.length+1;
+  renderDraftStep();
 }
 
 function showReview(){
@@ -1830,6 +1942,34 @@ function showReview(){
       '<div style="text-align:right;">'+(g?'<div class="grade '+g.cls+'" style="font-size:18px;">'+g.grade+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+score.toFixed(1)+'/10</div>':'<div style="color:var(--grey-5);">--</div>')+'</div>'+
     '</div>';
   }).join('');
+  var draftHtml='';
+  if(LS.draft){
+    var d=LS.draft;
+    var isBlueD=d.side==='Blue';
+    var draftRows=GAME_ROLES.map(function(role,i){
+      var ourHero=d.ourPicks[i]||'--';
+      var oppHero=d.oppPicks[i]||'--';
+      var blueHero=isBlueD?ourHero:oppHero;
+      var redHero=isBlueD?oppHero:ourHero;
+      return '<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:5px 0;border-bottom:var(--border);">'+
+        '<div style="font-size:12px;'+(isBlueD?'font-weight:500;':'color:var(--grey-5);')+'">'+blueHero+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-4);text-transform:uppercase;text-align:center;min-width:52px;">'+role+'</div>'+
+        '<div style="font-size:12px;text-align:right;'+(isBlueD?'color:var(--grey-5);':'font-weight:500;')+'">'+redHero+'</div>'+
+      '</div>';
+    }).join('');
+    draftHtml='<div class="card" style="margin:0 0 16px;"><div class="card-body">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);">Draft</div>'+
+        '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:'+(isBlueD?'#7799ff':'#ff7777')+';">'+(isBlueD?'🔵 Blue Side':'🔴 Red Side')+'</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:6px;">'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#7799ff;">🔵 Blue'+(isBlueD?' · Ours':'')+'</div>'+
+        '<div></div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#ff7777;text-align:right;">🔴 Red'+(!isBlueD?' · Ours':'')+'</div>'+
+      '</div>'+
+      draftRows+
+    '</div></div>';
+  }
   document.getElementById('log-review-content').innerHTML=
     '<div class="card" style="margin:0 0 16px;"><div class="card-body">'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'+
@@ -1838,7 +1978,7 @@ function showReview(){
         (m.oppTier?'<span class="tag tag-role">'+m.oppTier+'</span>':'')+
       '</div>'+
       '<div style="font-size:12px;color:var(--grey-5);">Game '+m.gameNum+' · '+m.date+(m.opponent?' · vs '+m.opponent:'')+'</div>'+
-    '</div></div>'+rows+'<div style="height:16px;"></div>';
+    '</div></div>'+draftHtml+rows+'<div style="height:16px;"></div>';
 }
 
 async function saveGame(){
@@ -1850,6 +1990,7 @@ async function saveGame(){
     matchMentality:{},
     matchId:linkedMatchId,
     mvpPlayerId:mvpId||null,
+    draft:LS.draft||null,
     savedAt:new Date().toISOString(),
   });
   try{
@@ -1862,9 +2003,10 @@ async function saveGame(){
 }
 
 function resetLog(){
-  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null};
   document.getElementById('log-step-0').style.display='block';
   document.getElementById('log-step-player').style.display='none';
+  document.getElementById('log-step-draft').style.display='none';
   document.getElementById('log-step-review').style.display='none';
   ['log-opponent','log-vod','log-game-name'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
   var gn=document.getElementById('log-game-num');if(gn)gn.value='1';
