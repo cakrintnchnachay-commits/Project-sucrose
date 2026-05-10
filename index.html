@@ -226,6 +226,22 @@ textarea.input{resize:vertical;min-height:70px;}
   .modal-overlay{align-items:center;}
   .modal{border-radius:4px;border-bottom:var(--border);max-width:520px;max-height:85vh;}
 }
+/* BOOK MODAL — edit game */
+.modal-book{overflow:hidden !important;display:flex;flex-direction:column;max-height:92vh;}
+@media(min-width:768px){.modal-book{max-height:85vh;}}
+.modal-book .modal-body{overflow:hidden;flex:1;display:flex;flex-direction:column;padding:0;min-height:0;}
+.book-layout{display:flex;flex:1;overflow:hidden;min-height:0;}
+.book-tabs{width:54px;flex-shrink:0;border-right:var(--border);background:var(--black);display:flex;flex-direction:column;}
+.book-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px;border:none;background:none;color:var(--grey-5);cursor:pointer;font-family:'DM Mono',monospace;font-size:6px;letter-spacing:1px;text-transform:uppercase;border-bottom:var(--border);transition:all 0.15s;}
+.book-tab:last-child{border-bottom:none;}
+.book-tab.active{background:var(--grey-1);color:var(--white);box-shadow:inset 3px 0 0 var(--white);}
+.book-tab-num{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;line-height:1;}
+.book-content{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
+.book-panel{display:none;padding:16px 16px 8px;}
+.book-panel.active{display:block;}
+.book-footer{padding:14px 16px;border-top:var(--border);background:var(--grey-1);flex-shrink:0;}
+.edit-player-chip{padding:6px 10px;border:var(--border);background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-radius:2px;transition:all 0.15s;white-space:nowrap;}
+.edit-player-chip.active{background:var(--white);color:var(--black);border-color:var(--white);}
 .modal-header{padding:18px 20px;border-bottom:var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--grey-1);z-index:1;}
 .modal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;}
 .modal-close{background:none;border:none;color:var(--grey-5);cursor:pointer;font-size:20px;line-height:1;}
@@ -751,7 +767,7 @@ textarea.input{resize:vertical;min-height:70px;}
 
 <!-- MODALS -->
 <div class="modal-overlay" id="edit-modal">
-  <div class="modal">
+  <div class="modal modal-book">
     <div class="modal-header"><div class="modal-title" id="edit-modal-title">EDIT GAME</div><button class="modal-close" onclick="closeModal('edit-modal')">&#x2715;</button></div>
     <div class="modal-body" id="edit-modal-body"></div>
   </div>
@@ -2258,64 +2274,198 @@ function renderHistory(){
 // ══════════════════════════════════════════
 function openEditModal(gameId){
   var data=loadData();var game=data.games.find(function(g){return g.id===gameId;});if(!game)return;
-  document.getElementById('edit-modal-title').textContent='EDIT GAME '+game.gameNum+(game.opponent?' · vs '+game.opponent:'');
-  var matchMent=game.matchMentality||{};
-  // Match mentality panel — all active players
-  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  var mentalityPanel='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:12px;">MATCH MENTALITY <span style="color:var(--grey-4);font-size:8px;letter-spacing:0;">· rated once per match</span></div>'+
-    activePlayers.map(function(p){
-      var m=matchMent[p.id]||{};
-      return '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:var(--border);"><div style="font-size:11px;font-weight:600;margin-bottom:8px;">'+p.nick+'</div>'+
-        MENTALITY_CRITERIA.map(function(c){return makeSlider(c,m[c.key],'ement-'+p.id);}).join('')+
-      '</div>';
-    }).join('')+
-  '<div class="divider"></div>';
-  // Per-player game scoring (no mentality)
-  var psec=PLAYERS.map(function(p){
+  window._editGameId=gameId;
+  window._editMvpId=game.mvpPlayerId||null;
+  var d=game.draft||{side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
+  window._editDraftSide=d.side||'Blue';
+  document.getElementById('edit-modal-title').textContent='EDIT GAME '+(game.gameNum||1)+(game.opponent?' · vs '+game.opponent:'');
+
+  // ── Panel 1: Game Info ──
+  var infoPanel=
+    '<div class="input-group"><label class="input-label">Game Name</label><input class="input" id="edit-gamename" value="'+(game.gameName||'')+'" placeholder="e.g. vs Team Phoenix – Game 1"/></div>'+
+    '<div class="row">'+
+      '<div class="input-group mb-0"><label class="input-label">Game No.</label><input class="input" id="edit-gamenum" type="number" min="1" max="20" value="'+(game.gameNum||1)+'"/></div>'+
+      '<div class="input-group mb-0"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div>'+
+    '</div>'+
+    '<div class="row mt-16">'+
+      '<div class="input-group mb-0"><label class="input-label">Type</label><select class="input" id="edit-type"><option value="Scrim"'+(game.type==='Scrim'?' selected':'')+'>Scrim</option><option value="Tournament"'+(game.type==='Tournament'?' selected':'')+'>Tournament</option></select></div>'+
+      '<div class="input-group mb-0"><label class="input-label">Date</label><input class="input" id="edit-date" type="date" value="'+dateToIso(game.date)+'"/></div>'+
+    '</div>'+
+    '<div class="input-group mt-16"><label class="input-label">Opponent</label><input class="input" id="edit-opponent" value="'+(game.opponent||'')+'" placeholder="e.g. Team Phoenix"/></div>'+
+    '<div class="input-group"><label class="input-label">Opponent Tier</label><select class="input" id="edit-opptier"><option value="">Unknown</option>'+
+      ['A','A+','S-','S','S+'].map(function(t){var l={A:'A -- Full IC','A+':'A+ -- Strong IC/GR','S-':'S- -- 3-5 GR','S':'S -- Strong GR','S+':'S+ -- Semi-pro'};return '<option value="'+t+'"'+(game.oppTier===t?' selected':'')+'>'+l[t]+'</option>';}).join('')+
+    '</select></div>'+
+    '<div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod" style="min-height:60px;">'+(game.vod||'')+'</textarea></div>';
+
+  // ── Panel 2: Player Scores ──
+  var playerChips=PLAYERS.map(function(p,i){
+    return '<button class="edit-player-chip'+(i===0?' active':'')+'" data-pid="'+p.id+'" onclick="editBookSelectPlayer(\''+p.id+'\')">'+p.nick+'</button>';
+  }).join('');
+  var playerForms=PLAYERS.map(function(p,i){
     var s=game.playerScores&&game.playerScores[p.id]||{};
-    var isSkipped=!!s.skipped;
-    var isMVP=game.mvpPlayerId===p.id;
-    var rc=ROLE_CRITERIA[p.role]||[];
-    return '<div id="esec-'+p.id+'" style="border-bottom:var(--border);padding-bottom:16px;margin-bottom:16px;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
+    var isSkipped=!!s.skipped;var isMVP=game.mvpPlayerId===p.id;var rc=ROLE_CRITERIA[p.role]||[];
+    return '<div class="edit-player-section" data-pid="'+p.id+'" style="display:'+(i===0?'block':'none')+';">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'+
         '<div class="player-avatar" style="width:28px;height:28px;font-size:11px;">'+p.nick[0]+'</div>'+
-        '<div style="font-size:13px;font-weight:600;">'+p.nick+'</div>'+
-        '<span class="tag tag-role" style="font-size:8px;">'+p.role+'</span>'+
+        '<div><div style="font-size:13px;font-weight:600;">'+p.nick+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.ign+' · '+p.role+'</div></div>'+
         '<button class="btn btn-sm '+(isMVP?'btn-primary':'btn-muted')+'" id="emvp-'+p.id+'" style="margin-left:auto;" onclick="editToggleMVP(\''+gameId+'\',\''+p.id+'\')">'+
           (isMVP?'⭐ MVP':'MVP?')+
         '</button>'+
       '</div>'+
-      '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
+      '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
         '<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="eplay-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',false)">Playing</button>'+
         '<button class="btn btn-sm btn-muted" id="eskip-'+p.id+'" onclick="editSetSkip(\''+gameId+'\',\''+p.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button>'+
       '</div>'+
       '<div id="efields-'+p.id+'" style="display:'+(isSkipped?'none':'block')+';">'+
-        '<div id="ehero-wrap-'+p.id+'" style="margin-bottom:4px;"></div>'+
+        '<div id="ehero-wrap-'+p.id+'"></div>'+
         '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
         '<div class="score-sec">Role Performance <span>· '+p.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
         '<div class="input-group mb-0"><label class="input-label">Comment</label><textarea class="input" id="ecomment-'+p.id+'" style="min-height:44px;">'+(s.comment||'')+'</textarea></div>'+
       '</div>'+
     '</div>';
   }).join('');
+  var scoresPanel=
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:14px;border-bottom:var(--border);">'+playerChips+'</div>'+
+    playerForms;
+
+  // ── Panel 3: Draft ──
+  var draftPanel=buildEditDraftPanel(d.side||'Blue',d.ourPicks||[],d.oppPicks||[]);
+
+  // ── Panel 4: Summary ──
+  var summaryPanel=buildEditSummaryPanel(game);
+
+  // ── Full layout ──
   document.getElementById('edit-modal-body').innerHTML=
-    '<div class="row">'+
-      '<div class="input-group mb-0"><label class="input-label">Game No.</label><input class="input" id="edit-gamenum" type="number" min="1" max="20" value="'+(game.gameNum||1)+'"/></div>'+
-      '<div class="input-group mb-0"><label class="input-label">Result</label><select class="input" id="edit-result"><option '+(game.result==='Win'?'selected':'')+'>Win</option><option '+(game.result==='Loss'?'selected':'')+'>Loss</option></select></div>'+
+    '<div class="book-layout">'+
+      '<div class="book-tabs">'+
+        '<button class="book-tab active" data-tab="info" onclick="switchBookTab(\'info\')"><span class="book-tab-num">1</span><span>INFO</span></button>'+
+        '<button class="book-tab" data-tab="scores" onclick="switchBookTab(\'scores\')"><span class="book-tab-num">2</span><span>SCORES</span></button>'+
+        '<button class="book-tab" data-tab="draft" onclick="switchBookTab(\'draft\')"><span class="book-tab-num">3</span><span>DRAFT</span></button>'+
+        '<button class="book-tab" data-tab="summary" onclick="switchBookTab(\'summary\')"><span class="book-tab-num">4</span><span>SUMMARY</span></button>'+
+      '</div>'+
+      '<div class="book-content">'+
+        '<div class="book-panel active" id="bpanel-info">'+infoPanel+'</div>'+
+        '<div class="book-panel" id="bpanel-scores">'+scoresPanel+'</div>'+
+        '<div class="book-panel" id="bpanel-draft">'+draftPanel+'</div>'+
+        '<div class="book-panel" id="bpanel-summary">'+summaryPanel+'</div>'+
+      '</div>'+
     '</div>'+
-    '<div class="input-group mt-16"><label class="input-label">Game Name</label><input class="input" id="edit-gamename" value="'+(game.gameName||'')+'" placeholder="e.g. vs Team Phoenix – Game 1"/></div>'+
-    '<div class="input-group"><label class="input-label">Match Date</label><input class="input" id="edit-date" type="date" value="'+dateToIso(game.date)+'"/></div>'+
-    '<div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod">'+(game.vod||'')+'</textarea></div>'+
-    '<div class="divider"></div>'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin-bottom:16px;">PLAYER SCORES</div>'+
-    psec+
-    '<div style="display:flex;gap:10px;margin-top:4px;">'+
-      '<button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')"  >Delete Game</button>'+
-      '<button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')"  >Save Changes</button>'+
-    '</div>'+
-    '<div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')"  >Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')"  >Yes, Delete</button></div></div>';
-  window._editMvpId=game.mvpPlayerId||null;
+    '<div class="book-footer">'+
+      '<div style="display:flex;gap:10px;">'+
+        '<button class="btn btn-danger btn-sm" onclick="showInlineDelete(\''+gameId+'\')">Delete</button>'+
+        '<button class="btn btn-primary" style="flex:1;" onclick="saveEdit(\''+gameId+'\')">Save Changes</button>'+
+      '</div>'+
+      '<div class="inline-confirm" id="inline-del-'+gameId+'"><div class="inline-confirm-text">Delete this game permanently? Cannot be undone.</div><div class="inline-confirm-btns"><button class="btn btn-sm btn-muted" onclick="hideInlineDelete(\''+gameId+'\')">Cancel</button><button class="btn btn-sm btn-danger" onclick="deleteGame(\''+gameId+'\')">Yes, Delete</button></div></div>'+
+    '</div>';
+
   document.getElementById('edit-modal').classList.add('open');
   PLAYERS.forEach(function(p){var s=game.playerScores&&game.playerScores[p.id]||{};if(!s.skipped)buildHeroInput('ehero-wrap-'+p.id,'ehero-'+p.id,'eherodrop-'+p.id,s.hero||'');});
+}
+
+function switchBookTab(tab){
+  document.querySelectorAll('.book-tab').forEach(function(b){b.classList.toggle('active',b.dataset.tab===tab);});
+  document.querySelectorAll('.book-panel').forEach(function(p){p.classList.toggle('active',p.id==='bpanel-'+tab);});
+}
+
+function editBookSelectPlayer(pid){
+  document.querySelectorAll('.edit-player-chip').forEach(function(c){c.classList.toggle('active',c.dataset.pid===pid);});
+  document.querySelectorAll('.edit-player-section').forEach(function(s){s.style.display=s.dataset.pid===pid?'block':'none';});
+}
+
+function buildEditDraftPanel(side,ourPicks,oppPicks){
+  var isBlue=side==='Blue';
+  function buildCell(i,colColor,val,isOurs){
+    var role=GAME_ROLES[i];var inpId='ed-'+colColor+'-inp-'+i;var dropId='ed-'+colColor+'-drop-'+i;
+    return '<div class="draft-cell '+colColor+'-cell">'+
+      '<div class="draft-cell-role'+(isOurs?' ours':'')+'">'+role+(isOurs?' · our pick':'')+'</div>'+
+      '<div class="hero-search-wrap" style="margin-bottom:0;">'+
+        '<input class="input" id="'+inpId+'" placeholder="Hero..." autocomplete="off" value="'+(val||'').replace(/"/g,'&quot;')+'" style="padding:7px 10px;font-size:12px;'+(isOurs?'color:var(--grey-6);':'')+'" oninput="filterHeroes(\''+inpId+'\',\''+dropId+'\')" onfocus="filterHeroes(\''+inpId+'\',\''+dropId+'\')"/>'+
+        '<div class="hero-dropdown" id="'+dropId+'"></div>'+
+      '</div>'+
+    '</div>';
+  }
+  var rows=GAME_ROLES.map(function(_,i){
+    var blueVal=isBlue?(ourPicks[i]||''):(oppPicks[i]||'');
+    var redVal=isBlue?(oppPicks[i]||''):(ourPicks[i]||'');
+    return '<div class="draft-row">'+buildCell(i,'blue',blueVal,isBlue)+buildCell(i,'red',redVal,!isBlue)+'</div>';
+  }).join('');
+  return '<div class="input-group" style="margin-bottom:4px;"><label class="input-label">Drafting Side</label></div>'+
+    '<div class="draft-side-wrap">'+
+      '<button class="draft-side-btn'+(isBlue?' blue-on':'')+'" onclick="setEditDraftSide(\'Blue\')">🔵 Blue Side</button>'+
+      '<button class="draft-side-btn'+(!isBlue?' red-on':'')+'" onclick="setEditDraftSide(\'Red\')">🔴 Red Side</button>'+
+    '</div>'+
+    '<div class="draft-grid">'+
+      '<div class="draft-col-headers">'+
+        '<div class="draft-col-hdr blue">🔵 Blue'+(isBlue?' · Ours':'')+'</div>'+
+        '<div class="draft-col-hdr red">🔴 Red'+(!isBlue?' · Ours':'')+'</div>'+
+      '</div>'+rows+
+    '</div>';
+}
+
+function setEditDraftSide(side){
+  var wasBlue=(window._editDraftSide||'Blue')==='Blue';
+  var blueVals=GAME_ROLES.map(function(_,i){var el=document.getElementById('ed-blue-inp-'+i);return el?el.value:'';});
+  var redVals=GAME_ROLES.map(function(_,i){var el=document.getElementById('ed-red-inp-'+i);return el?el.value:'';});
+  var ourPicks=wasBlue?blueVals:redVals;
+  var oppPicks=wasBlue?redVals:blueVals;
+  window._editDraftSide=side;
+  var panel=document.getElementById('bpanel-draft');
+  if(panel) panel.innerHTML=buildEditDraftPanel(side,ourPicks,oppPicks);
+}
+
+function buildEditSummaryPanel(game){
+  var d=game.draft;var isBlue=d&&d.side==='Blue';
+  var gameCard='<div class="card" style="margin:0 0 12px;"><div class="card-body">'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'+
+      '<span class="tag '+(game.type==='Tournament'?'tag-tourney':'tag-role')+'">'+(game.type||'Scrim')+'</span>'+
+      '<span class="tag '+(game.result==='Win'?'tag-win':'tag-loss')+'">'+game.result+'</span>'+
+      (game.oppTier?'<span class="tag tag-role">'+game.oppTier+'</span>':'')+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--grey-5);">Game '+(game.gameNum||1)+' · '+game.date+(game.opponent?' · vs '+game.opponent:'')+'</div>'+
+  '</div></div>';
+  var draftCard='';
+  if(d){
+    var drows=GAME_ROLES.map(function(role,i){
+      var ourH=d.ourPicks&&d.ourPicks[i]||'--';var oppH=d.oppPicks&&d.oppPicks[i]||'--';
+      var blueH=isBlue?ourH:oppH;var redH=isBlue?oppH:ourH;
+      return '<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:5px 0;border-bottom:var(--border);">'+
+        '<div style="font-size:12px;'+(isBlue?'font-weight:500;':'color:var(--grey-5);')+'">'+blueH+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-4);text-align:center;text-transform:uppercase;min-width:50px;">'+role+'</div>'+
+        '<div style="font-size:12px;text-align:right;'+(isBlue?'color:var(--grey-5);':'font-weight:500;')+'">'+redH+'</div>'+
+      '</div>';
+    }).join('');
+    draftCard='<div class="card" style="margin:0 0 12px;"><div class="card-body">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);">Draft</div>'+
+        '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:'+(isBlue?'#7799ff':'#ff7777')+';">'+(isBlue?'🔵 Blue Side':'🔴 Red Side')+'</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr auto 1fr;margin-bottom:6px;">'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;text-transform:uppercase;color:#7799ff;">🔵'+(isBlue?' · Ours':'')+'</div>'+
+        '<div></div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;text-transform:uppercase;color:#ff7777;text-align:right;">🔴'+(!isBlue?' · Ours':'')+'</div>'+
+      '</div>'+drows+
+    '</div></div>';
+  }
+  var playerRows=PLAYERS.map(function(p){
+    var s=game.playerScores&&game.playerScores[p.id]||{};
+    if(s.skipped) return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:var(--border);opacity:0.4;">'+
+      '<div class="player-avatar" style="width:26px;height:26px;font-size:10px;">'+p.nick[0]+'</div>'+
+      '<div style="flex:1;font-size:12px;color:var(--grey-5);">'+p.nick+'</div><span class="tag tag-dnp">DNP</span></div>';
+    var score=calcGameScore(s,p.role,null,p.id);var g=score>0?scoreToGrade(score):null;
+    var isMVP=game.mvpPlayerId===p.id;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:var(--border);">'+
+      '<div class="player-avatar" style="width:26px;height:26px;font-size:10px;">'+p.nick[0]+'</div>'+
+      '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+p.nick+(isMVP?' ⭐':'')+
+        ' <span style="color:var(--grey-5);font-weight:400;">'+(s.hero||'--')+'</span></div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</div></div>'+
+      (g?'<div class="grade '+g.cls+'" style="font-size:16px;">'+g.grade+'</div>':'<div style="color:var(--grey-5);">--</div>')+
+    '</div>';
+  }).join('');
+  return '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);margin-bottom:10px;">Overview</div>'+
+    gameCard+draftCard+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);margin:10px 0 8px;">Players</div>'+
+    playerRows;
 }
 
 function editToggleMVP(gameId,playerId){
@@ -2341,14 +2491,22 @@ async function saveEdit(gameId){
   var idx=_cache.games.findIndex(function(g){return g.id===gameId;});if(idx===-1)return;
   var newDateIso=document.getElementById('edit-date')?.value;
   if(newDateIso) _cache.games[idx].date=isoToDate(newDateIso);
-  _cache.games[idx].result=document.getElementById('edit-result').value;
-  _cache.games[idx].vod=document.getElementById('edit-vod').value;
+  _cache.games[idx].result=document.getElementById('edit-result')?.value||_cache.games[idx].result;
+  _cache.games[idx].vod=document.getElementById('edit-vod')?.value||'';
   _cache.games[idx].mvpPlayerId=window._editMvpId||null;
   var gnEl=document.getElementById('edit-gamenum');
   if(gnEl&&gnEl.value) _cache.games[idx].gameNum=parseInt(gnEl.value)||_cache.games[idx].gameNum;
   var gnameEl=document.getElementById('edit-gamename');
   if(gnameEl) _cache.games[idx].gameName=gnameEl.value.trim()||_cache.games[idx].gameName;
-  // Save player scores (game sense + role only, no mentality)
+  var typeEl=document.getElementById('edit-type');if(typeEl)_cache.games[idx].type=typeEl.value;
+  var oppEl=document.getElementById('edit-opponent');if(oppEl)_cache.games[idx].opponent=oppEl.value;
+  var oppTierEl=document.getElementById('edit-opptier');if(oppTierEl)_cache.games[idx].oppTier=oppTierEl.value;
+  // Save draft
+  var draftSide=window._editDraftSide||'Blue';var wasBlue=draftSide==='Blue';
+  var blueVals=GAME_ROLES.map(function(_,i){var el=document.getElementById('ed-blue-inp-'+i);return el?el.value:'';});
+  var redVals=GAME_ROLES.map(function(_,i){var el=document.getElementById('ed-red-inp-'+i);return el?el.value:'';});
+  _cache.games[idx].draft={side:draftSide,ourPicks:wasBlue?blueVals:redVals,oppPicks:wasBlue?redVals:blueVals};
+  // Save player scores
   PLAYERS.forEach(function(p){
     var isPlay=document.getElementById('eplay-'+p.id)?.classList.contains('btn-primary');
     if(!isPlay){_cache.games[idx].playerScores[p.id]={skipped:true};}
@@ -2357,13 +2515,15 @@ async function saveEdit(gameId){
       var allC=[...GAME_SENSE_CRITERIA,...roleCriteria];
       var heroEl=document.getElementById('ehero-'+p.id);
       var heroVal=heroEl?heroEl.value.trim():'';
-      var s={hero:heroVal,comment:document.getElementById('ecomment-'+p.id)?.value||''};
+      var existingMvp=_cache.games[idx].playerScores[p.id]?.mvp||false;
+      var s={hero:heroVal,comment:document.getElementById('ecomment-'+p.id)?.value||'',mvp:existingMvp};
       allC.forEach(function(c){var sl=document.getElementById('esl-'+p.id+'-'+c.key);if(sl)s[c.key]=parseFloat(sl.value);});
       _cache.games[idx].playerScores[p.id]=s;
     }
   });
   try{await sbSaveGame(_cache.games[idx]);}catch(e){showToast('Save failed: '+e.message);return;}
   closeModal('edit-modal');showToast('Changes saved');renderHistory();renderHome();
+  if(window._currentProfileId)showProfile(window._currentProfileId);
 }
 async function deleteGame(gameId){
   await sbDeleteGame(gameId);
