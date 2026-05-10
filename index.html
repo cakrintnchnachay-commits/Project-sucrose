@@ -506,21 +506,21 @@ textarea.input{resize:vertical;min-height:70px;}
       <div class="quick-stat"><div class="quick-stat-val" id="qs-sessions">--</div><div class="quick-stat-label">Sessions</div></div>
       <div class="quick-stat"><div class="quick-stat-val" id="qs-winrate">--</div><div class="quick-stat-label">Win Rate</div></div>
     </div>
-    <div class="section-label">Quick Actions</div>
-    <div style="padding:0 20px;display:flex;flex-direction:column;gap:10px;">
-      <button class="btn btn-primary btn-full" onclick="showPage('page-log')">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        Log New Game
-      </button>
-      <button class="btn btn-full" onclick="showPage('page-roster')">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
-        View Roster
-      </button>
-    </div>
     <div class="section-label" style="margin-top:12px;">Recent Sessions</div>
     <div id="home-sessions"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No sessions logged yet</div></div></div>
     <div class="section-label" style="margin-top:4px;">Team Overview <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· LAST 30 DAYS</span></div>
     <div id="home-team-summary"></div>
+    <div class="section-label" style="margin-top:4px;">Quick Actions</div>
+    <div style="padding:0 20px 24px;display:flex;flex-direction:column;gap:10px;">
+      <button class="btn btn-primary btn-full" onclick="showPage('page-log')">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Log New Game
+      </button>
+      <button class="btn btn-full" onclick="openCreateMatchModal()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Create Match
+      </button>
+    </div>
   </div>
 
   <!-- LOG -->
@@ -839,6 +839,14 @@ textarea.input{resize:vertical;min-height:70px;}
   <div class="modal">
     <div class="modal-header"><div class="modal-title">ASSIGN GAME</div><button class="modal-close" onclick="closeModal('assign-game-modal')">&#x2715;</button></div>
     <div class="modal-body" id="assign-game-body"></div>
+  </div>
+</div>
+
+<!-- RATE MENTALITY MODAL -->
+<div class="modal-overlay" id="rate-mentality-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">RATE MENTALITY</div><button class="modal-close" onclick="closeModal('rate-mentality-modal')">&#x2715;</button></div>
+    <div class="modal-body" id="rate-mentality-body"></div>
   </div>
 </div>
 
@@ -2737,18 +2745,56 @@ function showMatchDetail(matchId){
   var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
   var wins=mGames.filter(function(g){return g.result==='Win';}).length;
   var losses=mGames.length-wins;
-  // Build mentality display — aggregate from games (show last game's mentality as current)
-  var lastGame=mGames.length?mGames[mGames.length-1]:null;
-  var mentality=lastGame&&lastGame.matchMentality||{};
   var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
-  var mentalityHtml=activePlayers.map(function(p){
-    var m=mentality[p.id]||{};
-    var hasData=MENTALITY_CRITERIA.some(function(c){return m[c.key]>0;});
-    if(!hasData) return '<div class="match-mentality-player"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:12px;font-weight:600;">'+p.nick+'</span><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">Not rated</span></div></div>';
-    var bars=MENTALITY_CRITERIA.map(function(c){var v=m[c.key]||0;return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><div style="font-size:10px;color:var(--grey-6);width:100px;flex-shrink:0;">'+c.label+'</div><div style="flex:1;height:2px;background:var(--grey-3);"><div style="height:100%;width:'+(v/5*100)+'%;background:var(--white);"></div></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;width:16px;text-align:right;">'+v+'</div></div>';}).join('');
-    return '<div class="match-mentality-player"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">'+p.nick+'</div>'+bars+'</div>';
-  }).join('');
-  // Game rows
+
+  // ── Series trend bar (W/L dots in order) ──
+  var trendHtml='';
+  if(mGames.length){
+    trendHtml='<div style="display:flex;gap:6px;align-items:center;margin-top:12px;flex-wrap:wrap;">'+
+      mGames.map(function(g){
+        var isWin=g.result==='Win';
+        return '<div title="Game '+g.gameNum+' · '+g.result+'" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:\'DM Mono\',monospace;font-size:9px;font-weight:700;'+
+          (isWin?'background:rgba(68,255,136,0.15);border:1px solid rgba(68,255,136,0.5);color:var(--success);':'background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);color:var(--danger);')+
+          '">'+g.gameNum+'</div>';
+      }).join('<div style="width:12px;height:1px;background:var(--grey-3);"></div>')+
+    '</div>';
+  }
+
+  // ── Player summary table (avg score + avg mentality per player) ──
+  var playerSummaryHtml='';
+  if(mGames.length && activePlayers.length){
+    var rows=activePlayers.map(function(p){
+      var played=mGames.filter(function(g){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+      if(!played.length) return null;
+      var avgScore=played.map(function(g){return calcGameScore(g.playerScores[p.id],p.role,g,p.id);}).reduce(function(a,b){return a+b;},0)/played.length;
+      // avg mentality across games that have matchMentality data
+      var mentVals=played.map(function(g){
+        var mentObj=g.matchMentality&&g.matchMentality[p.id]?g.matchMentality[p.id]:null;
+        return mentObj?calcMentality(g.playerScores[p.id],mentObj):null;
+      }).filter(function(v){return v!==null;});
+      var avgMent=mentVals.length?mentVals.reduce(function(a,b){return a+b;},0)/mentVals.length:null;
+      var grd=scoreToGrade(avgScore);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:var(--border);">'+
+        '<div style="font-size:13px;font-weight:600;width:48px;flex-shrink:0;">'+p.nick+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);width:38px;flex-shrink:0;">'+p.role.substring(0,3).toUpperCase()+'</div>'+
+        '<div style="flex:1;">'+
+          '<div style="font-size:9px;color:var(--grey-5);font-family:\'DM Mono\',monospace;margin-bottom:3px;">AVG SCORE</div>'+
+          '<div style="height:2px;background:var(--grey-3);"><div style="height:100%;width:'+(Math.min(avgScore/10,1)*100)+'%;background:var(--white);"></div></div>'+
+        '</div>'+
+        (grd?'<div class="grade '+grd.cls+'" style="font-size:16px;width:28px;text-align:right;">'+grd.grade+'</div>':'<div style="width:28px;"></div>')+
+        '<div style="text-align:right;min-width:52px;">'+
+          (avgMent!==null?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">MENT</div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:'+(avgMent>=7?'var(--success)':avgMent>=5?'var(--warn)':'var(--danger)')+';">'+avgMent.toFixed(1)+'</div>':
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">—</div>')+
+        '</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);width:24px;text-align:right;">'+played.length+'G</div>'+
+      '</div>';
+    }).filter(Boolean).join('');
+    playerSummaryHtml=rows||'<div style="padding:16px 20px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">No player data yet</div>';
+  } else {
+    playerSummaryHtml='<div style="padding:16px 20px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">Log games to see player averages</div>';
+  }
+
+  // ── Game rows ──
   var gameRowsHtml=mGames.length?mGames.map(function(g){
     var mvpP=g.mvpPlayerId?PLAYERS.find(function(p){return p.id===g.mvpPlayerId;}):null;
     var played=PLAYERS.filter(function(p){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
@@ -2769,6 +2815,8 @@ function showMatchDetail(matchId){
 
   document.getElementById('match-content').innerHTML=
     '<button class="back-btn" onclick="showPage(\'page-history\')">&#x2190; Back to History</button>'+
+
+    // ── Header ──
     '<div class="match-header">'+
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;">'+
         '<div>'+
@@ -2785,22 +2833,107 @@ function showMatchDetail(matchId){
           '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(wins>losses?'LEAD':wins<losses?'TRAILING':'TIED')+'</div>'+
         '</div>':
         '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);margin-top:8px;">No games logged yet</div>')+
-      (match.notes?'<div style="font-size:12px;color:var(--grey-5);margin-top:8px;line-height:1.5;">'+match.notes+'</div>':'')+
+      trendHtml+
     '</div>'+
+
+    // ── Player Summary ──
+    '<div class="section-label">Player Summary <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· THIS MATCH</span></div>'+
+    '<div style="border-top:var(--border);">'+playerSummaryHtml+'</div>'+
+
+    // ── Mentality section ──
+    '<div style="padding:12px 20px;border-top:var(--border);display:flex;align-items:center;justify-content:space-between;">'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);">Mentality</div>'+
+      '<button class="btn btn-sm" onclick="openRateMentalityModal(\''+matchId+'\')">🧠 Rate Mentality</button>'+
+    '</div>'+
+
+    // ── Games list ──
     '<div class="section-label">Games</div>'+
     gameRowsHtml+
     '<div style="padding:16px 20px;border-top:var(--border);display:flex;gap:10px;">'+
       '<button class="btn btn-primary" style="flex:1;" onclick="addGameToMatch(\''+matchId+'\')">+ Add Game</button>'+
       '<button class="btn btn-full" onclick="openAssignGame(\''+matchId+'\')">Assign Existing</button>'+
     '</div>'+
-    '<div class="section-label">Match Mentality <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· FROM LAST GAME</span></div>'+
-    '<div class="match-mentality-panel">'+mentalityHtml+'</div>'+
+
+    // ── Coaching Notes ──
+    '<div class="section-label">Coaching Notes</div>'+
+    '<div style="padding:0 20px 16px;">'+
+      '<textarea class="input" id="match-notes-area" placeholder="Tactics, VOD timestamps, areas to improve..." style="min-height:90px;">'+( match.notes||'')+'</textarea>'+
+      '<button class="btn btn-primary btn-full mt-8" onclick="saveMatchNotes(\''+matchId+'\')">Save Notes</button>'+
+    '</div>'+
+
+    // ── Danger zone ──
     '<div style="padding:16px 20px;border-top:var(--border);">'+
       '<button class="btn btn-danger btn-full" onclick="deleteMatch(\''+matchId+'\')">Delete Match</button>'+
     '</div>'+
     '<div style="height:20px;"></div>';
 
   showPage('page-match');
+}
+
+function saveMatchNotes(matchId){
+  var idx=_cache.matches.findIndex(function(m){return m.id===matchId;});
+  if(idx===-1) return;
+  var notes=document.getElementById('match-notes-area')?.value||'';
+  _cache.matches[idx].notes=notes;
+  sbSaveMatch(_cache.matches[idx]).then(function(){showToast('Notes saved');}).catch(function(e){showToast('Failed: '+e.message);});
+}
+
+function openRateMentalityModal(matchId){
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  var data=loadData();
+  var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
+  var lastGame=mGames.length?mGames[mGames.length-1]:null;
+  var existingMent=lastGame&&lastGame.matchMentality||{};
+
+  var html='<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:16px;line-height:1.7;">'+
+    'Rate each player\'s mentality for this match. Scores are saved to the most recent game.</div>';
+
+  html+=activePlayers.map(function(p){
+    var m=existingMent[p.id]||{};
+    return '<div style="margin-bottom:20px;padding-bottom:16px;border-bottom:var(--border);">'+
+      '<div style="font-size:13px;font-weight:600;margin-bottom:10px;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);font-weight:400;">'+p.role+'</span></div>'+
+      MENTALITY_CRITERIA.map(function(c){
+        var val=m[c.key]||0;
+        return '<div class="input-group" style="margin-bottom:10px;">'+
+          '<label class="input-label">'+c.label+'</label>'+
+          '<div class="slider-wrap">'+
+            '<input type="range" class="slider" min="0" max="5" step="1" value="'+val+'" id="rm-'+p.id+'-'+c.key+'" oninput="document.getElementById(\'rmv-'+p.id+'-'+c.key+'\').textContent=this.value"/>'+
+            '<div class="slider-val" id="rmv-'+p.id+'-'+c.key+'">'+val+'</div>'+
+          '</div>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }).join('');
+
+  html+='<button class="btn btn-primary btn-full" onclick="saveRateMentality(\''+matchId+'\')">Save Mentality</button>';
+  document.getElementById('rate-mentality-body').innerHTML=html;
+  document.getElementById('rate-mentality-modal').classList.add('open');
+}
+
+async function saveRateMentality(matchId){
+  var data=loadData();
+  var mGames=data.games.filter(function(g){return g.matchId===matchId;}).sort(function(a,b){return (a.gameNum||0)-(b.gameNum||0);});
+  if(!mGames.length){showToast('No games in this match yet');return;}
+  var lastGame=mGames[mGames.length-1];
+  var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
+  var mentality={};
+  activePlayers.forEach(function(p){
+    var obj={};
+    MENTALITY_CRITERIA.forEach(function(c){
+      var el=document.getElementById('rm-'+p.id+'-'+c.key);
+      obj[c.key]=el?parseInt(el.value)||0:0;
+    });
+    mentality[p.id]=obj;
+  });
+  lastGame.matchMentality=mentality;
+  try{
+    await sbSaveGame(lastGame);
+    var cg=_cache.games.find(function(g){return g.id===lastGame.id;});
+    if(cg) cg.matchMentality=mentality;
+    closeModal('rate-mentality-modal');
+    showToast('Mentality saved');
+    showMatchDetail(matchId);
+  }catch(e){showToast('Failed: '+e.message);}
 }
 
 function addGameToMatch(matchId){
