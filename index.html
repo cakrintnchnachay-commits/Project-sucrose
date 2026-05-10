@@ -3016,7 +3016,7 @@ function renderHeroes(){
     var lowConf=h.picks<3?'<span class="low-conf">·</span>':'';
     return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
       heroPortraitHtml(h.name,44,false)+
-      '<div style="flex:1;min-width:0;margin-left:10px;">'
+      '<div style="flex:1;min-width:0;margin-left:10px;">'+
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
         '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
       '</div>'+
