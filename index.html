@@ -393,7 +393,7 @@ textarea.input{resize:vertical;min-height:70px;}
 /* TOP HEROES CHIPS */
 .top3-row{display:flex;gap:8px;padding:12px 20px;overflow-x:auto;border-bottom:var(--border);scrollbar-width:none;}
 .top3-row::-webkit-scrollbar{display:none;}
-.top3-chip{flex-shrink:0;background:var(--grey-1);border:var(--border);border-radius:3px;padding:8px 12px;cursor:pointer;transition:background 0.15s;min-width:90px;}
+.top3-chip{flex-shrink:0;background:var(--grey-1);border:var(--border);border-radius:3px;padding:8px 12px;cursor:pointer;transition:background 0.15s;min-width:90px;display:flex;flex-direction:column;align-items:center;}
 .top3-chip:hover{background:var(--grey-2);}
 .top3-medal{font-size:14px;margin-bottom:3px;}
 .top3-hero{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -413,6 +413,11 @@ textarea.input{resize:vertical;min-height:70px;}
 .more-drawer-item svg{width:20px;height:20px;flex-shrink:0;color:var(--grey-5);}
 .more-drawer-item.active-drawer-item svg,.more-drawer-item.active-drawer-item{color:var(--white);}
 .more-drawer-handle{width:36px;height:3px;background:var(--grey-4);border-radius:2px;margin:6px auto 12px;}
+
+/* HERO PORTRAIT */
+.hero-img-wrap{position:relative;background:var(--grey-2);border-radius:2px;overflow:hidden;flex-shrink:0;}
+.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;}
+.hero-img-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;color:var(--grey-5);}
 
 /* MATCH HISTORY */
 .match-group{border-bottom:var(--border);}
@@ -1331,15 +1336,16 @@ function openHeroEditModal(heroName){
   const h=heroes.find(function(x){return x.name===heroName;})||{name:heroName,cls:'',roles:[]};
   const ov=getHeroOverrides();
   const storedImg=(ov[heroName]&&ov[heroName].img)||'';
-  const suggestedUrl='https://arenaofvalor.fandom.com/wiki/Special:FilePath/'+encodeURIComponent(heroName.replace(/ /g,'_'))+'_Portrait.png';
   document.getElementById('hero-edit-title').textContent='EDIT: '+heroName;
   document.getElementById('hero-edit-body').innerHTML=
     '<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;padding-bottom:16px;border-bottom:var(--border);">'+
       '<div id="he-img-preview">'+heroPortraitHtml(heroName,80,false)+'</div>'+
       '<div style="flex:1;">'+
-        '<div class="input-label" style="margin-bottom:6px;">Image URL</div>'+
-        '<input class="input" id="he-img" placeholder="https://static.wikia.nocookie.net/..." value="'+storedImg+'" oninput="previewHeroImg()" style="font-size:11px;"/>'+
-        '<button class="btn btn-sm btn-muted" style="margin-top:6px;width:100%;font-size:9px;" onclick="document.getElementById(\'he-img\').value=\''+suggestedUrl+'\';previewHeroImg()">Use Wiki URL</button>'+
+        '<div class="input-label" style="margin-bottom:6px;">Portrait Image</div>'+
+        '<label class="btn btn-muted btn-sm" style="width:100%;text-align:center;cursor:pointer;font-size:11px;margin-bottom:6px;" for="he-img-file">Upload image (200×200)</label>'+
+        '<input type="file" id="he-img-file" accept="image/*" style="display:none;" onchange="previewHeroImg()"/>'+
+        '<div class="input-label" style="margin-bottom:4px;font-size:9px;">Or paste URL</div>'+
+        '<input class="input" id="he-img-url" placeholder="https://..." value="'+storedImg+'" oninput="previewHeroImg()" style="font-size:11px;"/>'+
       '</div>'+
     '</div>'+
     '<div class="input-group"><label class="input-label">Class</label>'+
@@ -1362,27 +1368,57 @@ function openHeroEditModal(heroName){
 }
 
 function previewHeroImg(){
-  var url=(document.getElementById('he-img')?.value||'').trim();
+  var fileInput=document.getElementById('he-img-file');
+  var urlInput=document.getElementById('he-img-url');
   var prev=document.getElementById('he-img-preview');
   if(!prev) return;
-  if(url){
-    prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
-      '<img class="hero-img" src="'+url+'" alt="" loading="eager" onerror="this.style.display=\'none\'"/>'+
-    '</div>';
+  var file=fileInput&&fileInput.files&&fileInput.files[0];
+  if(file){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
+        '<img class="hero-img" src="'+e.target.result+'" alt="" style="z-index:1;"/>'+
+      '</div>';
+    };
+    reader.readAsDataURL(file);
   } else {
+    var url=(urlInput&&urlInput.value||'').trim();
     var name=(document.getElementById('hero-edit-title')?.textContent||'').replace('EDIT: ','');
-    prev.innerHTML=heroPortraitHtml(name,80,false);
+    if(url){
+      prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
+        '<img class="hero-img" src="'+url+'" alt="" onerror="this.style.display=\'none\'"/>'+
+      '</div>';
+    } else {
+      prev.innerHTML=heroPortraitHtml(name,80,false);
+    }
   }
 }
 
-function saveHeroEdit(heroName){
+async function saveHeroEdit(heroName){
   const cls=document.getElementById('he-class').value;
   const roles=[...document.querySelectorAll('#hero-edit-body input[type=checkbox]:checked')].map(function(cb){return cb.value;});
   if(!roles.length){showToast('Select at least one role');return;}
-  const imgUrl=(document.getElementById('he-img')?.value||'').trim();
+  const fileInput=document.getElementById('he-img-file');
+  const urlInput=document.getElementById('he-img-url');
+  const file=fileInput&&fileInput.files&&fileInput.files[0];
+  const manualUrl=(urlInput&&urlInput.value||'').trim();
   const overrides=getHeroOverrides();
   overrides[heroName]={cls:cls,roles:roles};
-  if(imgUrl) overrides[heroName].img=imgUrl;
+  if(file){
+    showToast('Uploading image...');
+    try{
+      const publicUrl=await uploadHeroImage(heroName,file);
+      overrides[heroName].img=publicUrl;
+    }catch(err){
+      showToast('Image upload failed: '+err.message);
+      return;
+    }
+  } else if(manualUrl){
+    overrides[heroName].img=manualUrl;
+  } else {
+    const existing=getHeroOverrides()[heroName];
+    if(existing&&existing.img) overrides[heroName].img=existing.img;
+  }
   saveHeroOverrides(overrides);
   closeModal('hero-edit-modal');
   showToast('Hero updated');
@@ -1397,6 +1433,66 @@ function resetHeroOverride(heroName){
   closeModal('hero-edit-modal');
   showToast('Reset to sheet default');
   renderTierMode();
+}
+
+// ══════════════════════════════════════════
+// HERO IMAGE HELPERS
+// ══════════════════════════════════════════
+function heroImgUrl(name){
+  var ov=getHeroOverrides();
+  if(ov[name]&&ov[name].img) return ov[name].img;
+  return '';
+}
+
+function heroPortraitHtml(name,px,showName){
+  var url=heroImgUrl(name);
+  var init=(name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase()||'?';
+  var fs=Math.max(9,Math.round(px*0.36));
+  var wrap='<div class="hero-img-wrap" style="width:'+px+'px;height:'+px+'px;">'+
+    '<span class="hero-img-fallback" style="font-size:'+fs+'px;">'+init+'</span>'+
+    (url?'<img class="hero-img" src="'+url+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>':'')+
+  '</div>';
+  if(showName) wrap+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;text-align:center;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+px+'px;">'+name+'</div>';
+  return wrap;
+}
+
+function _compressHeroImage(file,maxW,maxH){
+  return new Promise(function(resolve,reject){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var canvas=document.createElement('canvas');
+        canvas.width=maxW; canvas.height=maxH;
+        var ctx=canvas.getContext('2d');
+        var scale=Math.max(maxW/img.width,maxH/img.height);
+        var sw=maxW/scale,sh=maxH/scale;
+        var sx=(img.width-sw)/2,sy=(img.height-sh)/2;
+        ctx.drawImage(img,sx,sy,sw,sh,0,0,maxW,maxH);
+        canvas.toBlob(function(blob){resolve(blob);},'image/webp',0.85);
+      };
+      img.onerror=reject;
+      img.src=e.target.result;
+    };
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadHeroImage(heroName,file){
+  var blob=await _compressHeroImage(file,200,200);
+  var fileName=heroName.replace(/[^a-zA-Z0-9]/g,'_')+'.webp';
+  var resp=await fetch(SUPABASE_URL+'/storage/v1/object/hero-images/'+encodeURIComponent(fileName),{
+    method:'PUT',
+    headers:{
+      'Authorization':'Bearer '+SUPABASE_KEY,
+      'Content-Type':'image/webp',
+      'x-upsert':'true'
+    },
+    body:blob
+  });
+  if(!resp.ok){var e=await resp.text();throw new Error('Upload failed: '+e);}
+  return SUPABASE_URL+'/storage/v1/object/public/hero-images/'+encodeURIComponent(fileName);
 }
 
 // ══════════════════════════════════════════
@@ -2787,7 +2883,8 @@ function heroChip(h,type,scrimSet,metaTiers){
   var isSCR=scrimSet&&scrimSet.has(h.name);
   var cls=isSCR?'<span class="chip-class" style="color:var(--warn);">SCR</span>':'<span class="chip-class">'+h.cls.slice(0,3).toUpperCase()+'</span>';
   var editBtn='<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(\''+h.name.replace(/'/g,"\\'")+'\')">✎</button>';
-  return '<div class="tier-hero-chip'+(metaTiers&&metaTiers[h.name]?' placed':'')+'" onclick="openTierAssign(\''+type+'\',\''+h.name.replace(/'/g,"\\'")+'\',\''+h.cls+'\')"><span>'+h.name+'</span>'+cls+editBtn+'</div>';
+  var portrait=heroImgUrl(h.name)?heroPortraitHtml(h.name,28,false):'';
+  return '<div class="tier-hero-chip'+(metaTiers&&metaTiers[h.name]?' placed':'')+'" onclick="openTierAssign(\''+type+'\',\''+h.name.replace(/'/g,"\\'")+'\',\''+h.cls+'\')">'+portrait+'<span>'+h.name+'</span>'+cls+editBtn+'</div>';
 }
 
 function renderMetaTiers(){
@@ -2932,24 +3029,6 @@ function buildHeroStats(){
   return Object.values(heroMap);
 }
 
-function heroImgUrl(name){
-  var ov=getHeroOverrides();
-  if(ov[name]&&ov[name].img) return ov[name].img;
-  return 'https://arenaofvalor.fandom.com/wiki/Special:FilePath/'+encodeURIComponent((name||'').replace(/ /g,'_'))+'_Portrait.png';
-}
-
-function heroPortraitHtml(name,px,showName){
-  var url=heroImgUrl(name);
-  var init=(name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase()||'?';
-  var fs=Math.max(9,Math.round(px*0.36));
-  var wrap='<div class="hero-img-wrap" style="width:'+px+'px;height:'+px+'px;">'+
-    '<span class="hero-img-fallback" style="font-size:'+fs+'px;">'+init+'</span>'+
-    '<img class="hero-img" src="'+url+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>'+
-  '</div>';
-  if(showName) wrap+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;text-align:center;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+px+'px;">'+name+'</div>';
-  return wrap;
-}
-
 function renderHeroes(){
   var heroes=buildHeroStats();
   var role=_heroState.role||'All';
@@ -2996,7 +3075,7 @@ function renderHeroes(){
     var lowConf=h.picks<3?'<span class="low-conf">·</span>':'';
     return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
       heroPortraitHtml(h.name,44,false)+
-      '<div style="flex:1;min-width:0;">'+
+      '<div style="flex:1;min-width:0;margin-left:10px;">'
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
         '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
       '</div>'+
