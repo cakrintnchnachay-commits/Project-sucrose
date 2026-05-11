@@ -793,7 +793,7 @@ textarea.input{resize:vertical;min-height:70px;}
 </div>
 <div class="modal-overlay" id="summary-modal">
   <div class="modal">
-    <div class="modal-header"><div class="modal-title" id="summary-modal-title">SESSION SUMMARY</div><button class="modal-close" onclick="closeSummaryAndGoHome()">&#x2715;</button></div>
+    <div class="modal-header"><div class="modal-title" id="summary-modal-title">SESSION SUMMARY</div><button class="modal-close" onclick="closeSummaryAndReturn()">&#x2715;</button></div>
     <div class="modal-body" id="summary-modal-body"></div>
   </div>
 </div>
@@ -1210,6 +1210,7 @@ function getHeroList(){
   const db=getLiveHeroes();
   const custom=_cache.customHeroes||[];
   const names=[...db,...custom].map(function(h){return h.name;});
+  Object.keys(HERO_IMG_MAP).forEach(function(n){if(!names.includes(n))names.push(n);});
   return [...new Set(names)].sort();
 }
 
@@ -1966,6 +1967,9 @@ function renderDraftStep(){
       '</div>'+
       rows+
     '</div>'+
+    '<div style="margin-bottom:10px;">'+
+      '<button class="btn btn-muted btn-full" onclick="autoAssignDraftPicks()">↺ Auto-assign our picks from scores</button>'+
+    '</div>'+
     '<div style="display:flex;gap:10px;">'+
       '<button class="btn" style="flex:1;" onclick="logDraftPrev()">&#x2190; Back</button>'+
       '<button class="btn btn-primary" style="flex:2;" onclick="saveDraftAndReview()">Review &#x2192;</button>'+
@@ -1991,6 +1995,18 @@ function saveDraftInputs(){
 function setDraftSide(side){
   saveDraftInputs();
   if(LS.draft) LS.draft.side=side;
+  renderDraftStep();
+}
+
+function autoAssignDraftPicks(){
+  saveDraftInputs();
+  if(!LS.draft) return;
+  GAME_ROLES.forEach(function(role,i){
+    var player=PLAYERS.find(function(p){return p.role===role&&!LS.skipped[p.id];});
+    if(player&&LS.scores[player.id]&&!LS.scores[player.id].skipped&&LS.scores[player.id].hero){
+      LS.draft.ourPicks[i]=LS.scores[player.id].hero;
+    }
+  });
   renderDraftStep();
 }
 
@@ -2765,9 +2781,19 @@ function showSessionSummary(game){
     '</div>'+
     '<div style="display:flex;gap:10px;">'+
       '<button class="btn btn-full" onclick="logNextGameInMatch()">+ Next Game</button>'+
-      '<button class="btn btn-primary btn-full" onclick="closeSummaryAndGoHome()">Done</button>'+
+      '<button class="btn btn-primary btn-full" onclick="closeSummaryAndReturn()">Done</button>'+
     '</div>';
+  document.getElementById('summary-modal').dataset.returnMatchId=game.matchId||'';
   document.getElementById('summary-modal').classList.add('open');
+}
+function closeSummaryAndReturn(){
+  var matchId=document.getElementById('summary-modal').dataset.returnMatchId||'';
+  closeModal('summary-modal');
+  if(matchId&&(_cache.matches||[]).find(function(m){return m.id===matchId;})){
+    showMatchDetail(matchId);
+  } else {
+    showPage('page-home');
+  }
 }
 function closeSummaryAndGoHome(){closeModal('summary-modal');showPage('page-home');}
 
@@ -3499,8 +3525,8 @@ function addGameToMatch(matchId){
   if(!match) return;
   var mGames=(_cache.games||[]).filter(function(g){return g.matchId===matchId;});
   var nextNum=mGames.length+1;
-  LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:matchId};
-  showPage('page-log');
+  showPage('page-log'); // initLog() called here resets LS — set matchId after
+  LS.matchId=matchId;
   setTimeout(function(){
     var nameEl=document.getElementById('log-opponent');if(nameEl) nameEl.value=match.name.replace(/^vs /,'');
     var typeEl=document.getElementById('log-type');if(typeEl) typeEl.value=match.type||'Scrim';
