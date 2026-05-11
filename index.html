@@ -961,7 +961,7 @@ let _cache = {
   games: [],         // from games table
   matches: [],       // from matches table
   tournaments: [],   // from tournaments table (stub, future)
-  metaTiers: {},     // from meta_tiers table (flattened to {heroName: tier})
+  metaTiers: {},     // from meta_tiers table ({heroName: {role: tier}})
   masteryTiers: {},  // from mastery_tiers table (flattened to {playerId: {heroName: tier}})
   patches: [],       // from patches table
   pfp: {},           // from app_settings key='pfp'
@@ -1018,9 +1018,14 @@ async function bootApp(){
       tournamentId:m.tournament_id||null,
       createdAt:m.created_at,
     }));
-    // Flatten meta tiers
+    // Flatten meta tiers: {heroName: {role: tier}}
     _cache.metaTiers={};
-    (metaRes.data||[]).forEach(r=>{_cache.metaTiers[r.hero_name]=r.tier;});
+    (metaRes.data||[]).forEach(r=>{
+      if(r.role){
+        if(!_cache.metaTiers[r.hero_name]) _cache.metaTiers[r.hero_name]={};
+        _cache.metaTiers[r.hero_name][r.role]=r.tier;
+      }
+    });
     // Flatten mastery tiers
     _cache.masteryTiers={};
     (masteryRes.data||[]).forEach(r=>{
@@ -1111,11 +1116,11 @@ async function sbDeletePlayer(playerId){
   await sb.from('players').delete().eq('id',playerId);
 }
 
-async function sbSaveMetaTier(heroName,tier){
+async function sbSaveMetaTier(heroName,role,tier){
   if(tier){
-    await sb.from('meta_tiers').upsert({hero_name:heroName,tier,updated_at:new Date().toISOString()},{onConflict:'hero_name'});
+    await sb.from('meta_tiers').upsert({hero_name:heroName,role:role,tier,updated_at:new Date().toISOString()},{onConflict:'hero_name,role'});
   } else {
-    await sb.from('meta_tiers').delete().eq('hero_name',heroName);
+    await sb.from('meta_tiers').delete().eq('hero_name',heroName).eq('role',role);
   }
 }
 
@@ -1468,13 +1473,13 @@ function calcHeroPoolScore(playerId){
   if(!player) return {pct:0,topSlice:[],scored:[],flagged:[],benchmarkCount:0,N:0,heroCount:0};
   const allHeroes=getLiveHeroes().concat(data.customHeroes||[]);
   const roleHeroes=allHeroes.filter(function(h){return h.roles.includes(player.role);});
-  const metaRatedForRole=roleHeroes.filter(function(h){return metaTiers[h.name];});
+  const metaRatedForRole=roleHeroes.filter(function(h){return metaTiers[h.name]&&metaTiers[h.name][player.role];});
   const N=metaRatedForRole.length;
   const benchmarkCount=N>0?Math.round(N*0.70):0;
   const scored=[];
   const flagged=[];
   metaRatedForRole.forEach(function(h){
-    const metaTier=metaTiers[h.name];
+    const metaTier=metaTiers[h.name][player.role];
     const masteryTier=playerMastery[h.name];
     if(metaTier&&masteryTier){
       const heroScore=(META_WEIGHTS[metaTier]||0)*(MASTERY_WEIGHTS[masteryTier]||0)*100;
@@ -1487,10 +1492,10 @@ function calcHeroPoolScore(playerId){
   const topSlice=scored.slice(0,benchmarkCount);
   // Max = top benchmark heroes sorted by meta weight, each scored at A mastery
   const benchmarkHeroes=metaRatedForRole.slice().sort(function(a,b){
-    return (META_WEIGHTS[metaTiers[b.name]]||0)-(META_WEIGHTS[metaTiers[a.name]]||0);
+    return (META_WEIGHTS[metaTiers[b.name][player.role]]||0)-(META_WEIGHTS[metaTiers[a.name][player.role]]||0);
   }).slice(0,benchmarkCount);
   const maxPossible=benchmarkHeroes.reduce(function(s,h){
-    return s+(META_WEIGHTS[metaTiers[h.name]]||0)*MASTERY_WEIGHTS['A']*100;
+    return s+(META_WEIGHTS[metaTiers[h.name][player.role]]||0)*MASTERY_WEIGHTS['A']*100;
   },0);
   const totalScore=topSlice.reduce(function(s,h){return s+h.heroScore;},0);
   const pct=(benchmarkCount>0&&maxPossible>0)?Math.round((totalScore/maxPossible)*100):0;
@@ -2815,26 +2820,34 @@ async function deletePlayer(playerId){
 // ══════════════════════════════════════════
 // TIER LIST
 // ══════════════════════════════════════════
-var tierState={mode:'meta',metaRole:'All',masteryRole:'All',masteryPlayer:'gun'};
+var tierState={mode:'meta',metaRole:'All',masteryRole:'All',masteryPlayer:'gun',assignRole:null,assignHero:null,assignHeroCls:null};
 function initTiers(){var data=loadData();if(!data.currentPatch){data.currentPatch='S1-2026';if(!data.metaTiers)data.metaTiers={};if(!data.masteryTiers)data.masteryTiers={};if(!data.patches)data.patches=[];saveData(data);}document.getElementById('patch-name-display').textContent=data.currentPatch||'--';if(!tierState.masteryPlayer&&PLAYERS.length)tierState.masteryPlayer=PLAYERS[0].id;renderTierMode();}
 function setTierMode(mode){tierState.mode=mode;document.querySelectorAll('.tier-mode-btn').forEach(function(b){b.classList.remove('active');});document.getElementById('tmode-'+mode)?.classList.add('active');document.getElementById('tier-meta-section').style.display=mode==='meta'?'block':'none';document.getElementById('tier-mastery-section').style.display=mode==='mastery'?'block':'none';document.getElementById('tier-history-section').style.display=mode==='history'?'block':'none';renderTierMode();}
 function renderTierMode(){if(tierState.mode==='meta')renderMetaTiers();else if(tierState.mode==='mastery')renderMasteryTiers();else renderPatchHistory();}
 
-function heroChip(h,type,scrimSet,metaTiers){
+function heroChip(h,type,scrimSet,placedTier){
   var isSCR=scrimSet&&scrimSet.has(h.name);
   var cls=isSCR?'<span class="chip-class" style="color:var(--warn);">SCR</span>':'<span class="chip-class">'+h.cls.slice(0,3).toUpperCase()+'</span>';
   var editBtn='<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(\''+h.name.replace(/'/g,"\\'")+'\')">✎</button>';
   var portrait=heroImgUrl(h.name)?heroPortraitHtml(h.name,28,false):'';
-  return '<div class="tier-hero-chip'+(metaTiers&&metaTiers[h.name]?' placed':'')+'" onclick="openTierAssign(\''+type+'\',\''+h.name.replace(/'/g,"\\'")+'\',\''+h.cls+'\')">'+portrait+'<span>'+h.name+'</span>'+cls+editBtn+'</div>';
+  return '<div class="tier-hero-chip'+(placedTier?' placed':'')+'" onclick="openTierAssign(\''+type+'\',\''+h.name.replace(/'/g,"\\'")+'\',\''+h.cls+'\')">'+portrait+'<span>'+h.name+'</span>'+cls+editBtn+'</div>';
 }
 
+function getMetaEffectiveTier(metaTiers,heroName,role){
+  var hm=metaTiers[heroName];
+  if(!hm) return null;
+  if(role&&role!=='All') return hm[role]||null;
+  var best=null;var bestIdx=META_LEVELS.length;
+  Object.values(hm).forEach(function(t){var idx=META_LEVELS.findIndex(function(l){return l.key===t;});if(idx>=0&&idx<bestIdx){bestIdx=idx;best=t;}});
+  return best;
+}
 function renderMetaTiers(){
   var data=loadData();var metaTiers=data.metaTiers||{};var role=tierState.metaRole;
   document.getElementById('meta-role-tabs').innerHTML=['All'].concat(GAME_ROLES).map(function(r){return '<button class="tier-role-tab '+(role===r?'active':'')+'" onclick="setMetaRole(\''+r+'\')">'+r+'</button>';}).join('');
   var allH=getLiveHeroes().concat(data.customHeroes||[]);
   var filtered=role==='All'?allH:allH.filter(function(h){return h.roles.includes(role);});
-  document.getElementById('meta-tier-bands').innerHTML=META_LEVELS.map(function(t){var heroes=filtered.filter(function(h){return metaTiers[h.name]===t.key;});return '<div class="tier-band"><div class="tier-band-header"><div class="tier-band-letter '+t.cls+'">'+t.label+'</div><div class="tier-band-desc">'+t.desc+'</div></div><div class="tier-hero-grid">'+heroes.map(function(h){return heroChip(h,'meta',null,metaTiers);}).join('')+'</div></div>';}).join('');
-  var unplaced=filtered.filter(function(h){return !metaTiers[h.name];});
+  document.getElementById('meta-tier-bands').innerHTML=META_LEVELS.map(function(t){var heroes=filtered.filter(function(h){return getMetaEffectiveTier(metaTiers,h.name,role)===t.key;});return '<div class="tier-band"><div class="tier-band-header"><div class="tier-band-letter '+t.cls+'">'+t.label+'</div><div class="tier-band-desc">'+t.desc+'</div></div><div class="tier-hero-grid">'+heroes.map(function(h){return heroChip(h,'meta',null,t.key);}).join('')+'</div></div>';}).join('');
+  var unplaced=filtered.filter(function(h){return !getMetaEffectiveTier(metaTiers,h.name,role);});
   document.getElementById('meta-unplaced').innerHTML=unplaced.length?unplaced.map(function(h){return heroChip(h,'meta',null,null);}).join(''):'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">All placed for this role.</div>';
 }
 function setMetaRole(role){tierState.metaRole=role;renderMetaTiers();}
@@ -2865,24 +2878,65 @@ function setMasteryRole(role){tierState.masteryRole=role;renderMasteryTiers();}
 function getScrimHeroesForPlayer(playerId,games){var h=new Set();games.forEach(function(g){var s=g.playerScores&&g.playerScores[playerId];if(s&&!s.skipped&&s.hero)h.add(s.hero);});return Array.from(h);}
 
 function openTierAssign(type,heroName,heroCls){
-  var data=loadData();var current=type==='meta'?(data.metaTiers||{})[heroName]:(data.masteryTiers||{})[tierState.masteryPlayer]&&(data.masteryTiers||{})[tierState.masteryPlayer][heroName];
-  var levels=type==='meta'?META_LEVELS:MASTERY_LEVELS;
-  document.getElementById('tier-assign-title').textContent=type==='meta'?'META TIER':'MASTERY TIER';
-  document.getElementById('tier-assign-body').innerHTML='<div style="margin-bottom:16px;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:1px;">'+heroName+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(heroCls||'')+(type==='mastery'?' · '+(PLAYERS.find(function(p){return p.id===tierState.masteryPlayer;})?.nick||''):'')+'</div>'+(type==='mastery'?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);margin-top:6px;line-height:1.6;">A = reliable ceiling · S = specialist only</div>':'')+'</div><div style="display:flex;flex-direction:column;gap:8px;">'+levels.map(function(t){return '<button class="btn '+(current===t.key?'btn-primary':'')+' btn-full" style="justify-content:space-between;" onclick="assignTier(\''+type+'\',\''+heroName.replace(/'/g,"\\'")+'\',\''+t.key+'\')"><span class="tier-band-letter '+t.cls+'" style="font-size:18px;">'+t.label+'</span><span style="font-size:11px;color:inherit;opacity:0.7;">'+t.desc+'</span></button>';}).join('')+(current?'<button class="btn btn-muted btn-full" onclick="assignTier(\''+type+'\',\''+heroName.replace(/'/g,"\\'")+'\',null)">Remove from tier</button>':'')+'</div>';
-  document.getElementById('tier-assign-modal').classList.add('open');
+  if(type==='meta'){
+    var allH=getLiveHeroes();var h=allH.find(function(x){return x.name===heroName;});
+    var heroRoles=h?h.roles:GAME_ROLES;
+    if(!tierState.assignRole||!heroRoles.includes(tierState.assignRole)){
+      tierState.assignRole=(tierState.metaRole!=='All'&&heroRoles.includes(tierState.metaRole))?tierState.metaRole:heroRoles[0];
+    }
+    tierState.assignHero=heroName;tierState.assignHeroCls=heroCls;
+    document.getElementById('tier-assign-title').textContent='META TIER';
+    renderMetaTierAssignModal();
+    document.getElementById('tier-assign-modal').classList.add('open');
+  } else {
+    var data=loadData();var current=(data.masteryTiers||{})[tierState.masteryPlayer]&&(data.masteryTiers||{})[tierState.masteryPlayer][heroName];
+    document.getElementById('tier-assign-title').textContent='MASTERY TIER';
+    document.getElementById('tier-assign-body').innerHTML='<div style="margin-bottom:16px;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:1px;">'+heroName+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(heroCls||'')+' · '+(PLAYERS.find(function(p){return p.id===tierState.masteryPlayer;})?.nick||'')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);margin-top:6px;line-height:1.6;">A = reliable ceiling · S = specialist only</div></div><div style="display:flex;flex-direction:column;gap:8px;">'+MASTERY_LEVELS.map(function(t){return '<button class="btn '+(current===t.key?'btn-primary':'')+' btn-full" style="justify-content:space-between;" onclick="assignTier(\'mastery\',\''+heroName.replace(/'/g,"\\'")+'\',\''+t.key+'\')"><span class="tier-band-letter '+t.cls+'" style="font-size:18px;">'+t.label+'</span><span style="font-size:11px;color:inherit;opacity:0.7;">'+t.desc+'</span></button>';}).join('')+(current?'<button class="btn btn-muted btn-full" onclick="assignTier(\'mastery\',\''+heroName.replace(/'/g,"\\'")+'\',null)">Remove from tier</button>':'')+'</div>';
+    document.getElementById('tier-assign-modal').classList.add('open');
+  }
 }
+function renderMetaTierAssignModal(){
+  var heroName=tierState.assignHero;var heroCls=tierState.assignHeroCls;
+  var data=loadData();var metaTiers=data.metaTiers||{};
+  var heroTiers=metaTiers[heroName]||{};
+  var allH=getLiveHeroes();var h=allH.find(function(x){return x.name===heroName;});
+  var heroRoles=h?h.roles:GAME_ROLES;
+  var role=tierState.assignRole;
+  var current=heroTiers[role]||null;
+  var roleTabs=heroRoles.map(function(r){
+    var rt=heroTiers[r];var lvl=rt?META_LEVELS.find(function(l){return l.key===rt;}):null;
+    return '<button class="tier-role-tab '+(role===r?'active':'')+'" onclick="setAssignRole(\''+r+'\')" style="display:flex;align-items:center;gap:4px;">'+r+(lvl?'<span class="tier-band-letter '+lvl.cls+'" style="font-size:10px;margin-left:4px;">'+rt+'</span>':'')+' </button>';
+  }).join('');
+  var tierBtns=META_LEVELS.map(function(t){
+    return '<button class="btn '+(current===t.key?'btn-primary':'')+' btn-full" style="justify-content:space-between;" onclick="assignTier(\'meta\',\''+heroName.replace(/'/g,"\\'")+'\',\''+t.key+'\')"><span class="tier-band-letter '+t.cls+'" style="font-size:18px;">'+t.label+'</span><span style="font-size:11px;color:inherit;opacity:0.7;">'+t.desc+'</span></button>';
+  }).join('');
+  document.getElementById('tier-assign-body').innerHTML=
+    '<div style="margin-bottom:12px;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:1px;">'+heroName+'</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(heroCls||'')+'</div></div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">'+roleTabs+'</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:10px;">Tier for <span style="color:var(--grey-7);">'+role+'</span></div>'+
+    '<div style="display:flex;flex-direction:column;gap:8px;">'+tierBtns+
+    (current?'<button class="btn btn-muted btn-full" onclick="assignTier(\'meta\',\''+heroName.replace(/'/g,"\\'")+'\',null)">Remove '+role+' tier</button>':'')+
+    '</div>';
+}
+function setAssignRole(role){tierState.assignRole=role;renderMetaTierAssignModal();}
 async function assignTier(type,heroName,tierKey){
   if(type==='meta'){
-    if(tierKey) _cache.metaTiers[heroName]=tierKey;
-    else delete _cache.metaTiers[heroName];
-    await sbSaveMetaTier(heroName,tierKey);
+    var role=tierState.assignRole;
+    if(!_cache.metaTiers[heroName]) _cache.metaTiers[heroName]={};
+    if(tierKey) _cache.metaTiers[heroName][role]=tierKey;
+    else delete _cache.metaTiers[heroName][role];
+    if(!Object.keys(_cache.metaTiers[heroName]).length) delete _cache.metaTiers[heroName];
+    await sbSaveMetaTier(heroName,role,tierKey);
+    showToast('Tier saved');renderTierMode();
+    renderMetaTierAssignModal();
   }else{
     if(!_cache.masteryTiers[tierState.masteryPlayer]) _cache.masteryTiers[tierState.masteryPlayer]={};
     if(tierKey) _cache.masteryTiers[tierState.masteryPlayer][heroName]=tierKey;
     else delete _cache.masteryTiers[tierState.masteryPlayer][heroName];
     await sbSaveMasteryTier(tierState.masteryPlayer,heroName,tierKey);
+    closeModal('tier-assign-modal');showToast('Tier saved');renderTierMode();
   }
-  closeModal('tier-assign-modal');showToast('Tier saved');renderTierMode();
 }
 
 function openPatchModal(){document.getElementById('patch-input').value='';document.getElementById('patch-modal').classList.add('open');}
