@@ -569,6 +569,12 @@ textarea.input{resize:vertical;min-height:70px;}
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">LOG GAME</div>
       <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">Enter match details and player scores</div>
     </div>
+    <div style="padding:10px 20px 0;">
+      <input type="file" accept="image/*" id="scan-file-input" style="display:none;" onchange="handleScanUpload(this)"/>
+      <button class="btn btn-full" onclick="triggerScanUpload()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:13px;">
+        📸 Scan Screenshot to Auto-Fill
+      </button>
+    </div>
     <div class="step-indicator" id="step-indicator"></div>
     <div id="log-step-0" style="padding:0 20px 20px;">
       <div class="section-label" style="padding:0 0 12px;">Game Details</div>
@@ -752,6 +758,18 @@ textarea.input{resize:vertical;min-height:70px;}
       <div class="settings-section-title">Data</div>
       <button class="btn btn-full" onclick="exportCSV()">Export Game Data as CSV</button>
     </div>
+    <div class="settings-section">
+      <div class="settings-section-title">Screenshot Scanner</div>
+      <div class="input-group">
+        <label class="input-label">Anthropic API Key</label>
+        <input class="input" id="anthropic-key-input" type="password" placeholder="sk-ant-..." autocomplete="off"/>
+        <div style="font-size:11px;color:var(--grey-5);margin-top:6px;line-height:1.6;">
+          Used to extract player/hero data from end-of-match screenshots. Stored securely in your Supabase settings.
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveAnthropicKey()">Save API Key</button>
+      <div id="anthropic-key-status" style="margin-top:8px;font-size:11px;color:var(--grey-5);"></div>
+    </div>
   </div>
 
   <!-- MATCH DETAIL -->
@@ -930,6 +948,27 @@ textarea.input{resize:vertical;min-height:70px;}
   </div>
 </div>
 
+<div class="modal-overlay" id="scan-confirm-modal">
+  <div class="modal" style="max-width:480px;width:94vw;">
+    <div class="modal-header">
+      <div class="modal-title">📸 SCREENSHOT SCAN</div>
+      <button class="modal-close" onclick="closeModal('scan-confirm-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div id="scan-confirm-body"></div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn" style="flex:1;" onclick="closeModal('scan-confirm-modal')">Discard</button>
+        <button class="btn btn-primary" style="flex:1;" id="scan-apply-btn" onclick="applyScannedData()">Apply & Continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="scan-loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9998;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:var(--white);">SCANNING...</div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:2px;">Analyzing screenshot with Claude Vision</div>
+</div>
+
 <div id="global-loader" style="display:flex;position:fixed;inset:0;background:var(--black);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
   <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:4px;color:var(--white);">SUCROSE</div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:2px;">CONNECTING TO DATABASE...</div>
@@ -970,6 +1009,7 @@ let _cache = {
   lastSync: '',
   loaded: false,
   settingsPin: '',   // from app_settings key='settings_pin'
+  anthropicKey: '', // from app_settings key='anthropic_key'
   _pinUnlocked: false,
 };
 
@@ -1040,6 +1080,7 @@ async function bootApp(){
       if(s.key==='sheet_url') _cache.sheetUrl=s.value||'';
       if(s.key==='last_sync') _cache.lastSync=s.value||'';
       if(s.key==='settings_pin') _cache.settingsPin=s.value||'';
+      if(s.key==='anthropic_key') _cache.anthropicKey=s.value||'';
     });
     // If no players in DB yet, seed with defaults
     if(_cache.players.length===0){
@@ -1329,6 +1370,8 @@ function updateDBStatusCard(){
   if(srcEl) srcEl.textContent=_cache.sheetUrl||'Not set';
   const urlInput=document.getElementById('sheet-url-input');
   if(urlInput&&_cache.sheetUrl&&!urlInput.value) urlInput.value=_cache.sheetUrl;
+  const keyInput=document.getElementById('anthropic-key-input');
+  if(keyInput&&_cache.anthropicKey&&!keyInput.value) keyInput.value=_cache.anthropicKey;
 }
 
 // ══════════════════════════════════════════
@@ -1759,10 +1802,10 @@ function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.cei
 // ══════════════════════════════════════════
 // LOG GAME — V8 (match → mentality → games)
 // ══════════════════════════════════════════
-var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null,draft:null};
+var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null};
 
 function initLog(){
-  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null};
   document.getElementById('log-step-0').style.display='block';
   document.getElementById('log-step-player').style.display='none';
   document.getElementById('log-step-draft').style.display='none';
@@ -2141,6 +2184,247 @@ function logNextGameInMatch(){
     buildDots();
   },50);
   showPage('page-log');
+}
+
+// ══════════════════════════════════════════
+// SCREENSHOT SCANNER
+// ══════════════════════════════════════════
+
+var _scanResult = null; // holds {ourTeam, oppTeam, raw} pending confirmation
+
+const SCAN_PROMPT = `Analyze this AOV (Arena of Valor) end-of-match screenshot. Extract the data as JSON only, no explanation.
+
+Return this exact shape:
+{
+  "result": "Win or Loss",
+  "ourTeam": [
+    {"ign":"exact name as shown","hero":"hero name","kills":0,"deaths":0,"assists":0,"gold":0,"score":0.0,"mvp":false}
+  ],
+  "oppTeam": [
+    {"ign":"exact name as shown","hero":"hero name","kills":0,"deaths":0,"assists":0,"gold":0,"score":0.0,"mvp":false}
+  ]
+}
+
+Rules:
+- ourTeam = LEFT column (blue side). oppTeam = RIGHT column (red side).
+- "VICTORY" text means result "Win". "DEFEAT" means result "Loss".
+- hero is the character name shown below or beside the hero portrait (e.g. "Keera", "Eland'orr", "TeeMee").
+- ign is the player handle exactly as shown (e.g. "NOR.Pennii", "wildMutt", "Ackerman:)").
+- gold is the numeric value shown (e.g. 12859). score is the numeric score (e.g. 7.4).
+- If a field is not visible, use null.
+- Return ONLY valid JSON, no markdown fences.`;
+
+function saveAnthropicKey(){
+  var val=(document.getElementById('anthropic-key-input')?.value||'').trim();
+  var statusEl=document.getElementById('anthropic-key-status');
+  if(!val){if(statusEl)statusEl.textContent='Key is empty — not saved.';return;}
+  _cache.anthropicKey=val;
+  sbSaveSetting('anthropic_key',val).then(function(){
+    if(statusEl)statusEl.textContent='✓ Key saved.';
+    setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
+  }).catch(function(){
+    if(statusEl)statusEl.textContent='⚠ Could not save to database.';
+  });
+}
+
+function triggerScanUpload(){
+  if(!_cache.anthropicKey){
+    showToast('Set your Anthropic API key in Settings first');
+    return;
+  }
+  document.getElementById('scan-file-input').value='';
+  document.getElementById('scan-file-input').click();
+}
+
+function handleScanUpload(input){
+  var file=input.files[0];
+  if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      // Resize to max 1920px to reduce API cost while keeping text readable
+      var maxW=1920,maxH=1920;
+      var w=img.width,h=img.height;
+      if(w>maxW||h>maxH){
+        var scale=Math.min(maxW/w,maxH/h);
+        w=Math.round(w*scale);h=Math.round(h*scale);
+      }
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      var mimeType=file.type||'image/jpeg';
+      var dataUrl=canvas.toDataURL(mimeType,0.92);
+      var base64=dataUrl.split(',')[1];
+      showScanLoading(true);
+      callClaudeVision(base64,mimeType).then(function(raw){
+        var matched=processScanResult(raw);
+        _scanResult={ourTeam:matched.ourTeam,oppTeam:matched.oppTeam,raw:raw};
+        renderScanConfirm(matched);
+        showScanLoading(false);
+        document.getElementById('scan-confirm-modal').classList.add('open');
+      }).catch(function(err){
+        showScanLoading(false);
+        showToast('Scan failed: '+(err.message||'Unknown error'));
+      });
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function callClaudeVision(base64,mimeType){
+  var allowedTypes=['image/jpeg','image/png','image/gif','image/webp'];
+  if(!allowedTypes.includes(mimeType)) mimeType='image/jpeg';
+  var resp=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'x-api-key':_cache.anthropicKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true',
+      'content-type':'application/json'
+    },
+    body:JSON.stringify({
+      model:'claude-opus-4-7',
+      max_tokens:1024,
+      messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:mimeType,data:base64}},
+        {type:'text',text:SCAN_PROMPT}
+      ]}]
+    })
+  });
+  if(!resp.ok){
+    var errText=await resp.text();
+    throw new Error('API error '+resp.status+': '+errText.slice(0,120));
+  }
+  var json=await resp.json();
+  var text=(json.content&&json.content[0]&&json.content[0].text)||'';
+  // Strip any markdown fences if model included them despite instructions
+  text=text.replace(/^```[a-z]*\n?/i,'').replace(/```$/,'').trim();
+  try{return JSON.parse(text);}
+  catch(e){throw new Error('Could not parse scan response — try again');}
+}
+
+function findHeroByName(name){
+  if(!name) return null;
+  var all=[].concat(_cache.heroes,_cache.customHeroes);
+  var lo=name.toLowerCase();
+  return all.find(function(h){return h.name.toLowerCase()===lo;})||
+         all.find(function(h){return h.name.toLowerCase().includes(lo)||lo.includes(h.name.toLowerCase())})||
+         null;
+}
+
+function findPlayerByIgn(ign){
+  if(!ign) return null;
+  var lo=ign.toLowerCase();
+  return _cache.players.find(function(p){return p.ign.toLowerCase()===lo;})||
+         _cache.players.find(function(p){
+           return p.ign.toLowerCase().includes(lo)||lo.includes(p.ign.toLowerCase());
+         })||null;
+}
+
+function processScanResult(raw){
+  function mapTeam(list){
+    return (list||[]).map(function(entry){
+      return {
+        extracted:entry,
+        player:findPlayerByIgn(entry.ign),
+        hero:findHeroByName(entry.hero)
+      };
+    });
+  }
+  return{ourTeam:mapTeam(raw.ourTeam),oppTeam:mapTeam(raw.oppTeam)};
+}
+
+function renderScanConfirm(matched){
+  var result=(_scanResult&&_scanResult.raw&&_scanResult.raw.result)||'Unknown';
+  var resultColor=result==='Win'?'var(--success, #4caf50)':'var(--danger, #e53935)';
+  var html='<div style="text-align:center;margin-bottom:14px;">';
+  html+='<span style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:2px;color:'+resultColor+';">'+result.toUpperCase()+'</span>';
+  html+='</div>';
+  html+='<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:8px;letter-spacing:1px;">OUR TEAM</div>';
+  html+=renderScanTeamTable(matched.ourTeam);
+  html+='<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin:12px 0 8px;letter-spacing:1px;">OPPONENTS</div>';
+  html+=renderScanTeamTable(matched.oppTeam);
+  html+='<div style="font-size:10px;color:var(--grey-4);margin-top:10px;line-height:1.5;">Amber rows = unmatched. Review before applying.</div>';
+  document.getElementById('scan-confirm-body').innerHTML=html;
+}
+
+function renderScanTeamTable(team){
+  var html='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+  team.forEach(function(entry){
+    var matched=entry.player&&entry.hero;
+    var partial=entry.player||entry.hero;
+    var bg=matched?'transparent':partial?'rgba(255,160,0,0.08)':'rgba(255,60,60,0.06)';
+    var ign=entry.extracted.ign||'—';
+    var heroName=(entry.hero&&entry.hero.name)||(entry.extracted.hero||'—');
+    var playerLabel=entry.player?(entry.player.nick+' ('+entry.player.role+')'):'<span style="color:var(--grey-4);">no match</span>';
+    var kda=(entry.extracted.kills!=null)?entry.extracted.kills+'/'+entry.extracted.deaths+'/'+entry.extracted.assists:'';
+    html+='<tr style="background:'+bg+';border-bottom:1px solid var(--grey-2);">';
+    html+='<td style="padding:5px 6px;color:var(--grey-6);">'+ign+'</td>';
+    html+='<td style="padding:5px 4px;color:var(--white);">'+heroName+'</td>';
+    html+='<td style="padding:5px 4px;">'+playerLabel+'</td>';
+    if(kda)html+='<td style="padding:5px 4px;color:var(--grey-4);font-family:\'DM Mono\',monospace;font-size:10px;">'+kda+'</td>';
+    html+='</tr>';
+  });
+  html+='</table>';
+  return html;
+}
+
+function showScanLoading(on){
+  var el=document.getElementById('scan-loading-overlay');
+  if(el) el.style.display=on?'flex':'none';
+}
+
+function applyScannedData(){
+  if(!_scanResult) return;
+  var raw=_scanResult.raw;
+  var ourTeam=_scanResult.ourTeam;
+  var oppTeam=_scanResult.oppTeam;
+
+  // Set result field
+  if(raw.result){
+    var resEl=document.getElementById('log-result');
+    if(resEl) resEl.value=raw.result;
+  }
+
+  // Pre-fill hero per matched player
+  ourTeam.forEach(function(entry){
+    if(entry.player&&entry.hero){
+      if(!LS.scores[entry.player.id]) LS.scores[entry.player.id]={};
+      LS.scores[entry.player.id].hero=entry.hero.name;
+    }
+  });
+
+  // Build/update draft
+  if(!LS.draft) LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
+  var ROLES=GAME_ROLES;
+  ourTeam.forEach(function(entry){
+    if(entry.player&&entry.hero){
+      var idx=ROLES.indexOf(entry.player.role);
+      if(idx>=0) LS.draft.ourPicks[idx]=entry.hero.name;
+    }
+  });
+  var oppIdx=0;
+  oppTeam.forEach(function(entry){
+    if(entry.hero&&oppIdx<5){
+      // Try to place by matched player role, else fill sequentially
+      if(entry.player){
+        var idx=ROLES.indexOf(entry.player.role);
+        if(idx>=0&&!LS.draft.oppPicks[idx]){LS.draft.oppPicks[idx]=entry.hero.name;return;}
+      }
+      while(oppIdx<5&&LS.draft.oppPicks[oppIdx]) oppIdx++;
+      if(oppIdx<5){LS.draft.oppPicks[oppIdx]=entry.hero.name;oppIdx++;}
+    }
+  });
+
+  // Store KDA/gold for reference
+  LS.scanData=_scanResult;
+  _scanResult=null;
+
+  closeModal('scan-confirm-modal');
+  showToast('✓ Screenshot applied');
 }
 
 // ══════════════════════════════════════════
