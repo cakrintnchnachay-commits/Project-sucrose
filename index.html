@@ -1080,7 +1080,7 @@ async function bootApp(){
       if(s.key==='sheet_url') _cache.sheetUrl=s.value||'';
       if(s.key==='last_sync') _cache.lastSync=s.value||'';
       if(s.key==='settings_pin') _cache.settingsPin=s.value||'';
-      if(s.key==='anthropic_key') _cache.anthropicKey=s.value||'';
+      if(s.key==='anthropic_key') _cache.anthropicKey=(s.value||'').replace(/\s+/g,'');
     });
     // If no players in DB yet, seed with defaults
     if(_cache.players.length===0){
@@ -2215,15 +2215,37 @@ Rules:
 - Return ONLY valid JSON, no markdown fences.`;
 
 function saveAnthropicKey(){
-  var val=(document.getElementById('anthropic-key-input')?.value||'').trim();
+  var val=(document.getElementById('anthropic-key-input')?.value||'').replace(/\s+/g,'');
   var statusEl=document.getElementById('anthropic-key-status');
   if(!val){if(statusEl)statusEl.textContent='Key is empty — not saved.';return;}
-  _cache.anthropicKey=val;
-  sbSaveSetting('anthropic_key',val).then(function(){
-    if(statusEl)statusEl.textContent='✓ Key saved.';
-    setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
+  if(statusEl)statusEl.textContent='Verifying key…';
+  fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'x-api-key':val,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true',
+      'content-type':'application/json'
+    },
+    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'hi'}]})
+  }).then(function(r){
+    if(r.status===401){
+      if(statusEl)statusEl.textContent='⚠ Key rejected by Anthropic — check it is correct and active.';
+      return;
+    }
+    _cache.anthropicKey=val;
+    sbSaveSetting('anthropic_key',val).then(function(){
+      if(statusEl)statusEl.textContent='✓ Key verified and saved.';
+      setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
+    }).catch(function(){
+      if(statusEl)statusEl.textContent='⚠ Key valid but could not save to database.';
+    });
   }).catch(function(){
-    if(statusEl)statusEl.textContent='⚠ Could not save to database.';
+    _cache.anthropicKey=val;
+    sbSaveSetting('anthropic_key',val).then(function(){
+      if(statusEl)statusEl.textContent='✓ Saved (could not verify — check network).';
+      setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
+    });
   });
 }
 
@@ -2296,7 +2318,9 @@ async function callClaudeVision(base64,mimeType){
   });
   if(!resp.ok){
     var errText=await resp.text();
-    throw new Error('API error '+resp.status+': '+errText.slice(0,120));
+    if(resp.status===401) throw new Error('Invalid API key — go to Settings and re-enter your key from console.anthropic.com');
+    if(resp.status===429) throw new Error('Rate limited or out of credits — check your Anthropic account');
+    throw new Error('API error '+resp.status+': '+errText.slice(0,100));
   }
   var json=await resp.json();
   var text=(json.content&&json.content[0]&&json.content[0].text)||'';
