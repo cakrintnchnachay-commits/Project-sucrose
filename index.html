@@ -2407,18 +2407,41 @@ function buildScanReviewHtml(){
   }
 
   // count fields & init checked
+  // In edit mode, load existing game scores to detect already-filled fields
+  var editMode=!!(_scanResult&&_scanResult._editMode);
+  var editGameIdx=editMode?_cache.games.findIndex(function(g){return g.id===window._editGameId;}):-1;
+  var editScores=(editGameIdx>=0&&_cache.games[editGameIdx].playerScores)||{};
+
   var coexistCount=0;
-  matchRows.forEach(function(r){if(!(r.id in _scanChecked))_scanChecked[r.id]=true;});
+  matchRows.forEach(function(r){
+    if(!(r.id in _scanChecked)){
+      // In edit mode, default OFF if the field already has a value on the game
+      if(editMode&&r.id==='endedAt'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].endedAt)_scanChecked[r.id]=false;
+      else if(editMode&&r.id==='duration'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].duration)_scanChecked[r.id]=false;
+      else if(editMode&&r.id==='mvp'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].mvpPlayerId)_scanChecked[r.id]=false;
+      else _scanChecked[r.id]=true;
+    }
+  });
   ourTeam.forEach(function(e){
     if(!e.player)return;
     var pid=e.player.id;
     var ex=e.extracted;
+    var sc=editScores[pid]||{};
     ['kda','gold','gameRating','dmgDealtPct','dmgTakenPct'].forEach(function(f){
       var fid=pid+'_'+f;
-      if(!(fid in _scanChecked)&&getScanFieldVal(ex,f)!==null)_scanChecked[fid]=true;
+      if(!(fid in _scanChecked)&&getScanFieldVal(ex,f)!==null){
+        // In edit mode, default OFF for fields already present in the saved game
+        var alreadyFilled=editMode&&(
+          (f==='kda'&&sc.kills!=null)||(f==='gold'&&sc.gold!=null)||
+          (f==='gameRating'&&sc.gameRating!=null)||
+          (f==='dmgDealtPct'&&sc.dmgDealtPct!=null)||(f==='dmgTakenPct'&&sc.dmgTakenPct!=null)
+        );
+        _scanChecked[fid]=!alreadyFilled;
+      }
     });
-    var hasCoachRating=LS.scores&&LS.scores[pid]&&LS.scores[pid].coachRating!=null;
-    if(hasCoachRating&&ex.gameRating!=null)coexistCount++;
+    // Coexist: in log mode use LS.scores; in edit mode use saved scores
+    var coachRating=editMode?(sc.coachRating!=null?sc.coachRating:null):(LS.scores&&LS.scores[pid]&&LS.scores[pid].coachRating!=null?LS.scores[pid].coachRating:null);
+    if(coachRating!=null&&ex.gameRating!=null)coexistCount++;
   });
   var totalFields=Object.keys(_scanChecked).length;
   var shotCount=_scanFiles.length||1;
@@ -2509,7 +2532,11 @@ function buildPlayerScanRows(entry,raw){
       note:warn?'check against role avg':null});
   }
   if(ex.gameRating!=null){
-    var coachRating=p&&LS.scores&&LS.scores[p.id]&&LS.scores[p.id].coachRating!=null?LS.scores[p.id].coachRating:null;
+    // Coach rating: in log mode from LS.scores; in edit mode from saved game
+    var editMode2=!!(_scanResult&&_scanResult._editMode);
+    var editGIdx2=editMode2?_cache.games.findIndex(function(g){return g.id===window._editGameId;}):-1;
+    var editSc2=editMode2&&editGIdx2>=0?(_cache.games[editGIdx2].playerScores&&_cache.games[editGIdx2].playerScores[pid])||{}:{};
+    var coachRating=editMode2?(editSc2.coachRating!=null?editSc2.coachRating:null):(p&&LS.scores&&LS.scores[p.id]&&LS.scores[p.id].coachRating!=null?LS.scores[p.id].coachRating:null);
     if(coachRating!=null){
       rows.push({id:pid+'_gameRating',label:'IN-GAME RATING',val:''+ex.gameRating,badge:'+ STORED',
         badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)',
@@ -2600,12 +2627,12 @@ function startScan(){
     return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
   });
   var steps=[
-    'RESULT · player names · heroes',
-    'RESULT · KDA scores · gold',
-    'RESULT · game rating · MVP',
-    'RESULT · clock icon timestamp',
-    'DAMAGE · reading dmg dealt %',
+    'RESULT · player names · heroes · KDA',
+    'RESULT · gold · in-game rating',
+    'RESULT · clock icon timestamp · MVP',
+    'DAMAGE · reading damage dealt %',
     'DAMAGE · damage taken %',
+    'BUILD · final items',
     'cross-validating player matches…'
   ];
   var tick=0;
@@ -2753,72 +2780,143 @@ function triggerEditScan(){
 }
 
 function handleEditScanUpload(input){
-  var file=input.files[0];if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var img=new Image();
-    img.onload=function(){
-      var maxW=1920,maxH=1920,w=img.width,h=img.height;
-      if(w>maxW||h>maxH){var sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
-      var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-      canvas.getContext('2d').drawImage(img,0,0,w,h);
-      var mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
-      var base64=canvas.toDataURL(mimeType,0.92).split(',')[1];
-      var imageContents=[{type:'image',source:{type:'base64',media_type:mimeType,data:base64}}];
-      // Show scanning state in the scan modal
-      _scanState='scanning';_scanFiles=[{dataUrl:'',base64:base64,mimeType:mimeType,label:'RESULT'}];
-      _scanCancelled=false;_scanResult=null;_scanChecked={};
-      document.getElementById('scan-modal').classList.add('open');
+  var files=Array.from(input.files||[]);
+  if(!files.length)return;
+  var toProcess=files.slice(0,3);
+  var processed=[];
+  var done=0;
+  function onAllReady(){
+    _scanState='scanning';
+    _scanFiles=processed;
+    _scanCancelled=false;_scanResult=null;_scanChecked={};
+    document.getElementById('scan-modal').classList.add('open');
+    renderScanModal();
+    var imageContents=processed.map(function(sf){
+      return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
+    });
+    callClaudeVision(imageContents).then(function(raw){
+      if(_scanCancelled)return;
+      var matched=processScanResult(raw);
+      _scanResult={ourTeam:matched.ourTeam,oppTeam:matched.oppTeam,raw:raw,_editMode:true};
+      _scanChecked={};_scanState='review';
       renderScanModal();
-      callClaudeVision(imageContents).then(function(raw){
-        if(_scanCancelled)return;
-        var matched=processScanResult(raw);
-        _scanResult={ourTeam:matched.ourTeam,oppTeam:matched.oppTeam,raw:raw,_editMode:true};
-        _scanChecked={};_scanState='review';
-        renderScanModal();
-      }).catch(function(err){
-        if(_scanCancelled)return;
-        _scanState='upload';renderScanModal();
-        showToast('Scan failed: '+(err.message||'Unknown error'));
-      });
+    }).catch(function(err){
+      if(_scanCancelled)return;
+      _scanState='upload';renderScanModal();
+      showToast('Scan failed: '+(err.message||'Unknown error'));
+    });
+  }
+  toProcess.forEach(function(file,i){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var maxW=1920,maxH=1920,w=img.width,h=img.height;
+        if(w>maxW||h>maxH){var sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
+        var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        var mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
+        var dataUrl=canvas.toDataURL(mimeType,0.92);
+        processed[i]={file:file,dataUrl:dataUrl,base64:dataUrl.split(',')[1],mimeType:mimeType,label:SHOT_LABELS[i]||SHOT_LABELS[0]};
+        done++;
+        if(done===toProcess.length)onAllReady();
+      };
+      img.src=e.target.result;
     };
-    img.src=e.target.result;
-  };
-  reader.readAsDataURL(file);
+    reader.readAsDataURL(file);
+  });
+  input.value='';
 }
 
 function applyEditScannedData(){
   if(!_scanResult)return;
   var raw=_scanResult.raw,our=_scanResult.ourTeam,opp=_scanResult.oppTeam;
+  var gameIdx=_cache.games.findIndex(function(g){return g.id===window._editGameId;});
+
+  // Result
   if(raw.result){var resEl=document.getElementById('edit-result');if(resEl)resEl.value=raw.result;}
-  our.forEach(function(entry){
-    if(entry.player&&entry.hero){
-      var inp=document.getElementById('ehero-'+entry.player.id);
-      if(inp)inp.value=entry.hero.name;
+
+  // Match-level: endedAt, duration stored on the game object
+  if(gameIdx>=0){
+    if(_scanChecked['endedAt']&&raw.endedAt)_cache.games[gameIdx].endedAt=raw.endedAt;
+    if(_scanChecked['duration']&&raw.duration)_cache.games[gameIdx].duration=raw.duration;
+    // MVP
+    if(_scanChecked['mvp']&&raw.mvpIgn){
+      var mvpP=findPlayerByIgn(raw.mvpIgn);
+      if(mvpP){
+        _cache.games[gameIdx].mvpPlayerId=mvpP.id;
+        window._editMvpId=mvpP.id;
+        PLAYERS.forEach(function(p){
+          var btn=document.getElementById('emvp-'+p.id);
+          if(!btn)return;
+          var isNow=p.id===mvpP.id;
+          btn.className='btn btn-sm '+(isNow?'btn-primary':'btn-muted');
+          btn.textContent=isNow?'⭐ MVP':'MVP?';
+        });
+      }
     }
-  });
+  }
+
+  // Heroes in edit form and draft
   var side=window._editDraftSide||'Blue';
   var ourColor=side==='Blue'?'blue':'red';
   var oppColor=side==='Blue'?'red':'blue';
   our.forEach(function(entry){
     if(entry.player&&entry.hero){
-      var idx=GAME_ROLES.indexOf(entry.player.role);
-      if(idx>=0){var inp=document.getElementById('ed-'+ourColor+'-inp-'+idx);if(inp)inp.value=entry.hero.name;}
+      var inp=document.getElementById('ehero-'+entry.player.id);
+      if(inp)inp.value=entry.hero.name;
+      var di=GAME_ROLES.indexOf(entry.player.role);
+      if(di>=0){var dinp=document.getElementById('ed-'+ourColor+'-inp-'+di);if(dinp)dinp.value=entry.hero.name;}
     }
   });
   var oppIdx=0;
   opp.forEach(function(entry){
     if(entry.hero&&oppIdx<5){
       if(entry.player){
-        var idx=GAME_ROLES.indexOf(entry.player.role);
-        if(idx>=0){var inp=document.getElementById('ed-'+oppColor+'-inp-'+idx);if(inp&&!inp.value){inp.value=entry.hero.name;return;}}
+        var di=GAME_ROLES.indexOf(entry.player.role);
+        if(di>=0){var dinp=document.getElementById('ed-'+oppColor+'-inp-'+di);if(dinp&&!dinp.value){dinp.value=entry.hero.name;return;}}
       }
-      while(oppIdx<5){var inp=document.getElementById('ed-'+oppColor+'-inp-'+oppIdx);if(inp&&!inp.value){inp.value=entry.hero.name;oppIdx++;return;}oppIdx++;}
+      while(oppIdx<5){var dinp=document.getElementById('ed-'+oppColor+'-inp-'+oppIdx);if(dinp&&!dinp.value){dinp.value=entry.hero.name;oppIdx++;return;}oppIdx++;}
     }
   });
+
+  // Player-level objective stats → applied directly to cache (fill only empty fields)
+  if(gameIdx>=0){
+    if(!_cache.games[gameIdx].playerScores)_cache.games[gameIdx].playerScores={};
+    our.forEach(function(entry){
+      if(!entry.player)return;
+      var pid=entry.player.id;var ex=entry.extracted;
+      var sc=_cache.games[gameIdx].playerScores[pid]||{};
+      _cache.games[gameIdx].playerScores[pid]=sc;
+      if(_scanChecked[pid+'_kda']&&ex.kills!=null){sc.kills=ex.kills;sc.deaths=ex.deaths;sc.assists=ex.assists;}
+      if(_scanChecked[pid+'_gold']&&ex.gold!=null)sc.gold=ex.gold;
+      if(_scanChecked[pid+'_gameRating']&&ex.gameRating!=null)sc.gameRating=ex.gameRating;
+      if(_scanChecked[pid+'_dmgDealtPct']&&ex.dmgDealtPct!=null)sc.dmgDealtPct=ex.dmgDealtPct;
+      if(_scanChecked[pid+'_dmgTakenPct']&&ex.dmgTakenPct!=null)sc.dmgTakenPct=ex.dmgTakenPct;
+    });
+    // Refresh the stats display in the edit modal
+    PLAYERS.forEach(function(p){
+      var wrap=document.getElementById('escan-stats-'+p.id);
+      if(!wrap)return;
+      var sc=_cache.games[gameIdx].playerScores[p.id]||{};
+      wrap.innerHTML=buildEditScanStatsHtml(sc);
+    });
+  }
+
   _scanResult=null;
   closeScanModal();
-  showToast('✓ Screenshot applied to edit form');
+  showToast('✓ Scan applied to game');
+}
+
+function buildEditScanStatsHtml(sc){
+  var parts=[];
+  if(sc.kills!=null)parts.push('<span>'+sc.kills+'/'+sc.deaths+'/'+sc.assists+'</span>');
+  if(sc.gold!=null)parts.push('<span>'+Number(sc.gold).toLocaleString()+' g</span>');
+  if(sc.gameRating!=null)parts.push('<span>'+sc.gameRating+' <span style="color:var(--grey-5);">rating</span></span>');
+  if(sc.dmgDealtPct!=null)parts.push('<span>'+sc.dmgDealtPct+'% <span style="color:var(--grey-5);">dmg</span></span>');
+  if(sc.dmgTakenPct!=null)parts.push('<span>'+sc.dmgTakenPct+'% <span style="color:var(--grey-5);">taken</span></span>');
+  if(!parts.length)return '';
+  return parts.join('<span style="color:var(--grey-3);margin:0 4px;">·</span>');
 }
 
 function editAutoAssignDraftPicks(){
@@ -3100,6 +3198,7 @@ function openEditModal(gameId){
       '</div>'+
       '<div id="efields-'+p.id+'" style="display:'+(isSkipped?'none':'block')+';">'+
         '<div id="ehero-wrap-'+p.id+'"></div>'+
+        (buildEditScanStatsHtml(s)?'<div id="escan-stats-'+p.id+'" style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-6);padding:6px 0 10px;border-bottom:var(--border);margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"><span style="font-size:8.5px;letter-spacing:1.5px;color:var(--grey-4);margin-right:2px;">SCAN</span>'+buildEditScanStatsHtml(s)+'</div>':'<div id="escan-stats-'+p.id+'" style="display:none;"></div>')+
         '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
         '<div class="score-sec">Role Performance <span>· '+p.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,s[c.key],'esl-'+p.id);}).join('')+
         '<div class="input-group mb-0"><label class="input-label">Comment</label><textarea class="input" id="ecomment-'+p.id+'" style="min-height:44px;">'+(s.comment||'')+'</textarea></div>'+
@@ -3107,8 +3206,8 @@ function openEditModal(gameId){
     '</div>';
   }).join('');
   var scoresPanel=
-    '<input type="file" accept="image/*" id="edit-scan-input" style="display:none;" onchange="handleEditScanUpload(this)"/>'+
-    '<button class="btn btn-full" onclick="triggerEditScan()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:12px;margin-bottom:12px;">📸 Scan Screenshot to Auto-Fill</button>'+
+    '<input type="file" accept="image/*" multiple id="edit-scan-input" style="display:none;" onchange="handleEditScanUpload(this)"/>'+
+    '<button class="btn btn-full" onclick="triggerEditScan()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:12px;margin-bottom:12px;">📸 Scan Screenshots to Fill Empty Fields</button>'+
     '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;margin-bottom:14px;border-bottom:var(--border);">'+
       '<button class="btn btn-sm" onclick="editScoreNav(-1)">&#x2190; Prev</button>'+
       '<div id="edit-score-pager" style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">1 / '+PLAYERS.length+'</div>'+
@@ -3314,7 +3413,10 @@ async function saveEdit(gameId){
       var heroEl=document.getElementById('ehero-'+p.id);
       var heroVal=heroEl?heroEl.value.trim():'';
       var existingMvp=_cache.games[idx].playerScores[p.id]?.mvp||false;
+      var prev=_cache.games[idx].playerScores[p.id]||{};
       var s={hero:heroVal,comment:document.getElementById('ecomment-'+p.id)?.value||'',mvp:existingMvp};
+      // Preserve scanned objective stats so editing criteria doesn't erase them
+      ['kills','deaths','assists','gold','gameRating','dmgDealtPct','dmgTakenPct'].forEach(function(f){if(prev[f]!=null)s[f]=prev[f];});
       allC.forEach(function(c){var sl=document.getElementById('esl-'+p.id+'-'+c.key);if(sl)s[c.key]=parseFloat(sl.value);});
       _cache.games[idx].playerScores[p.id]=s;
     }
