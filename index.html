@@ -786,6 +786,7 @@ textarea.input{resize:vertical;min-height:70px;}
     </div>
     <div class="hero-role-tabs" id="heroes-role-tabs"></div>
     <div class="hero-sort-bar" id="heroes-sort-bar"></div>
+    <div class="hero-sort-bar" id="heroes-window-bar"></div>
     <div id="heroes-list"></div>
   </div>
 
@@ -1081,6 +1082,7 @@ async function bootApp(){
       if(s.key==='last_sync') _cache.lastSync=s.value||'';
       if(s.key==='settings_pin') _cache.settingsPin=s.value||'';
       if(s.key==='anthropic_key') _cache.anthropicKey=(s.value||'').replace(/\s+/g,'');
+      if(s.key==='meta_tiers_json'&&s.value&&!Object.keys(_cache.metaTiers).length) _cache.metaTiers=s.value;
     });
     // If no players in DB yet, seed with defaults
     if(_cache.players.length===0){
@@ -1534,12 +1536,12 @@ function calcHeroPoolScore(playerId){
   });
   scored.sort(function(a,b){return b.heroScore-a.heroScore;});
   const topSlice=scored.slice(0,benchmarkCount);
-  // Max = top benchmark heroes sorted by meta weight, each scored at A mastery
+  // Max = top benchmark heroes sorted by meta weight, each scored at S mastery
   const benchmarkHeroes=metaRatedForRole.slice().sort(function(a,b){
     return (META_WEIGHTS[metaTiers[b.name][player.role]]||0)-(META_WEIGHTS[metaTiers[a.name][player.role]]||0);
   }).slice(0,benchmarkCount);
   const maxPossible=benchmarkHeroes.reduce(function(s,h){
-    return s+(META_WEIGHTS[metaTiers[h.name][player.role]]||0)*MASTERY_WEIGHTS['A']*100;
+    return s+(META_WEIGHTS[metaTiers[h.name][player.role]]||0)*MASTERY_WEIGHTS['S']*100;
   },0);
   const totalScore=topSlice.reduce(function(s,h){return s+h.heroScore;},0);
   const pct=(benchmarkCount>0&&maxPossible>0)?Math.round((totalScore/maxPossible)*100):0;
@@ -1740,11 +1742,11 @@ function renderHome(){
       var mGames=data.games.filter(function(g){return g.matchId===m.id;});
       var wins=mGames.filter(function(g){return g.result==='Win';}).length;
       var series=mGames.length?wins+'-'+(mGames.length-wins):'No games';
-      var lastResult=mGames.length?mGames[mGames.length-1].result:null;
+      var seriesResult=mGames.length?(wins>mGames.length-wins?'Win':wins<mGames.length-wins?'Loss':'Tie'):null;
       return '<div class="player-row" data-open-match="'+m.id+'">'+
         '<div style="flex:1;"><div style="font-weight:600;font-size:13px;">'+m.name+'</div>'+
         '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:2px;">'+(m.date||'')+'</div></div>'+
-        (lastResult?'<span class="tag '+(lastResult==='Win'?'tag-win':'tag-loss')+'">'+series+'</span>':
+        (seriesResult&&seriesResult!=='Tie'?'<span class="tag '+(seriesResult==='Win'?'tag-win':'tag-loss')+'">'+series+'</span>':
           '<span class="tag tag-role" style="font-size:8px;">'+series+'</span>')+
       '</div>';
     }).join('');
@@ -1802,10 +1804,11 @@ function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.cei
 // ══════════════════════════════════════════
 // LOG GAME — V8 (match → mentality → games)
 // ══════════════════════════════════════════
-var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null};
+var LS={step:0,matchInfo:{},mentality:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null,players:[]};
 
 function initLog(){
-  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null};
+  LS={step:0,matchInfo:{},scores:{},skipped:{},idx:0,matchId:null,draft:null,scanData:null,
+    players:PLAYERS.filter(function(p){return p.status!=='Inactive';})};
   document.getElementById('log-step-0').style.display='block';
   document.getElementById('log-step-player').style.display='none';
   document.getElementById('log-step-draft').style.display='none';
@@ -1814,21 +1817,21 @@ function initLog(){
 }
 
 function buildDots(){
-  var total=1+PLAYERS.length+2; // 0=details, 1..N=players, N+1=draft, N+2=review
+  var total=3+LS.players.length; // 0=game info, 1=draft, 2..N+1=players, N+2=review
   document.getElementById('step-indicator').innerHTML=Array(total).fill(0).map(function(_,i){return '<div class="step-dot" id="sd-'+i+'"></div>';}).join('');
   updateDots();
 }
 
 function updateDots(){
   var step=LS.step;
-  var total=1+PLAYERS.length;
-  for(var i=0;i<=total;i++){
+  var total=3+LS.players.length;
+  for(var i=0;i<total;i++){
     var el=document.getElementById('sd-'+i);
     if(!el) continue;
     var cls='step-dot';
     if(i===step) cls+=' active';
     else if(i<step){
-      if(i>=1&&i<1+PLAYERS.length&&LS.skipped[PLAYERS[i-1]?.id]) cls+=' skipped';
+      if(i>=2&&i<2+LS.players.length&&LS.skipped[LS.players[i-2]?.id]) cls+=' skipped';
       else cls+=' done';
     }
     el.className=cls;
@@ -1869,12 +1872,12 @@ function logNextStep(){
   LS.step=1;
   LS.idx=0;
   document.getElementById('log-step-0').style.display='none';
-  renderPlayerStep();
+  renderDraftStep();
 }
 
 function renderPlayerStep(){
   updateDots();
-  var player=PLAYERS[LS.idx];
+  var player=LS.players[LS.idx];
   var isSkipped=!!LS.skipped[player.id];
   var existing=LS.scores[player.id]||{};
   var rc=ROLE_CRITERIA[player.role]||[];
@@ -1886,7 +1889,7 @@ function renderPlayerStep(){
       '<div class="player-avatar">'+player.nick[0]+'</div>'+
       '<div style="flex:1;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+player.nick+'</div>'+
       '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+player.ign+' · <span class="tag tag-role" style="font-size:8px;">'+player.role+'</span>'+(player.status==='Substitute'?' · <span style="color:var(--grey-4)">Sub</span>':'')+'</div></div>'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+PLAYERS.length+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+LS.players.length+'</div>'+
     '</div>'+
     '<div class="play-skip-row"><div class="play-skip-label">Playing this game?</div><div class="play-skip-btns">'+
       '<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="tog-play" onclick="logSetSkip(\''+player.id+'\',false)">Playing</button>'+
@@ -1905,7 +1908,7 @@ function renderPlayerStep(){
     '</div>'+
     '<div style="display:flex;gap:10px;margin-top:12px;">'+
       '<button class="btn" style="flex:1;" onclick="logPrev()">&#x2190; Back</button>'+
-      '<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<PLAYERS.length-1?'Next &#x2192;':'Review &#x2192;')+'</button>'+
+      '<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<LS.players.length-1?'Next &#x2192;':'Review &#x2192;')+'</button>'+
     '</div>';
   buildHeroInput('log-hero-wrap','log-hero-inp','log-hero-drop',existing.hero||'');
 }
@@ -1927,7 +1930,7 @@ function logToggleMVP(pid){
 }
 
 function logSavePlayer(){
-  var player=PLAYERS[LS.idx];
+  var player=LS.players[LS.idx];
   if(LS.skipped[player.id]){
     LS.scores[player.id]={skipped:true};
   } else {
@@ -1940,13 +1943,13 @@ function logSavePlayer(){
     LS.scores[player.id]=s;
     if(heroVal)addHeroToList(heroVal);
   }
-  if(LS.idx<PLAYERS.length-1){
+  if(LS.idx<LS.players.length-1){
     LS.idx++;
     LS.step++;
     renderPlayerStep();
   } else {
-    LS.step=1+PLAYERS.length;
-    renderDraftStep();
+    LS.step=LS.players.length+2;
+    showReview();
   }
 }
 
@@ -1956,24 +1959,15 @@ function logPrev(){
     LS.step--;
     renderPlayerStep();
   } else {
-    // Back to details step
+    // Back to draft step
     document.getElementById('log-step-player').style.display='none';
-    LS.step=0;
-    document.getElementById('log-step-0').style.display='block';
-    updateDots();
+    LS.step=1;
+    renderDraftStep();
   }
 }
 
 function renderDraftStep(){
   if(!LS.draft) LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
-  // Auto-fill our picks from player scores (only fill empty slots)
-  GAME_ROLES.forEach(function(role,i){
-    if(LS.draft.ourPicks[i]) return;
-    var player=PLAYERS.find(function(p){return p.role===role&&!LS.skipped[p.id];});
-    if(player&&LS.scores[player.id]&&!LS.scores[player.id].skipped&&LS.scores[player.id].hero){
-      LS.draft.ourPicks[i]=LS.scores[player.id].hero;
-    }
-  });
   updateDots();
   document.getElementById('log-step-player').style.display='none';
   var container=document.getElementById('log-step-draft');
@@ -2015,7 +2009,7 @@ function renderDraftStep(){
     '</div>'+
     '<div style="display:flex;gap:10px;">'+
       '<button class="btn" style="flex:1;" onclick="logDraftPrev()">&#x2190; Back</button>'+
-      '<button class="btn btn-primary" style="flex:2;" onclick="saveDraftAndReview()">Review &#x2192;</button>'+
+      '<button class="btn btn-primary" style="flex:2;" onclick="saveDraftAndReview()">Scores &#x2192;</button>'+
     '</div>';
 }
 
@@ -2045,7 +2039,7 @@ function autoAssignDraftPicks(){
   saveDraftInputs();
   if(!LS.draft) return;
   GAME_ROLES.forEach(function(role,i){
-    var player=PLAYERS.find(function(p){return p.role===role&&!LS.skipped[p.id];});
+    var player=LS.players.find(function(p){return p.role===role&&!LS.skipped[p.id];});
     if(player&&LS.scores[player.id]&&!LS.scores[player.id].skipped&&LS.scores[player.id].hero){
       LS.draft.ourPicks[i]=LS.scores[player.id].hero;
     }
@@ -2056,21 +2050,22 @@ function autoAssignDraftPicks(){
 function logDraftPrev(){
   saveDraftInputs();
   document.getElementById('log-step-draft').style.display='none';
-  LS.idx=PLAYERS.length-1;
-  LS.step=PLAYERS.length;
-  renderPlayerStep();
+  LS.step=0;
+  document.getElementById('log-step-0').style.display='block';
+  updateDots();
 }
 
 function saveDraftAndReview(){
   saveDraftInputs();
   document.getElementById('log-step-draft').style.display='none';
-  LS.step=PLAYERS.length+2;
-  showReview();
+  LS.step=2;
+  LS.idx=0;
+  renderPlayerStep();
 }
 
 function showDraftFromReview(){
   document.getElementById('log-step-review').style.display='none';
-  LS.step=PLAYERS.length+1;
+  LS.step=1;
   renderDraftStep();
 }
 
@@ -2079,7 +2074,7 @@ function showReview(){
   document.getElementById('log-step-review').style.display='block';
   var m=LS.matchInfo;
   var mvpId=Object.keys(LS.scores).find(function(pid){return LS.scores[pid]?.mvp;});
-  var rows=PLAYERS.map(function(p){
+  var rows=LS.players.map(function(p){
     var s=LS.scores[p.id]||{};
     if(s.skipped) return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);opacity:0.4;"><div class="player-avatar" style="width:30px;height:30px;font-size:12px;">'+p.nick[0]+'</div><div style="flex:1;font-size:12px;color:var(--grey-5);">Did not play</div><span class="tag tag-dnp">DNP</span></div>';
     var score=calcGameScore(s,p.role,null,p.id);
@@ -2781,9 +2776,7 @@ function openEditModal(gameId){
     '<div class="input-group"><label class="input-label">VOD / Notes</label><textarea class="input" id="edit-vod" style="min-height:60px;">'+(game.vod||'')+'</textarea></div>';
 
   // ── Panel 2: Player Scores ──
-  var playerChips=PLAYERS.map(function(p,i){
-    return '<button class="edit-player-chip'+(i===0?' active':'')+'" data-pid="'+p.id+'" onclick="editBookSelectPlayer(\''+p.id+'\')">'+p.nick+'</button>';
-  }).join('');
+  window._editScoreIdx=0;
   var playerForms=PLAYERS.map(function(p,i){
     var s=game.playerScores&&game.playerScores[p.id]||{};
     var isSkipped=!!s.skipped;var isMVP=game.mvpPlayerId===p.id;var rc=ROLE_CRITERIA[p.role]||[];
@@ -2811,7 +2804,11 @@ function openEditModal(gameId){
   var scoresPanel=
     '<input type="file" accept="image/*" id="edit-scan-input" style="display:none;" onchange="handleEditScanUpload(this)"/>'+
     '<button class="btn btn-full" onclick="triggerEditScan()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:12px;margin-bottom:12px;">📸 Scan Screenshot to Auto-Fill</button>'+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:14px;border-bottom:var(--border);">'+playerChips+'</div>'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;margin-bottom:14px;border-bottom:var(--border);">'+
+      '<button class="btn btn-sm" onclick="editScoreNav(-1)">&#x2190; Prev</button>'+
+      '<div id="edit-score-pager" style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">1 / '+PLAYERS.length+'</div>'+
+      '<button class="btn btn-sm" onclick="editScoreNav(1)">Next &#x2192;</button>'+
+    '</div>'+
     playerForms;
 
   // ── Panel 3: Draft ──
@@ -2854,8 +2851,16 @@ function switchBookTab(tab){
 }
 
 function editBookSelectPlayer(pid){
-  document.querySelectorAll('.edit-player-chip').forEach(function(c){c.classList.toggle('active',c.dataset.pid===pid);});
-  document.querySelectorAll('.edit-player-section').forEach(function(s){s.style.display=s.dataset.pid===pid?'block':'none';});
+  var idx=PLAYERS.findIndex(function(p){return p.id===pid;});
+  if(idx>=0){window._editScoreIdx=idx;editScoreNav(0);}
+}
+function editScoreNav(dir){
+  var total=PLAYERS.length;
+  window._editScoreIdx=Math.max(0,Math.min(total-1,(window._editScoreIdx||0)+dir));
+  var idx=window._editScoreIdx;
+  document.querySelectorAll('.edit-player-section').forEach(function(s,i){s.style.display=i===idx?'block':'none';});
+  var pager=document.getElementById('edit-score-pager');
+  if(pager) pager.textContent=(idx+1)+' / '+total+' · '+PLAYERS[idx].nick;
 }
 
 function buildEditDraftPanel(side,ourPicks,oppPicks){
@@ -3396,6 +3401,7 @@ async function assignTier(type,heroName,tierKey){
     else delete _cache.metaTiers[heroName][role];
     if(!Object.keys(_cache.metaTiers[heroName]).length) delete _cache.metaTiers[heroName];
     await sbSaveMetaTier(heroName,role,tierKey);
+    await sbSaveSetting('meta_tiers_json',_cache.metaTiers);
     showToast('Tier saved');renderTierMode();
     renderMetaTierAssignModal();
   }else{
@@ -3414,6 +3420,7 @@ async function savePatch(){
   _cache.patches.push(patch);
   await sbSavePatch(patch);
   await sbSaveSetting('current_patch',name);
+  await sbSaveSetting('meta_tiers_json',_cache.metaTiers);
   document.getElementById('patch-name-display').textContent=name;
   closeModal('patch-modal');showToast('Patch '+name+' saved');renderTierMode();
 }
@@ -3454,6 +3461,7 @@ async function loadPatch(patchName){
     }
     // Update cache
     _cache.metaTiers=JSON.parse(JSON.stringify(tiers));
+    await sbSaveSetting('meta_tiers_json',_cache.metaTiers);
     setTierMode('meta');
     showToast('✓ Patch "'+patchName+'" loaded');
   }catch(e){
@@ -3486,10 +3494,19 @@ function showToast(msg){var t=document.getElementById('toast');t.textContent=msg
 // ══════════════════════════════════════════
 // HEROES TAB — V7
 // ══════════════════════════════════════════
-var _heroState={role:'All',sort:'picks'};
+var _heroState={role:'All',sort:'picks',window:'All'};
+var HERO_WINDOWS=[
+  {k:'1M',l:'1 Month',days:30},
+  {k:'2M',l:'2 Months',days:60},
+  {k:'6M',l:'6 Months',days:180},
+  {k:'1Y',l:'1 Year',days:365},
+  {k:'All',l:'All Time',days:null}
+];
+function setHeroWindow(w){_heroState.window=w;renderHeroes();}
+function getHeroCutoff(){var wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
 
-function buildHeroStats(){
-  var games=_cache.games||[];
+function buildHeroStats(cutoff){
+  var games=(_cache.games||[]).filter(function(g){return !cutoff||parseDate(g.date)>=cutoff;});
   var heroMap={};
   var players=_cache.players||[];
   games.forEach(function(g){
@@ -3535,7 +3552,8 @@ function buildHeroStats(){
 }
 
 function renderHeroes(){
-  var heroes=buildHeroStats();
+  var cutoff=getHeroCutoff();
+  var heroes=buildHeroStats(cutoff);
   var role=_heroState.role||'All';
   var sort=_heroState.sort||'picks';
   var q=(document.getElementById('hero-search-inp')?.value||'').trim().toLowerCase();
@@ -3548,6 +3566,11 @@ function renderHeroes(){
   var sorts=[{k:'picks',l:'Most Picked'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'}];
   document.getElementById('heroes-sort-bar').innerHTML=sorts.map(function(s){
     return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" data-hero-sort="'+s.k+'">'+s.l+'</button>';
+  }).join('');
+  // Date window bar
+  var win=_heroState.window||'All';
+  document.getElementById('heroes-window-bar').innerHTML=HERO_WINDOWS.map(function(w){
+    return '<button class="hero-sort-btn '+(win===w.k?'active':'')+'" onclick="setHeroWindow(\''+w.k+'\')">'+w.l+'</button>';
   }).join('');
   // Filter
   var filtered=heroes.filter(function(h){
@@ -3601,7 +3624,8 @@ function renderHeroes(){
 }
 
 function openHeroDetail(heroName){
-  var heroes=buildHeroStats();
+  var cutoff=getHeroCutoff();
+  var heroes=buildHeroStats(cutoff);
   var h=heroes.find(function(x){return x.name===heroName;});
   if(!h){showToast('No data for '+heroName);return;}
   var wr=h.picks?Math.round(h.wins/h.picks*100):0;
@@ -3634,8 +3658,10 @@ function openHeroDetail(heroName){
   }).join('')+
   '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding-top:6px;">Win rate when picked together (min 2 games)</div>'
   :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games together to show synergy</div>';
+  var winLabel=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{l:'All Time'}).l;
   document.getElementById('hd-title').textContent=heroName.toUpperCase();
   document.getElementById('hd-body').innerHTML=
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:8px 0 0;letter-spacing:1px;">'+winLabel.toUpperCase()+'</div>'+
     '<div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 8px;">'+
       heroPortraitHtml(heroName,160,false)+
       '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;margin-top:10px;">'+heroName+'</div>'+
@@ -3673,13 +3699,13 @@ function buildTop3HeroesHtml(playerId,games){
     var sc=calcGameScore(s,player.role,g,player.id);
     if(sc>0) heroMap[hname].scores.push(sc);
   });
-  var sorted=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){
+  // Top 3 by avg score, but only from the top 10 most-played heroes
+  var byPlays=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){return b.picks-a.picks;}).slice(0,10);
+  var top3=byPlays.slice().sort(function(a,b){
     var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
     var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
-    if(sb!==sa) return sb-sa;
-    return b.picks-a.picks;
-  });
-  var top3=sorted.slice(0,3);
+    return sb-sa;
+  }).slice(0,3);
   if(!top3.length) return '<div style="padding:8px 20px 12px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No hero data yet</div>';
   var medals=['🥇','🥈','🥉'];
   var chips=top3.map(function(h,i){
