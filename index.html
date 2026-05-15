@@ -770,6 +770,11 @@ textarea.input{resize:vertical;min-height:70px;}
       <button class="btn btn-primary btn-full" onclick="saveAnthropicKey()">Save API Key</button>
       <div id="anthropic-key-status" style="margin-top:8px;font-size:11px;color:var(--grey-5);"></div>
     </div>
+    <div class="settings-section">
+      <div class="settings-section-title">Pillar Benchmarks</div>
+      <p style="font-size:12px;color:var(--grey-5);line-height:1.6;margin-bottom:12px;">Used to pre-fill pillar suggestions. Leave a field blank to skip that metric's contribution. "Auto" uses the player's own average from logged games (needs 3+).</p>
+      <button class="btn btn-primary btn-full" onclick="openBenchmarkPanel()">⚙ Benchmark Settings</button>
+    </div>
   </div>
 
   <!-- MATCH DETAIL -->
@@ -961,6 +966,32 @@ textarea.input{resize:vertical;min-height:70px;}
       <button class="btn" style="flex:1;" id="scan-btn-secondary" onclick="scanSecondaryAction()">CANCEL</button>
       <button class="btn btn-primary" style="flex:1;" id="scan-btn-primary" onclick="scanPrimaryAction()">SCAN →</button>
     </div>
+  </div>
+</div>
+
+<!-- ENEMY ROLE CONFIRM MODAL -->
+<div class="modal-overlay" id="enemy-role-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">ENEMY LINEUP · CONFIRM ROLES</div>
+      <button class="modal-close" onclick="closeEnemyRoleConfirm()">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="enemy-role-body"></div>
+    <div style="padding:12px 20px;border-top:var(--border);display:flex;gap:10px;">
+      <button class="btn" style="flex:1;" onclick="closeEnemyRoleConfirm()">Skip</button>
+      <button class="btn btn-primary" style="flex:2;" onclick="confirmEnemyRoles()">Confirm Roles</button>
+    </div>
+  </div>
+</div>
+
+<!-- BENCHMARK SETTINGS MODAL -->
+<div class="modal-overlay" id="benchmark-modal">
+  <div class="modal modal-book">
+    <div class="modal-header">
+      <div class="modal-title">BENCHMARK SETTINGS</div>
+      <button class="modal-close" onclick="closeModal('benchmark-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="benchmark-body"></div>
   </div>
 </div>
 
@@ -2015,6 +2046,47 @@ function selectHero(inputId,dropId,name){var inp=document.getElementById(inputId
 // ══════════════════════════════════════════
 function makeSlider(c,val,prefix){var max=c.max||10;var v=val!=null?val:Math.ceil(max/2);var id=prefix+'-'+c.key;var dispId=prefix+'d-'+c.key;return '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;"><div><div style="font-size:12px;font-weight:500;">'+c.label+'</div><div style="font-size:10px;color:var(--grey-5);">'+c.desc+'</div></div><div style="display:flex;align-items:baseline;gap:3px;flex-shrink:0;"><div class="slider-val" id="'+dispId+'">'+v+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">/'+max+'</div></div></div><div class="slider-wrap"><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">1</span><input type="range" class="slider" min="1" max="'+max+'" value="'+v+'" id="'+id+'" oninput="document.getElementById(\''+dispId+'\').textContent=this.value"/><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+max+'</span></div></div>';}
 
+function makeHybridSlider(pillar,autoScore,coachScore,prefix){
+  var id=prefix+'-'+pillar.key;
+  var dispId=prefix+'d-'+pillar.key;
+  var deltaId=prefix+'delta-'+pillar.key;
+  var val=coachScore!=null?Math.round(coachScore):(autoScore!=null?Math.round(autoScore):5);
+  var sl=suggLabel(autoScore);
+  var autoAttr=autoScore!=null?autoScore.toFixed(2):'';
+  return '<div style="margin-bottom:18px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">'
+      +'<div style="flex:1;">'
+        +'<div style="font-size:12px;font-weight:500;">'+pillar.label+' <span style="font-family:\'DM Mono\',monospace;font-size:7px;padding:2px 5px;border-radius:2px;background:rgba(68,136,255,0.1);color:var(--auto);border:1px solid rgba(68,136,255,0.2);vertical-align:middle;">AUTO</span></div>'
+        +'<div style="font-size:10px;color:var(--grey-5);">'+pillar.desc+'</div>'
+        +(sl?'<div style="font-size:9px;font-family:\'DM Mono\',monospace;color:'+sl.color+';margin-top:2px;">'+sl.text+' suggested</div>':'<div style="font-size:9px;font-family:\'DM Mono\',monospace;color:var(--grey-4);margin-top:2px;">Benchmark not set — grade manually</div>')
+      +'</div>'
+      +'<div style="display:flex;align-items:baseline;gap:3px;flex-shrink:0;margin-left:8px;">'
+        +'<div class="slider-val" id="'+dispId+'">'+val+'</div>'
+        +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">/10</div>'
+      +'</div>'
+    +'</div>'
+    +'<div class="slider-wrap">'
+      +'<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">1</span>'
+      +'<input type="range" class="slider" min="1" max="10" value="'+val+'" id="'+id+'" data-auto="'+autoAttr+'" oninput="updateHybridSlider(\''+dispId+'\',\''+id+'\',\''+deltaId+'\',this.value)"/>'
+      +'<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">10</span>'
+    +'</div>'
+    +'<div id="'+deltaId+'" style="font-size:9px;font-family:\'DM Mono\',monospace;color:var(--grey-4);margin-top:2px;min-height:14px;"></div>'
+    +'</div>';
+}
+
+function updateHybridSlider(dispId,inputId,deltaId,val){
+  var disp=document.getElementById(dispId);
+  if(disp)disp.textContent=val;
+  var inp=document.getElementById(inputId);
+  var deltaEl=document.getElementById(deltaId);
+  if(!inp||!deltaEl)return;
+  var autoScore=parseFloat(inp.dataset.auto);
+  if(isNaN(autoScore)){deltaEl.textContent='';return;}
+  var delta=parseFloat(val)-autoScore;
+  if(Math.abs(delta)<0.15){deltaEl.textContent='';return;}
+  deltaEl.textContent='Suggested '+autoScore.toFixed(1)+' → You: '+val+' ('+(delta>=0?'+':'')+delta.toFixed(1)+')';
+}
+
 // ══════════════════════════════════════════
 // LOG GAME — V8 (match → mentality → games)
 // ══════════════════════════════════════════
@@ -2094,37 +2166,137 @@ function renderPlayerStep(){
   var player=LS.players[LS.idx];
   var isSkipped=!!LS.skipped[player.id];
   var existing=LS.scores[player.id]||{};
-  var rc=ROLE_CRITERIA[player.role]||[];
+  var pillars=PILLAR_DEFS[player.role]||[];
+  var bm=getBenchmarks()[player.role]||{};
+  var stats=buildStatsForPillar(player.id);
   var container=document.getElementById('log-step-player');
   container.style.display='block';
   var isMVP=LS.scores[player.id]?.mvp||false;
+  var prefix='sl-'+player.id;
+
+  // Build pillar sliders HTML
+  var pillarsHtml='';
+  pillars.forEach(function(pillar){
+    var coachScore=existing.pillar_scores?existing.pillar_scores[pillar.key]:null;
+    if(pillar.type==='manual'){
+      var c={key:pillar.key,label:pillar.label,desc:pillar.desc,max:10};
+      pillarsHtml+=makeSlider(c,coachScore,prefix);
+    } else {
+      var autoScore=calcPillarAuto(pillar.key,player.role,stats,bm);
+      pillarsHtml+=makeHybridSlider(pillar,autoScore,coachScore,prefix);
+    }
+  });
+
+  // Raw stats collapsible
+  var s=existing;
+  var rawHtml='<div style="margin-top:14px;border-top:var(--border);padding-top:10px;">'
+    +'<button onclick="toggleRawStats(\''+player.id+'\')" id="rawbtn-'+player.id+'" style="width:100%;text-align:left;padding:4px 0;background:none;border:none;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;display:flex;align-items:center;gap:6px;">'
+    +'<span id="rawarrow-'+player.id+'">▸</span> RAW STATS (EDITABLE)</button>'
+    +'<div id="rawpanel-'+player.id+'" style="display:none;margin-top:10px;">'
+    +'<div style="font-size:10px;color:var(--grey-5);margin-bottom:8px;">Edit if scanner misread — changes update pillar suggestions.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">'
+    +makeRawStatInput('K','kills',s.kills,player.id)
+    +makeRawStatInput('D','deaths',s.deaths,player.id)
+    +makeRawStatInput('A','assists',s.assists,player.id)
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">'
+    +makeRawStatInput('Gold','gold',s.gold,player.id)
+    +makeRawStatInput('Rating','gameRating',s.gameRating,player.id)
+    +makeRawStatInput('Dmg %','dmgDealtPct',s.dmgDealtPct,player.id)
+    +makeRawStatInput('Taken %','dmgTakenPct',s.dmgTakenPct,player.id)
+    +'</div>'
+    +'</div></div>';
+
+  // Context tip for jungler objective
+  var objectiveTip='';
+  if(player.role==='Jungler'){
+    var dur=LS.matchInfo.duration_seconds;var res=LS.matchInfo.result;
+    if(dur&&res){
+      var durMin=Math.round(dur/60);
+      objectiveTip='<div style="font-size:10px;color:var(--grey-5);font-family:\'DM Mono\',monospace;padding:6px 8px;background:var(--grey-1);border-radius:2px;margin-bottom:8px;">';
+      if(res==='Win'&&durMin<15)objectiveTip+='⚡ Fast close ('+durMin+' min) — check lord/turtle timing';
+      else if(res==='Loss'&&durMin>20)objectiveTip+='⏱ Late game ('+durMin+' min) — assess objective call quality';
+      else objectiveTip+='Duration: '+durMin+' min · '+res;
+      objectiveTip+='</div>';
+    }
+  }
+
   container.innerHTML=
-    '<div style="display:flex;align-items:center;gap:12px;padding:14px 0 16px;border-bottom:var(--border);margin-bottom:16px;">'+
-      '<div class="player-avatar">'+player.nick[0]+'</div>'+
-      '<div style="flex:1;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+player.nick+'</div>'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+player.ign+' · <span class="tag tag-role" style="font-size:8px;">'+player.role+'</span>'+(player.status==='Substitute'?' · <span style="color:var(--grey-4)">Sub</span>':'')+'</div></div>'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+LS.players.length+'</div>'+
-    '</div>'+
-    '<div class="play-skip-row"><div class="play-skip-label">Playing this game?</div><div class="play-skip-btns">'+
-      '<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="tog-play" onclick="logSetSkip(\''+player.id+'\',false)">Playing</button>'+
-      '<button class="btn btn-sm btn-muted" id="tog-skip" onclick="logSetSkip(\''+player.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button>'+
-    '</div></div>'+
-    '<div id="log-score-fields" style="display:'+(isSkipped?'none':'block')+';">'+
-      '<div id="log-hero-wrap"></div>'+
-      '<div class="play-skip-row" style="padding:10px 0 12px;"><div class="play-skip-label">⭐ MVP of this game?</div>'+
-        '<button class="btn btn-sm '+(isMVP?'btn-primary':'btn-muted')+'" id="tog-mvp" onclick="logToggleMVP(\''+player.id+'\')">'+
-          (isMVP?'⭐ MVP':'Mark MVP')+
-        '</button>'+
-      '</div>'+
-      '<div class="score-sec">Game Sense <span>· out of 10</span></div>'+GAME_SENSE_CRITERIA.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
-      '<div class="score-sec">Role Performance <span>· '+player.role+' · out of 10</span></div>'+rc.map(function(c){return makeSlider(c,existing[c.key],'sl');}).join('')+
-      '<div class="input-group mt-8"><label class="input-label">Coach Comment (Optional)</label><textarea class="input" id="log-comment" style="min-height:56px;">'+(existing.comment||'')+'</textarea></div>'+
-    '</div>'+
-    '<div style="display:flex;gap:10px;margin-top:12px;">'+
-      '<button class="btn" style="flex:1;" onclick="logPrev()">&#x2190; Back</button>'+
-      '<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<LS.players.length-1?'Next &#x2192;':'Review &#x2192;')+'</button>'+
-    '</div>';
+    '<div style="display:flex;align-items:center;gap:12px;padding:14px 0 16px;border-bottom:var(--border);margin-bottom:16px;">'
+      +'<div class="player-avatar">'+player.nick[0]+'</div>'
+      +'<div style="flex:1;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+player.nick+'</div>'
+      +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+player.ign+' · <span class="tag tag-role" style="font-size:8px;">'+player.role+'</span>'+(player.status==='Substitute'?' · <span style="color:var(--grey-4)">Sub</span>':'')+'</div></div>'
+      +'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">'+(LS.idx+1)+'/'+LS.players.length+'</div>'
+    +'</div>'
+    +'<div class="play-skip-row"><div class="play-skip-label">Playing this game?</div><div class="play-skip-btns">'
+      +'<button class="btn btn-sm '+(isSkipped?'btn-muted':'btn-primary')+'" id="tog-play" onclick="logSetSkip(\''+player.id+'\',false)">Playing</button>'
+      +'<button class="btn btn-sm btn-muted" id="tog-skip" onclick="logSetSkip(\''+player.id+'\',true)" style="'+(isSkipped?'border-color:var(--grey-4);color:var(--grey-5);':'')+'">Skip / DNP</button>'
+    +'</div></div>'
+    +'<div id="log-score-fields" style="display:'+(isSkipped?'none':'block')+';"><div id="log-hero-wrap"></div>'
+    +'<div class="play-skip-row" style="padding:10px 0 12px;"><div class="play-skip-label">⭐ MVP of this game?</div>'
+      +'<button class="btn btn-sm '+(isMVP?'btn-primary':'btn-muted')+'" id="tog-mvp" onclick="logToggleMVP(\''+player.id+'\')">'+
+        (isMVP?'⭐ MVP':'Mark MVP')
+      +'</button>'
+    +'</div>'
+    +'<div class="score-sec">Pillar Scores <span>· '+player.role+' · 1–10 each</span></div>'
+    +objectiveTip
+    +pillarsHtml
+    +rawHtml
+    +'<div class="input-group mt-8"><label class="input-label">Coach Comment (Optional)</label><textarea class="input" id="log-comment" style="min-height:56px;">'+(existing.comment||'')+'</textarea></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;margin-top:12px;">'
+      +'<button class="btn" style="flex:1;" onclick="logPrev()">&#x2190; Back</button>'
+      +'<button class="btn btn-primary" style="flex:2;" onclick="logSavePlayer()">'+(LS.idx<LS.players.length-1?'Next &#x2192;':'Review &#x2192;')+'</button>'
+    +'</div>';
   buildHeroInput('log-hero-wrap','log-hero-inp','log-hero-drop',existing.hero||'');
+}
+
+function makeRawStatInput(label,key,val,pid){
+  return '<div><div style="font-size:9px;color:var(--grey-5);font-family:\'DM Mono\',monospace;margin-bottom:3px;letter-spacing:1px;text-transform:uppercase;">'+label+'</div>'
+    +'<input class="input" style="font-size:12px;padding:6px 8px;" type="number" step="any" id="rawstat-'+pid+'-'+key+'" value="'+(val!=null?val:'')+'" placeholder="—" oninput="onRawStatChange(\''+pid+'\',\''+key+'\',this.value)"/></div>';
+}
+
+function toggleRawStats(pid){
+  var panel=document.getElementById('rawpanel-'+pid);
+  var arrow=document.getElementById('rawarrow-'+pid);
+  if(!panel)return;
+  var open=panel.style.display==='none';
+  panel.style.display=open?'block':'none';
+  if(arrow)arrow.textContent=open?'▾':'▸';
+}
+
+function onRawStatChange(pid,key,value){
+  if(!LS.scores[pid])LS.scores[pid]={};
+  LS.scores[pid][key]=value===''?null:parseFloat(value);
+  // Also update team_total_kills when any kills change
+  if(key==='kills'){
+    var total=0;
+    LS.players.forEach(function(p){var k=LS.scores[p.id]&&LS.scores[p.id].kills;if(k!=null)total+=k;});
+    LS.matchInfo.team_total_kills=total;
+  }
+  // Refresh pillar suggestions for this player
+  refreshPillarSuggestions(pid);
+}
+
+function refreshPillarSuggestions(pid){
+  var player=LS.players.find(function(p){return p.id===pid;});
+  if(!player)return;
+  var pillars=PILLAR_DEFS[player.role]||[];
+  var bm=getBenchmarks()[player.role]||{};
+  var stats=buildStatsForPillar(pid);
+  var prefix='sl-'+pid;
+  pillars.forEach(function(pillar){
+    if(pillar.type!=='hybrid')return;
+    var newAuto=calcPillarAuto(pillar.key,player.role,stats,bm);
+    var inp=document.getElementById(prefix+'-'+pillar.key);
+    if(!inp)return;
+    // Update data-auto attribute
+    inp.dataset.auto=newAuto!=null?newAuto.toFixed(2):'';
+    // Refresh delta display
+    var dispId=prefix+'d-'+pillar.key;
+    var deltaId=prefix+'delta-'+pillar.key;
+    updateHybridSlider(dispId,prefix+'-'+pillar.key,deltaId,inp.value);
+  });
 }
 
 function logSetSkip(pid,skip){
@@ -2148,12 +2320,28 @@ function logSavePlayer(){
   if(LS.skipped[player.id]){
     LS.scores[player.id]={skipped:true};
   } else {
-    var roleCriteria=ROLE_CRITERIA[player.role]||[];
-    var allC=[...GAME_SENSE_CRITERIA,...roleCriteria];
     var heroVal=(document.getElementById('log-hero-inp')?.value||'').trim();
     var existingMvp=LS.scores[player.id]?.mvp||false;
+    var existingRaw=LS.scores[player.id]||{};
     var s={hero:heroVal,comment:document.getElementById('log-comment')?.value||'',mvp:existingMvp};
-    allC.forEach(function(c){s[c.key]=parseFloat(document.getElementById('sl-'+c.key)?.value||(c.max||10)/2);});
+    // Preserve raw stats (may have been edited via raw stats panel)
+    ['kills','deaths','assists','gold','gameRating','dmgDealtPct','dmgTakenPct'].forEach(function(f){if(existingRaw[f]!=null)s[f]=existingRaw[f];});
+    // New: read pillar scores from sliders
+    var pillars=PILLAR_DEFS[player.role]||[];
+    var bm=getBenchmarks()[player.role]||{};
+    var stats=buildStatsForPillar(player.id);
+    var prefix='sl-'+player.id;
+    var pillar_scores={};var pillar_auto_scores={};
+    pillars.forEach(function(pillar){
+      var inp=document.getElementById(prefix+'-'+pillar.key);
+      if(inp)pillar_scores[pillar.key]=parseFloat(inp.value)||5;
+      if(pillar.type==='hybrid'){
+        var auto=calcPillarAuto(pillar.key,player.role,stats,bm);
+        if(auto!=null)pillar_auto_scores[pillar.key]=parseFloat(auto.toFixed(2));
+      }
+    });
+    s.pillar_scores=pillar_scores;
+    s.pillar_auto_scores=pillar_auto_scores;
     LS.scores[player.id]=s;
     if(heroVal)addHeroToList(heroVal);
   }
@@ -2350,6 +2538,9 @@ async function saveGame(){
     mvpPlayerId:mvpId||null,
     draft:LS.draft||null,
     savedAt:new Date().toISOString(),
+    duration_seconds:LS.matchInfo.duration_seconds||null,
+    team_total_kills:LS.matchInfo.team_total_kills||null,
+    enemy_roles:LS.enemyRoles||null,
   });
   try{
     const dbId=await sbSaveGame(g);
@@ -2950,6 +3141,21 @@ function applyScannedData(){
   // Match-level: endedAt, duration
   if(_scanChecked['endedAt']&&raw.endedAt){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.endedAt=raw.endedAt;}
   if(_scanChecked['duration']&&raw.duration){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.duration=raw.duration;}
+  // duration_seconds for pillar calculations
+  if(raw.duration){
+    var dParts=raw.duration.split(':');
+    if(dParts.length===2)LS.matchInfo.duration_seconds=parseInt(dParts[0])*60+parseInt(dParts[1]);
+  }
+  // team_total_kills
+  if(_scanResult.ourTeam){
+    var totalK=0;
+    _scanResult.ourTeam.forEach(function(e){if(e.extracted&&e.extracted.kills!=null)totalK+=e.extracted.kills;});
+    if(totalK>0)LS.matchInfo.team_total_kills=totalK;
+  }
+  // Store opp team for enemy role confirmation step
+  if(_scanResult.oppTeam&&_scanResult.oppTeam.length){
+    LS._pendingOppTeam=_scanResult.oppTeam;
+  }
 
   // MVP
   if(_scanChecked['mvp']&&raw.mvpIgn){
@@ -2989,6 +3195,10 @@ function applyScannedData(){
   _scanResult=null;
   closeScanModal();
   showToast('✓ Scan applied');
+  // If opp team available, prompt for enemy role confirmation
+  if(LS._pendingOppTeam&&LS._pendingOppTeam.length){
+    setTimeout(openEnemyRoleConfirm, 300);
+  }
 }
 
 function triggerEditScan(){
@@ -4769,6 +4979,186 @@ async function unassignGame(gameId){
     showToast('Game unlinked');
     if(matchId) showMatchDetail(matchId);
   }catch(e){showToast('Failed: '+e.message);}
+}
+
+// ── ENEMY ROLE CONFIRMATION ───────────────────────────────────────────────────
+
+var GAME_ROLES_LIST = ['Carry','Jungler','Midlane','Offlane','Support'];
+
+function openEnemyRoleConfirm(){
+  var opp=LS._pendingOppTeam;
+  if(!opp||!opp.length){return;}
+  var html='<div style="font-size:12px;color:var(--grey-5);line-height:1.6;padding:0 0 12px;">Scanner found these enemy heroes. Tap a role to reassign if wrong.</div>';
+  html+='<div id="enemy-role-list">';
+  opp.forEach(function(entry,i){
+    var heroName=entry.extracted?entry.extracted.hero:'?';
+    var hero=entry.hero||null;
+    var defaultRole=hero?(hero.roles&&hero.roles[0]||hero.cls||'?'):'?';
+    var goldVal=entry.extracted&&entry.extracted.gold?entry.extracted.gold:null;
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);" id="opprow-'+i+'">'
+      +'<div style="flex:1;">'
+        +'<div style="font-size:13px;font-weight:600;">'+heroName+'</div>'
+        +(goldVal?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+Number(goldVal).toLocaleString()+' gold</div>':'')
+      +'</div>'
+      +'<select class="input" style="width:110px;padding:6px;font-size:11px;" id="oppRole-'+i+'">'
+      +GAME_ROLES_LIST.map(function(r){return '<option value="'+r+'"'+(r===defaultRole?' selected':'')+'>'+r+'</option>';}).join('')
+      +'<option value="?"'+(defaultRole==='?'?' selected':'')+'>"Unknown"</option>'
+      +'</select>'
+    +'</div>';
+  });
+  html+='</div>';
+  document.getElementById('enemy-role-body').innerHTML=html;
+  document.getElementById('enemy-role-modal').classList.add('open');
+}
+
+function closeEnemyRoleConfirm(){
+  document.getElementById('enemy-role-modal').classList.remove('open');
+  LS._pendingOppTeam=null;
+  showToast('Enemy roles skipped — gold comparison unavailable');
+}
+
+function confirmEnemyRoles(){
+  var opp=LS._pendingOppTeam||[];
+  LS.enemyRoles=opp.map(function(entry,i){
+    var roleEl=document.getElementById('oppRole-'+i);
+    var role=roleEl?roleEl.value:'?';
+    var gold=entry.extracted&&entry.extracted.gold?entry.extracted.gold:null;
+    return{hero:entry.extracted?entry.extracted.hero:'?',role:role,gold:gold};
+  });
+  document.getElementById('enemy-role-modal').classList.remove('open');
+  LS._pendingOppTeam=null;
+  showToast('✓ Enemy roles confirmed');
+  // Refresh current player step if open (pillar suggestions may update with enemy gold data)
+  if(LS.step>=2&&LS.players[LS.idx])refreshPillarSuggestions(LS.players[LS.idx].id);
+}
+
+// ── BENCHMARK SETTINGS ───────────────────────────────────────────────────────
+
+var BM_FIELDS = {
+  Carry:   [{k:'gold_per_min',l:'Gold / min'},{k:'dmg_ratio',l:'Dmg dealt/taken ratio'},{k:'dmg_dealt_pct',l:'Dmg dealt % avg'},{k:'kda',l:'KDA avg'},{k:'min_per_death',l:'Min per death'}],
+  Midlane: [{k:'gold_per_min',l:'Gold / min'},{k:'dmg_ratio',l:'Dmg dealt/taken ratio'},{k:'dmg_dealt_pct',l:'Dmg dealt % avg'},{k:'kda',l:'KDA avg'},{k:'min_per_death',l:'Min per death'}],
+  Offlane: [{k:'gold_per_min',l:'Gold / min'},{k:'min_per_death',l:'Min per death'},{k:'kda',l:'KDA avg'}],
+  Jungler: [{k:'gold_per_min',l:'Gold / min'},{k:'kill_contribution',l:'Kill contribution % avg'},{k:'kda',l:'KDA avg'}],
+  Support: [{k:'kill_contribution',l:'Kill contribution % avg'},{k:'min_per_death',l:'Min per death'},{k:'dmg_taken_pct',l:'Dmg taken % avg'},{k:'carry_deaths',l:'Carry deaths avg (for protection)'}],
+};
+
+var _bmActiveRole='Carry';
+
+function openBenchmarkPanel(){
+  _bmActiveRole='Carry';
+  renderBenchmarkPanel();
+  document.getElementById('benchmark-modal').classList.add('open');
+}
+
+function renderBenchmarkPanel(){
+  var bm=getBenchmarks();
+  var presets=getBenchmarkPresets();
+  var presetKeys=Object.keys(presets);
+  var roles=['Carry','Midlane','Offlane','Jungler','Support'];
+
+  var html='<div class="book-layout"><div class="book-tabs">';
+  roles.forEach(function(r){
+    html+='<button class="book-tab'+(r===_bmActiveRole?' active':'')+'" onclick="bmSwitchRole(\''+r+'\')"><span>'+r+'</span></button>';
+  });
+  html+='</div><div class="book-content">';
+
+  roles.forEach(function(role){
+    html+='<div class="book-panel'+(role===_bmActiveRole?' active':'')+'" id="bmpanel-'+role+'">';
+    var fields=BM_FIELDS[role]||[];
+    fields.forEach(function(f){
+      var val=bm[role]&&bm[role][f.k]!=null?bm[role][f.k]:'';
+      html+='<div class="input-group mb-0" style="margin-bottom:10px;">'
+        +'<label class="input-label" style="display:flex;justify-content:space-between;align-items:center;">'+f.l
+          +'<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);">'+f.k+'</span>'
+        +'</label>'
+        +'<input class="input" type="number" step="any" id="bmf-'+role+'-'+f.k+'" value="'+val+'" placeholder="Blank = skip this metric"/>'
+        +'</div>';
+    });
+    html+='</div>';
+  });
+
+  html+='</div></div>';
+
+  // Preset controls
+  html+='<div style="border-top:var(--border);padding:14px 0 0;display:flex;flex-direction:column;gap:10px;">'
+    +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;">PRESETS</div>'
+    +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn btn-primary" style="flex:1;" onclick="bmSavePreset()">Save as Preset</button>'
+      +'<select class="input" id="bm-preset-select" style="flex:2;" onchange="bmLoadPreset(this.value)">'
+        +'<option value="">Load preset…</option>'
+        +presetKeys.map(function(k){return'<option value="'+k+'">'+k+'</option>';}).join('')
+      +'</select>'
+      +(presetKeys.length?'<button class="btn btn-danger btn-sm" onclick="bmDeletePreset()">Del</button>':'')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" style="flex:1;" onclick="bmResetDefaults()">Reset to Defaults</button>'
+      +'<button class="btn btn-primary" style="flex:2;" onclick="bmSave()">Save Benchmarks</button>'
+    +'</div>'
+    +'</div>';
+
+  document.getElementById('benchmark-body').innerHTML=html;
+}
+
+function bmSwitchRole(role){
+  _bmActiveRole=role;
+  document.querySelectorAll('#benchmark-body .book-tab').forEach(function(b){b.classList.toggle('active',b.textContent.trim()===role);});
+  document.querySelectorAll('#benchmark-body .book-panel').forEach(function(p){p.classList.toggle('active',p.id==='bmpanel-'+role);});
+}
+
+function bmCollect(){
+  var bm=getBenchmarks();
+  var roles=['Carry','Midlane','Offlane','Jungler','Support'];
+  roles.forEach(function(role){
+    if(!bm[role])bm[role]={};
+    var fields=BM_FIELDS[role]||[];
+    fields.forEach(function(f){
+      var inp=document.getElementById('bmf-'+role+'-'+f.k);
+      if(inp){var v=inp.value.trim();bm[role][f.k]=v===''?null:parseFloat(v);}
+    });
+  });
+  return bm;
+}
+
+function bmSave(){
+  saveBenchmarks(bmCollect());
+  closeModal('benchmark-modal');
+  showToast('✓ Benchmarks saved');
+}
+
+function bmSavePreset(){
+  var name=prompt('Preset name (e.g. "Ranked", "Scrim"):');
+  if(!name||!name.trim())return;
+  var presets=getBenchmarkPresets();
+  presets[name.trim()]=bmCollect();
+  saveBenchmarkPresets(presets);
+  showToast('✓ Preset "'+name.trim()+'" saved');
+  renderBenchmarkPanel();
+}
+
+function bmLoadPreset(name){
+  if(!name)return;
+  var presets=getBenchmarkPresets();
+  if(!presets[name])return;
+  saveBenchmarks(presets[name]);
+  renderBenchmarkPanel();
+  showToast('✓ Loaded preset "'+name+'"');
+}
+
+function bmDeletePreset(){
+  var sel=document.getElementById('bm-preset-select');
+  if(!sel||!sel.value)return;
+  var name=sel.value;
+  var presets=getBenchmarkPresets();
+  delete presets[name];
+  saveBenchmarkPresets(presets);
+  showToast('Preset "'+name+'" deleted');
+  renderBenchmarkPanel();
+}
+
+function bmResetDefaults(){
+  saveBenchmarks(JSON.parse(JSON.stringify(BENCHMARK_DEFAULTS)));
+  renderBenchmarkPanel();
+  showToast('Reset to defaults');
 }
 
 bootApp();
