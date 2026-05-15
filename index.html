@@ -10,7 +10,7 @@
 :root{
   --black:#080808;--white:#f4f4f0;--grey-1:#141414;--grey-2:#1e1e1e;
   --grey-3:#2a2a2a;--grey-4:#444;--grey-5:#888;--grey-6:#bbb;
-  --danger:#ff4444;--success:#44ff88;--warn:#ffcc44;
+  --danger:#ff4444;--success:#44ff88;--warn:#ffcc44;--auto:#4488ff;
   --border:1px solid #2a2a2a;
   --sidebar-w:220px;
 }
@@ -1557,35 +1557,226 @@ const MENTALITY_CRITERIA=[
   {key:'discipline',       label:'Discipline',       desc:'Following gameplan, focus, no flame',       max:5,weight:0.25},
   {key:'team_contribution',label:'Team Contribution',desc:'Helping team beyond mechanical play',       max:5,weight:0.25},
 ];
-const GAME_SENSE_CRITERIA=[{key:'decision',label:'Decision-Making',desc:'Correct choices in key moments',max:10}];
-const ROLE_CRITERIA={
-  Support:[
-    {key:'engage_cc',  label:'Engage & CC',        desc:'Landing CC, initiating correctly',        pillar:'Micro Play'},
-    {key:'roam_impact',label:'Early Roam Impact',  desc:'Pressure created before 3 mins',          pillar:'Tactical'},
-    {key:'protection', label:'Protection & Peel',  desc:'Keeping carry/team alive',                pillar:'Protection & Peel'},
+const PILLAR_DEFS = {
+  Carry: [
+    {key:'lane_influence', label:'Lane Influence',      type:'manual', desc:'Lane pressure, trade quality, freeze/push decisions. Gold advantage shown as reference.'},
+    {key:'scaling',        label:'Scaling',             type:'hybrid', desc:'Gold/min vs benchmark · gold vs enemy carry'},
+    {key:'survival',       label:'Survival',            type:'hybrid', desc:'Minutes per death · damage dealt/taken ratio'},
+    {key:'teamfight',      label:'Teamfight & Damage',  type:'hybrid', desc:'Kill contribution · KDA · damage dealt %'},
   ],
-  Midlane:[
-    {key:'combat_impact',label:'Combat Impact',    desc:'Kills, damage, fight presence',            pillar:'Micro Play'},
-    {key:'map_influence',label:'Map Influence',    desc:'Rotations, vision, cross-map pressure',    pillar:'Tactical'},
-    {key:'role_fulfill', label:'Role Fulfillment', desc:'Executing what the hero was picked to do', pillar:'Role Fulfillment'},
+  Midlane: [
+    {key:'map_influence',  label:'Map Influence',       type:'manual', desc:'Rotations, vision, cross-map pressure. Kill contribution shown as reference.'},
+    {key:'scaling',        label:'Scaling',             type:'hybrid', desc:'Gold/min vs benchmark · gold vs enemy mid'},
+    {key:'survival',       label:'Survival',            type:'hybrid', desc:'Minutes per death · damage dealt/taken ratio'},
+    {key:'teamfight',      label:'Teamfight & Damage',  type:'hybrid', desc:'Kill contribution · KDA · damage dealt %'},
   ],
-  Carry:[
-    {key:'damage',   label:'Damage & Kill Contrib.',desc:'Teamfight output',                        pillar:'Micro Play'},
-    {key:'farm_gold',label:'Farm & Gold Efficiency',desc:'CS and income vs enemy carry',            pillar:'Tactical'},
-    {key:'survival', label:'Survival & Positioning',desc:'Deaths, positioning in fights',           pillar:'Survival & Positioning'},
+  Offlane: [
+    {key:'lane_influence', label:'Lane Influence',      type:'manual', desc:'Trade quality, freeze/push, 1v1 matchup. Gold vs enemy offlane shown as reference.'},
+    {key:'contribution',   label:'Contribution',        type:'hybrid', desc:'KDA · kill contribution to team'},
+    {key:'scaling',        label:'Scaling',             type:'hybrid', desc:'Gold/min vs benchmark · minutes per death'},
+    {key:'wave_mgmt',      label:'Wave Management',     type:'manual', desc:'Freeze vs push decisions, wave timing for objectives, side-lane discipline.'},
   ],
-  Offlane:[
-    {key:'tf_presence',    label:'Teamfight Presence',      desc:'Engage, tank, or damage contribution', pillar:'Micro Play'},
-    {key:'wave_space',     label:'Wave & Space Management', desc:'Minion control, space creation',       pillar:'Tactical'},
-    {key:'lane_resilience',label:'Lane Resilience',         desc:'2v2 fight contribution with jungler',  pillar:'Lane Resilience'},
+  Jungler: [
+    {key:'map_influence',  label:'Map Influence',       type:'manual', desc:'Gank routing, rotation timing, vision setup, cross-map pressure efficiency.'},
+    {key:'gank',           label:'Gank',                type:'hybrid', desc:'Kill contribution across map · KDA'},
+    {key:'objective',      label:'Objective',           type:'manual', desc:'Turtle/dragon/lord timing, objective prioritisation. Duration/result shown as context.'},
+    {key:'scaling',        label:'Scaling',             type:'hybrid', desc:'Gold/min vs jungler benchmark'},
   ],
-  Jungler:[
-    {key:'gank_impact', label:'Gank Impact & Timing',desc:'Pressure created across map',            pillar:'Micro Play'},
-    {key:'objectives',  label:'Objective Control',  desc:'Dragon, Lord, Turtle',                    pillar:'Tactical'},
-    {key:'resource_eff',label:'Resource Efficiency', desc:'Camp clear, counter-jungle, gold',       pillar:'Resource Efficiency'},
+  Support: [
+    {key:'map_influence',  label:'Map Influence',       type:'manual', desc:'Roam timing, lane setup for carry, cross-map presence. Kill contribution shown as reference.'},
+    {key:'teamfight',      label:'Teamfight',           type:'hybrid', desc:'KDA · kill contribution vs support benchmark'},
+    {key:'tank',           label:'Tank',                type:'hybrid', desc:'Damage taken per death · minutes per death'},
+    {key:'protection',     label:'Protection',          type:'hybrid', desc:'Carry + mid deaths this game — fewer is better'},
   ],
 };
-function getRolePillarLabel(role){return(ROLE_CRITERIA[role]||[])[2]?.pillar||'Role Phase';}
+
+const BENCHMARK_DEFAULTS = {
+  Carry:   {gold_per_min:700, dmg_ratio:2.0, dmg_dealt_pct:25, kda:3.5, min_per_death:6},
+  Midlane: {gold_per_min:720, dmg_ratio:1.8, dmg_dealt_pct:22, kda:3.0, min_per_death:6},
+  Offlane: {gold_per_min:650, min_per_death:6.0, kda:2.5},
+  Jungler: {gold_per_min:680, kill_contribution:60, kda:3.0},
+  Support: {kill_contribution:70, min_per_death:7.0, dmg_taken_pct:22, carry_deaths:2.0},
+};
+
+function getBenchmarks(){
+  try{var s=localStorage.getItem('sucrose_benchmarks');if(s)return JSON.parse(s);}catch(e){}
+  return JSON.parse(JSON.stringify(BENCHMARK_DEFAULTS));
+}
+function saveBenchmarks(bm){localStorage.setItem('sucrose_benchmarks',JSON.stringify(bm));}
+function getBenchmarkPresets(){
+  try{var s=localStorage.getItem('sucrose_bm_presets');if(s)return JSON.parse(s);}catch(e){}
+  return {};
+}
+function saveBenchmarkPresets(p){localStorage.setItem('sucrose_bm_presets',JSON.stringify(p));}
+
+// ── PILLAR CALCULATION ENGINE ─────────────────────────────────────────────────
+
+function normAgainstBenchmark(value, benchmark){
+  if(!benchmark||benchmark===0)return null;
+  var low=benchmark*0.5,high=benchmark*1.5;
+  return Math.min(10,Math.max(1,((value-low)/(high-low))*9+1));
+}
+function normAgainstBenchmarkInverse(value, benchmark){
+  if(!benchmark||benchmark===0)return null;
+  return normAgainstBenchmark(benchmark*2-value, benchmark);
+}
+function normNone(value, low, high){
+  if(high===low)return 5;
+  return Math.min(10,Math.max(1,((value-low)/(high-low))*9+1));
+}
+
+function calcPillarAuto(pillarKey, role, stats, bm){
+  var dur = stats.duration_seconds>0 ? stats.duration_seconds/60 : null;
+  var K=stats.kills,D=stats.deaths,A=stats.assists;
+  var hasKDA = K!=null&&D!=null&&A!=null;
+  var kda = hasKDA ? (K+A)/Math.max(D,1) : null;
+  var killContrib = (hasKDA&&stats.team_total_kills>0) ? (K+A)/stats.team_total_kills*100 : null;
+  var goldPerMin = (stats.gold!=null&&dur) ? stats.gold/dur : null;
+  var minPerDeath = (dur&&D!=null) ? dur/Math.max(D,1) : null;
+  var dmgRatio = (stats.dmgDealtPct!=null&&stats.dmgTakenPct>0) ? stats.dmgDealtPct/stats.dmgTakenPct : null;
+
+  function avg(){var vals=Array.from(arguments).filter(function(v){return v!=null;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null;}
+
+  if(role==='Carry'){
+    if(pillarKey==='scaling'){
+      var gpm=goldPerMin&&bm.gold_per_min?normAgainstBenchmark(goldPerMin,bm.gold_per_min):null;
+      var vsOpp=(stats.enemy_same_role_gold&&stats.gold)?normNone(stats.gold-stats.enemy_same_role_gold,-3000,3000):null;
+      return avg(gpm,vsOpp);
+    }
+    if(pillarKey==='survival'){
+      var mpd=minPerDeath?normAgainstBenchmark(minPerDeath,bm.min_per_death||6):null;
+      var dr=dmgRatio&&bm.dmg_ratio?normAgainstBenchmark(dmgRatio,bm.dmg_ratio):null;
+      return avg(mpd,dr);
+    }
+    if(pillarKey==='teamfight'){
+      var kc=killContrib?normAgainstBenchmark(killContrib,30):null;
+      var kn=kda&&bm.kda?normAgainstBenchmark(kda,bm.kda):null;
+      var dm=stats.dmgDealtPct!=null&&bm.dmg_dealt_pct?normAgainstBenchmark(stats.dmgDealtPct,bm.dmg_dealt_pct):null;
+      return avg(kc,kn,dm);
+    }
+  }
+  if(role==='Midlane'){
+    if(pillarKey==='scaling'){
+      var gpm=goldPerMin&&bm.gold_per_min?normAgainstBenchmark(goldPerMin,bm.gold_per_min):null;
+      var vsOpp=(stats.enemy_same_role_gold&&stats.gold)?normNone(stats.gold-stats.enemy_same_role_gold,-3000,3000):null;
+      return avg(gpm,vsOpp);
+    }
+    if(pillarKey==='survival'){
+      var mpd=minPerDeath?normAgainstBenchmark(minPerDeath,bm.min_per_death||6):null;
+      var dr=dmgRatio&&bm.dmg_ratio?normAgainstBenchmark(dmgRatio,bm.dmg_ratio):null;
+      return avg(mpd,dr);
+    }
+    if(pillarKey==='teamfight'){
+      var kc=killContrib?normAgainstBenchmark(killContrib,25):null;
+      var kn=kda&&bm.kda?normAgainstBenchmark(kda,bm.kda):null;
+      var dm=stats.dmgDealtPct!=null&&bm.dmg_dealt_pct?normAgainstBenchmark(stats.dmgDealtPct,bm.dmg_dealt_pct):null;
+      return avg(kc,kn,dm);
+    }
+  }
+  if(role==='Offlane'){
+    if(pillarKey==='contribution'){
+      var kn=kda&&bm.kda?normAgainstBenchmark(kda,bm.kda):null;
+      var kc=killContrib?normAgainstBenchmark(killContrib,20):null;
+      return avg(kn,kc);
+    }
+    if(pillarKey==='scaling'){
+      var gpm=goldPerMin&&bm.gold_per_min?normAgainstBenchmark(goldPerMin,bm.gold_per_min):null;
+      var mpd=minPerDeath?normAgainstBenchmark(minPerDeath,bm.min_per_death||6):null;
+      return avg(gpm,mpd);
+    }
+  }
+  if(role==='Jungler'){
+    if(pillarKey==='gank'){
+      var kc=killContrib&&bm.kill_contribution?normAgainstBenchmark(killContrib,bm.kill_contribution):null;
+      var kn=kda&&bm.kda?normAgainstBenchmark(kda,bm.kda):null;
+      return avg(kc,kn);
+    }
+    if(pillarKey==='scaling'){
+      return goldPerMin&&bm.gold_per_min?normAgainstBenchmark(goldPerMin,bm.gold_per_min):null;
+    }
+  }
+  if(role==='Support'){
+    if(pillarKey==='teamfight'){
+      var kn=kda?normAgainstBenchmark(kda,bm.kda||2.5):null;
+      var kc=killContrib&&bm.kill_contribution?normAgainstBenchmark(killContrib,bm.kill_contribution):null;
+      return avg(kn,kc);
+    }
+    if(pillarKey==='tank'){
+      var dtp=(stats.dmgTakenPct!=null&&D!=null)?stats.dmgTakenPct/Math.max(D,1):null;
+      var dtpN=dtp&&bm.dmg_taken_pct?normAgainstBenchmark(dtp,bm.dmg_taken_pct/Math.max(1,2)):null;
+      var mpd=minPerDeath&&bm.min_per_death?normAgainstBenchmark(minPerDeath,bm.min_per_death):null;
+      return avg(dtpN,mpd);
+    }
+    if(pillarKey==='protection'){
+      var carryDeaths=stats.carry_deaths;
+      var midDeaths=stats.mid_deaths;
+      if(carryDeaths==null&&midDeaths==null)return null;
+      var total=(carryDeaths||0)+(midDeaths||0);
+      return normAgainstBenchmarkInverse(total,(bm.carry_deaths||2)*2);
+    }
+  }
+  return null;
+}
+
+function buildStatsForPillar(pid){
+  var s=LS.scores[pid]||{};
+  var carryP=LS.players.find(function(p){return p.role==='Carry';});
+  var midP=LS.players.find(function(p){return p.role==='Midlane';});
+  return {
+    kills:s.kills,deaths:s.deaths,assists:s.assists,
+    gold:s.gold,dmgDealtPct:s.dmgDealtPct,dmgTakenPct:s.dmgTakenPct,
+    duration_seconds:LS.matchInfo.duration_seconds||0,
+    team_total_kills:LS.matchInfo.team_total_kills||0,
+    enemy_same_role_gold:getEnemySameRoleGold(pid),
+    carry_deaths:carryP&&LS.scores[carryP.id]?LS.scores[carryP.id].deaths:null,
+    mid_deaths:midP&&LS.scores[midP.id]?LS.scores[midP.id].deaths:null,
+  };
+}
+
+function getEnemySameRoleGold(pid){
+  var player=LS.players.find(function(p){return p.id===pid;});
+  if(!player||!LS.enemyRoles)return null;
+  var role=player.role;
+  var opp=LS.enemyRoles.find(function(e){return e.role===role;});
+  return opp?opp.gold:null;
+}
+
+function calcStatContext(pillarKey, role, stats){
+  var dur=stats.duration_seconds>0?stats.duration_seconds/60:null;
+  var K=stats.kills,D=stats.deaths,A=stats.assists;
+  var parts=[];
+  if(K!=null){
+    var kda=(K+A)/Math.max(D,1);
+    parts.push('KDA '+kda.toFixed(1));
+  }
+  if(stats.gold&&dur) parts.push('G/min '+(stats.gold/dur).toFixed(0));
+  if(stats.dmgDealtPct!=null) parts.push('Dmg '+stats.dmgDealtPct+'%');
+  if(stats.dmgTakenPct!=null) parts.push('Taken '+stats.dmgTakenPct+'%');
+  return parts.slice(0,3).join(' · ');
+}
+
+function suggLabel(score){
+  if(score==null)return null;
+  if(score>=7.5)return{text:'Strong '+score.toFixed(1),color:'var(--success)'};
+  if(score>=4.5)return{text:'Average '+score.toFixed(1),color:'var(--warn)'};
+  return{text:'Below avg '+score.toFixed(1),color:'var(--danger)'};
+}
+
+// Backward-compat: old games used these. Keep for calcGameScore/getRadarValues fallback.
+const GAME_SENSE_CRITERIA=[{key:'decision',label:'Decision-Making',desc:'Correct choices in key moments',max:10}];
+const ROLE_CRITERIA={
+  Support:[{key:'engage_cc',label:'Engage & CC',desc:'',pillar:'Micro Play'},{key:'roam_impact',label:'Early Roam Impact',desc:'',pillar:'Tactical'},{key:'protection',label:'Protection & Peel',desc:'',pillar:'Protection & Peel'}],
+  Midlane:[{key:'combat_impact',label:'Combat Impact',desc:'',pillar:'Micro Play'},{key:'map_influence',label:'Map Influence',desc:'',pillar:'Tactical'},{key:'role_fulfill',label:'Role Fulfillment',desc:'',pillar:'Role Fulfillment'}],
+  Carry:[{key:'damage',label:'Damage & Kill Contrib.',desc:'',pillar:'Micro Play'},{key:'farm_gold',label:'Farm & Gold Efficiency',desc:'',pillar:'Tactical'},{key:'survival',label:'Survival & Positioning',desc:'',pillar:'Survival & Positioning'}],
+  Offlane:[{key:'tf_presence',label:'Teamfight Presence',desc:'',pillar:'Micro Play'},{key:'wave_space',label:'Wave & Space Management',desc:'',pillar:'Tactical'},{key:'lane_resilience',label:'Lane Resilience',desc:'',pillar:'Lane Resilience'}],
+  Jungler:[{key:'gank_impact',label:'Gank Impact & Timing',desc:'',pillar:'Micro Play'},{key:'objectives',label:'Objective Control',desc:'',pillar:'Tactical'},{key:'resource_eff',label:'Resource Efficiency',desc:'',pillar:'Resource Efficiency'}],
+};
+
+function getRolePillarLabel(role){
+  var p=PILLAR_DEFS[role];
+  if(p&&p[3])return p[3].label;
+  return(ROLE_CRITERIA[role]||[])[2]?.pillar||'Role Phase';
+}
 function getCriteria(role){return[...GAME_SENSE_CRITERIA,...(ROLE_CRITERIA[role]||[])];}  // Mentality now match-level only
 function getCriteriaWithMentality(role){return[...MENTALITY_CRITERIA,...GAME_SENSE_CRITERIA,...(ROLE_CRITERIA[role]||[])];} // for edit modal compat
 // mentObj = explicit {communication,discipline,team_contribution} OR fall back to s fields (old data)
@@ -1598,17 +1789,33 @@ function calcMentality(s,mentObj){
 // game object passed so we can pull matchMentality (match-level only); role for role criteria
 // Mentality is skipped entirely if no matchMentality data exists on a parent match
 function calcGameScore(s,role,game,pid){
+  // New path: use pillar_scores if present
+  if(s.pillar_scores){
+    var ps=s.pillar_scores;
+    var vals=Object.values(ps).filter(function(v){return v!=null&&v>0;});
+    var avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+    // Include mentality
+    var mentality=0;
+    var matchId=game&&game.matchId;
+    if(matchId&&pid){
+      var parentMatch=(_cache.matches||[]).find(function(m){return m.id===matchId;});
+      var mentObj=parentMatch&&parentMatch.mentality&&parentMatch.mentality[pid]?parentMatch.mentality[pid]:null;
+      if(mentObj)mentality=calcMentality(null,mentObj);
+    }
+    var parts=(mentality>0?[mentality]:[]).concat(vals.length?[avg]:[]).filter(function(v){return v>0;});
+    return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
+  }
+  // Legacy path: old data without pillar_scores
   var rc=ROLE_CRITERIA[role]||[];
   var rolVals=rc.map(function(c){return s[c.key];}).filter(function(v){return v>0;});
   var rolAvg=rolVals.length?rolVals.reduce(function(a,b){return a+b;},0)/rolVals.length:0;
   var gs=s.decision||0;
-  // Look up mentality from the match this game belongs to
   var mentality=0;
   var matchId=game&&game.matchId;
   if(matchId&&pid){
     var parentMatch=(_cache.matches||[]).find(function(m){return m.id===matchId;});
     var mentObj=parentMatch&&parentMatch.mentality&&parentMatch.mentality[pid]?parentMatch.mentality[pid]:null;
-    if(mentObj) mentality=calcMentality(null,mentObj);
+    if(mentObj)mentality=calcMentality(null,mentObj);
   }
   var parts=(mentality>0?[mentality]:[]).concat([gs,rolAvg]).filter(function(v){return v>0;});
   return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
@@ -1621,6 +1828,17 @@ function getRadarValues(playerId,games){
   var monthGames=games.filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
   function avgKey(key,maxVal){var vals=monthGames.map(function(g){return g.playerScores[playerId][key];}).filter(function(v){return v>0;});if(!vals.length)return 0;return(vals.reduce(function(a,b){return a+b;},0)/vals.length/maxVal)*10;}
   function avgMentality(){var vals=monthGames.map(function(g){var parentMatch=g.matchId?(_cache.matches||[]).find(function(m){return m.id===g.matchId;}):null;var mentObj=parentMatch&&parentMatch.mentality&&parentMatch.mentality[playerId]?parentMatch.mentality[playerId]:null;return mentObj?calcMentality(null,mentObj):null;}).filter(function(v){return v!==null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  // Check if any game has new pillar_scores
+  var hasPillars=monthGames.some(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&s.pillar_scores;});
+  if(hasPillars){
+    var pDefs=PILLAR_DEFS[player.role]||[];
+    function avgPillar(key){
+      var vals=monthGames.map(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&s.pillar_scores?s.pillar_scores[key]:null;}).filter(function(v){return v!=null&&v>0;});
+      return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+    }
+    return pDefs.map(function(p){return{label:p.label,value:avgPillar(p.key)};});
+  }
+  // Legacy fallback
   return[
     {label:'Mentality',                     value:avgMentality()},
     {label:'Micro Play',                    value:rc[0]?avgKey(rc[0].key,10):0},
