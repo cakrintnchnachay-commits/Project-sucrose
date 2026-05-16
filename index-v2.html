@@ -986,7 +986,7 @@ async function clearPin(){
         <label class="input-label">Notes <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
         <textarea class="input" id="log-notes" rows="3" placeholder="Match notes..."></textarea>
       </div>
-      <button class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
+      <button type="button" class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
     </div>
     <!-- Step 1: Enemy Lineup -->
     <div id="log-step-enemy" style="display:none;padding:16px 20px 20px;">
@@ -994,8 +994,8 @@ async function clearPin(){
       <div style="font-size:11px;color:var(--grey-5);margin-bottom:14px;">Enter opponent hero names. Roles are pre-filled where known.</div>
       <div id="log-enemy-rows"></div>
       <div style="display:flex;gap:10px;margin-top:20px;">
-        <button class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
-        <button class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
+        <button type="button" class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
       </div>
     </div>
     <!-- Step 2: Player Scoring -->
@@ -1003,8 +1003,8 @@ async function clearPin(){
       <div class="section-label" style="padding:0 0 14px;">PLAYER SCORES</div>
       <div id="log-player-sections"></div>
       <div style="display:flex;gap:10px;margin-top:20px;">
-        <button class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
-        <button class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
+        <button type="button" class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
       </div>
     </div>
   </div>
@@ -3133,6 +3133,7 @@ var PILLAR_MAP = {
 var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
 
 function initLog(){
+  var prevDuration = LS.matchInfo && LS.matchInfo.duration;
   LS.matchInfo = {};
   LS.scores    = {};
   LS.enemyRoles = null;
@@ -3164,9 +3165,9 @@ function initLog(){
   }
 
   // Pre-fill duration from scan if available
-  if(LS.matchInfo.duration){
+  if(prevDuration){
     var durEl = document.getElementById('log-duration');
-    if(durEl) durEl.value = LS.matchInfo.duration;
+    if(durEl) durEl.value = prevDuration;
   }
 
   logGoToStep(0);
@@ -3184,6 +3185,7 @@ function logGoToStep(n){
 
   LS._step = n;
   renderLogStepIndicator();
+  window.scrollTo(0, 0);
 
   if(n === 1) renderEnemyStep();
   if(n === 2) renderPlayerStep();
