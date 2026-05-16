@@ -986,7 +986,7 @@ async function clearPin(){
         <label class="input-label">Notes <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
         <textarea class="input" id="log-notes" rows="3" placeholder="Match notes..."></textarea>
       </div>
-      <button class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
+      <button type="button" class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
     </div>
     <!-- Step 1: Enemy Lineup -->
     <div id="log-step-enemy" style="display:none;padding:16px 20px 20px;">
@@ -994,8 +994,8 @@ async function clearPin(){
       <div style="font-size:11px;color:var(--grey-5);margin-bottom:14px;">Enter opponent hero names. Roles are pre-filled where known.</div>
       <div id="log-enemy-rows"></div>
       <div style="display:flex;gap:10px;margin-top:20px;">
-        <button class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
-        <button class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
+        <button type="button" class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
       </div>
     </div>
     <!-- Step 2: Player Scoring -->
@@ -1003,8 +1003,8 @@ async function clearPin(){
       <div class="section-label" style="padding:0 0 14px;">PLAYER SCORES</div>
       <div id="log-player-sections"></div>
       <div style="display:flex;gap:10px;margin-top:20px;">
-        <button class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
-        <button class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
+        <button type="button" class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
       </div>
     </div>
   </div>
@@ -3133,6 +3133,7 @@ var PILLAR_MAP = {
 var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
 
 function initLog(){
+  var prevDuration = LS.matchInfo && LS.matchInfo.duration;
   LS.matchInfo = {};
   LS.scores    = {};
   LS.enemyRoles = null;
@@ -3164,9 +3165,9 @@ function initLog(){
   }
 
   // Pre-fill duration from scan if available
-  if(LS.matchInfo.duration){
+  if(prevDuration){
     var durEl = document.getElementById('log-duration');
-    if(durEl) durEl.value = LS.matchInfo.duration;
+    if(durEl) durEl.value = prevDuration;
   }
 
   logGoToStep(0);
@@ -3184,6 +3185,7 @@ function logGoToStep(n){
 
   LS._step = n;
   renderLogStepIndicator();
+  window.scrollTo(0, 0);
 
   if(n === 1) renderEnemyStep();
   if(n === 2) renderPlayerStep();
@@ -3353,18 +3355,28 @@ function _updateEnemyBadge(i, heroObj, inferredRole){
 
 function logStep1Next(){
   var rows = [];
+  var valid = true;
   for(var i = 0; i < 5; i++){
     var hero = (document.getElementById('el-hero-'+i)?.value || '').trim();
     var role = document.getElementById('el-role-'+i)?.value || '';
     var gold = document.getElementById('el-gold-'+i)?.value;
-    if(!role){ showToast('Please select a role for all enemy heroes (row '+(i+1)+')'); return; }
+    var roleEl = document.getElementById('el-role-'+i);
+    // Only require a role if the coach entered a hero name
+    if(hero && !role){
+      if(roleEl) roleEl.style.outline = '2px solid var(--danger)';
+      valid = false;
+    } else {
+      if(roleEl) roleEl.style.outline = '';
+    }
     rows.push({
       hero: hero || null,
-      role: role,
+      role: role || null,
       gold: gold !== '' && gold != null ? parseFloat(gold) : null,
     });
   }
-  LS.enemyRoles = rows;
+  if(!valid){ showToast('Select a role for every hero you entered'); return; }
+  // Store only if at least one row has data; otherwise null (no enemy info this game)
+  LS.enemyRoles = rows.some(function(r){ return r.hero || r.role; }) ? rows : null;
   logGoToStep(2);
 }
 
@@ -3415,7 +3427,7 @@ function renderPlayerStep(){
     var statsHtml = statsFields.map(function(f){
       return '<div class="raw-stat-cell">'+
         '<div class="raw-stat-label">'+f.label+'</div>'+
-        '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;"/>'+
+        '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;" oninput="updateComputedStats('+i+')"/>'+
         '</div>';
     }).join('');
 
@@ -3437,6 +3449,7 @@ function renderPlayerStep(){
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
     html += '<div class="raw-stats-grid">'+statsHtml+'</div>';
+    html += '<div id="lp-computed-'+i+'"></div>';
     html += '</details>';
     html += '<div class="input-group" style="margin-top:12px;margin-bottom:0;">';
     html += '<label class="input-label">Coach Note <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>';
@@ -3447,9 +3460,10 @@ function renderPlayerStep(){
   }
   container.innerHTML = html;
 
-  // Render pillar sliders for each slot
+  // Render pillar sliders and initial computed stats for each slot
   for(var j = 0; j < 5; j++){
     renderPillarSliders(GAME_ROLES[j].toLowerCase(), j);
+    updateComputedStats(j);
   }
 }
 
@@ -3457,6 +3471,57 @@ function onLogRoleChange(i){
   var roleEl = document.getElementById('lp-role-'+i);
   var role   = roleEl ? roleEl.value.toLowerCase() : '';
   renderPillarSliders(role, i);
+  updateComputedStats(i);
+}
+
+function updateComputedStats(slotIdx){
+  var container = document.getElementById('lp-computed-'+slotIdx);
+  if(!container) return;
+
+  var kills    = parseFloat(document.getElementById('lp-kills-'+slotIdx)?.value)         || 0;
+  var deaths   = parseFloat(document.getElementById('lp-deaths-'+slotIdx)?.value)        || 0;
+  var assists  = parseFloat(document.getElementById('lp-assists-'+slotIdx)?.value)       || 0;
+  var gold     = parseFloat(document.getElementById('lp-gold-'+slotIdx)?.value)          || 0;
+  var dmgDealt = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+slotIdx)?.value) || 0;
+  var dmgTaken = parseFloat(document.getElementById('lp-dmg_taken_raw-'+slotIdx)?.value) || 0;
+  var role     = (document.getElementById('lp-role-'+slotIdx)?.value || '').toLowerCase();
+
+  var durSec = LS.matchInfo && LS.matchInfo.duration_seconds;
+  var durMin = durSec ? durSec / 60 : 0;
+  var teamK  = (LS.matchInfo && LS.matchInfo.team_total_kills) || 0;
+
+  var oppRow = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  var oppGold = oppRow ? (oppRow.gold || 0) : 0;
+
+  var kda          = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
+  var goldPerMin   = (durMin > 0 && gold > 0)    ? Math.round(gold / durMin)          : null;
+  var killContrib  = teamK > 0                   ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
+  var minPerDeath  = (durMin > 0 && deaths > 0)  ? (durMin / deaths).toFixed(1)       : null;
+  var dmgRatio     = (dmgDealt > 0 && dmgTaken > 0) ? (dmgDealt / dmgTaken).toFixed(2) : null;
+  var oppGoldDisp  = oppGold > 0                 ? oppGold                             : null;
+  var oppGPerMin   = (oppGold > 0 && durMin > 0) ? Math.round(oppGold / durMin)        : null;
+
+  var rows = [
+    {label:'KDA',          val:kda},
+    {label:'Gold / Min',   val:goldPerMin},
+    {label:'Kill Contrib', val:killContrib},
+    {label:'Min / Death',  val:minPerDeath},
+    {label:'Dmg Ratio',    val:dmgRatio},
+    {label:'Opp Gold',     val:oppGoldDisp},
+    {label:'Opp G / Min',  val:oppGPerMin},
+  ];
+
+  var html = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--grey-2);">';
+  html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">COMPUTED</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 6px;">';
+  rows.forEach(function(s){
+    html += '<div>';
+    html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;margin-bottom:2px;">'+s.label+'</div>';
+    html += '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+(s.val!=null?'var(--white)':'var(--grey-3)')+';">'+(s.val!=null?s.val:'—')+'</div>';
+    html += '</div>';
+  });
+  html += '</div></div>';
+  container.innerHTML = html;
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -3516,10 +3581,10 @@ async function saveGame(){
     vod_url:           LS.matchInfo.vod_url  || null,
     notes:             LS.matchInfo.notes    || null,
     enemy_roles: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
+      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
       : null,
     enemy_gold: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
+      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
       : null,
     team_total_gold:  null,
     enemy_total_gold: LS.enemyRoles
@@ -3558,7 +3623,7 @@ async function saveGame(){
     var minPerDeath     = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
     var killContribPct  = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
     var dmgRatio        = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
-    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role.toLowerCase() === role; }) : null;
+    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
     var oppGold         = oppRole ? (oppRole.gold || null) : null;
     var oppGoldPerMin   = (oppGold && durMin > 0) ? oppGold / durMin : null;
 
