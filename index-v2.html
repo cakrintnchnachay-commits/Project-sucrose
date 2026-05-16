@@ -3486,22 +3486,24 @@ function updateComputedStats(slotIdx){
   var dmgTaken = parseFloat(document.getElementById('lp-dmg_taken_raw-'+slotIdx)?.value) || 0;
   var role     = (document.getElementById('lp-role-'+slotIdx)?.value || '').toLowerCase();
 
-  var durSec = LS.matchInfo && LS.matchInfo.duration_seconds;
-  var durMin = durSec ? durSec / 60 : 0;
-  var teamK  = (LS.matchInfo && LS.matchInfo.team_total_kills) || 0;
+  var durSec   = LS.matchInfo && LS.matchInfo.duration_seconds;
+  var durMin   = durSec ? durSec / 60 : 0;
+  var durLabel = (LS.matchInfo && LS.matchInfo.duration) || null;
+  var teamK    = (LS.matchInfo && LS.matchInfo.team_total_kills) || 0;
 
-  var oppRow = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  var oppRow  = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
   var oppGold = oppRow ? (oppRow.gold || 0) : 0;
 
-  var kda          = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
-  var goldPerMin   = (durMin > 0 && gold > 0)    ? Math.round(gold / durMin)          : null;
-  var killContrib  = teamK > 0                   ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
-  var minPerDeath  = (durMin > 0 && deaths > 0)  ? (durMin / deaths).toFixed(1)       : null;
-  var dmgRatio     = (dmgDealt > 0 && dmgTaken > 0) ? (dmgDealt / dmgTaken).toFixed(2) : null;
-  var oppGoldDisp  = oppGold > 0                 ? oppGold                             : null;
-  var oppGPerMin   = (oppGold > 0 && durMin > 0) ? Math.round(oppGold / durMin)        : null;
+  var kda         = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
+  var goldPerMin  = (durMin > 0 && gold > 0)       ? Math.round(gold / durMin)            : null;
+  var killContrib = teamK > 0                       ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
+  var minPerDeath = (durMin > 0 && deaths > 0)      ? (durMin / deaths).toFixed(1)         : null;
+  var dmgRatio    = (dmgDealt > 0 && dmgTaken > 0)  ? (dmgDealt / dmgTaken).toFixed(2)    : null;
+  var oppGoldDisp = oppGold > 0                     ? oppGold                               : null;
+  var oppGPerMin  = (oppGold > 0 && durMin > 0)     ? Math.round(oppGold / durMin)          : null;
 
   var rows = [
+    {label:'Duration',     val:durLabel,    warn:!durLabel},
     {label:'KDA',          val:kda},
     {label:'Gold / Min',   val:goldPerMin},
     {label:'Kill Contrib', val:killContrib},
@@ -3515,9 +3517,10 @@ function updateComputedStats(slotIdx){
   html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">COMPUTED</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 6px;">';
   rows.forEach(function(s){
+    var color = s.val != null ? (s.warn ? 'var(--warn)' : 'var(--white)') : 'var(--grey-3)';
     html += '<div>';
     html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;margin-bottom:2px;">'+s.label+'</div>';
-    html += '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+(s.val!=null?'var(--white)':'var(--grey-3)')+';">'+(s.val!=null?s.val:'—')+'</div>';
+    html += '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+color+';">'+(s.val!=null?s.val:'—')+'</div>';
     html += '</div>';
   });
   html += '</div></div>';
