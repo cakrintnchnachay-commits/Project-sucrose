@@ -3427,7 +3427,7 @@ function renderPlayerStep(){
     var statsHtml = statsFields.map(function(f){
       return '<div class="raw-stat-cell">'+
         '<div class="raw-stat-label">'+f.label+'</div>'+
-        '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;"/>'+
+        '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;" oninput="updateComputedStats('+i+')"/>'+
         '</div>';
     }).join('');
 
@@ -3449,6 +3449,7 @@ function renderPlayerStep(){
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
     html += '<div class="raw-stats-grid">'+statsHtml+'</div>';
+    html += '<div id="lp-computed-'+i+'"></div>';
     html += '</details>';
     html += '<div class="input-group" style="margin-top:12px;margin-bottom:0;">';
     html += '<label class="input-label">Coach Note <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>';
@@ -3459,9 +3460,10 @@ function renderPlayerStep(){
   }
   container.innerHTML = html;
 
-  // Render pillar sliders for each slot
+  // Render pillar sliders and initial computed stats for each slot
   for(var j = 0; j < 5; j++){
     renderPillarSliders(GAME_ROLES[j].toLowerCase(), j);
+    updateComputedStats(j);
   }
 }
 
@@ -3469,6 +3471,57 @@ function onLogRoleChange(i){
   var roleEl = document.getElementById('lp-role-'+i);
   var role   = roleEl ? roleEl.value.toLowerCase() : '';
   renderPillarSliders(role, i);
+  updateComputedStats(i);
+}
+
+function updateComputedStats(slotIdx){
+  var container = document.getElementById('lp-computed-'+slotIdx);
+  if(!container) return;
+
+  var kills    = parseFloat(document.getElementById('lp-kills-'+slotIdx)?.value)         || 0;
+  var deaths   = parseFloat(document.getElementById('lp-deaths-'+slotIdx)?.value)        || 0;
+  var assists  = parseFloat(document.getElementById('lp-assists-'+slotIdx)?.value)       || 0;
+  var gold     = parseFloat(document.getElementById('lp-gold-'+slotIdx)?.value)          || 0;
+  var dmgDealt = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+slotIdx)?.value) || 0;
+  var dmgTaken = parseFloat(document.getElementById('lp-dmg_taken_raw-'+slotIdx)?.value) || 0;
+  var role     = (document.getElementById('lp-role-'+slotIdx)?.value || '').toLowerCase();
+
+  var durSec = LS.matchInfo && LS.matchInfo.duration_seconds;
+  var durMin = durSec ? durSec / 60 : 0;
+  var teamK  = (LS.matchInfo && LS.matchInfo.team_total_kills) || 0;
+
+  var oppRow = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  var oppGold = oppRow ? (oppRow.gold || 0) : 0;
+
+  var kda          = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
+  var goldPerMin   = (durMin > 0 && gold > 0)    ? Math.round(gold / durMin)          : null;
+  var killContrib  = teamK > 0                   ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
+  var minPerDeath  = (durMin > 0 && deaths > 0)  ? (durMin / deaths).toFixed(1)       : null;
+  var dmgRatio     = (dmgDealt > 0 && dmgTaken > 0) ? (dmgDealt / dmgTaken).toFixed(2) : null;
+  var oppGoldDisp  = oppGold > 0                 ? oppGold                             : null;
+  var oppGPerMin   = (oppGold > 0 && durMin > 0) ? Math.round(oppGold / durMin)        : null;
+
+  var rows = [
+    {label:'KDA',          val:kda},
+    {label:'Gold / Min',   val:goldPerMin},
+    {label:'Kill Contrib', val:killContrib},
+    {label:'Min / Death',  val:minPerDeath},
+    {label:'Dmg Ratio',    val:dmgRatio},
+    {label:'Opp Gold',     val:oppGoldDisp},
+    {label:'Opp G / Min',  val:oppGPerMin},
+  ];
+
+  var html = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--grey-2);">';
+  html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">COMPUTED</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 6px;">';
+  rows.forEach(function(s){
+    html += '<div>';
+    html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;margin-bottom:2px;">'+s.label+'</div>';
+    html += '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+(s.val!=null?'var(--white)':'var(--grey-3)')+';">'+(s.val!=null?s.val:'—')+'</div>';
+    html += '</div>';
+  });
+  html += '</div></div>';
+  container.innerHTML = html;
 }
 
 function renderPillarSliders(role, slotIdx){
