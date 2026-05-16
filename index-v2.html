@@ -435,6 +435,31 @@ textarea.input{resize:vertical;min-height:70px;}
 .match-mentality-panel{margin:0 20px 12px;background:var(--grey-1);border:var(--border);border-radius:2px;overflow:hidden;}
 .match-mentality-player{padding:12px 16px;border-bottom:var(--border);}
 .match-mentality-player:last-child{border-bottom:none;}
+
+/* ── LOG FORM ── */
+.log-toggle-btn{flex:1;padding:10px;border:var(--border);background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:all 0.15s;}
+.log-toggle-btn:first-child{border-radius:2px 0 0 2px;}
+.log-toggle-btn:last-child{border-radius:0 2px 2px 0;}
+.log-toggle-btn.active{background:var(--white);color:var(--black);border-color:var(--white);}
+.log-toggle-btn.active-win{background:rgba(68,255,136,0.15);color:var(--success);border-color:var(--success);}
+.log-toggle-btn.active-loss{background:rgba(255,68,68,0.15);color:var(--danger);border-color:var(--danger);}
+.pillar-row{margin-bottom:14px;}
+.pillar-label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.pillar-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;}
+.pillar-val{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;color:var(--white);}
+input[type=range].pillar-slider{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--grey-3);border-radius:2px;outline:none;cursor:pointer;margin:0;}
+input[type=range].pillar-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;background:var(--white);border-radius:50%;cursor:pointer;}
+input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;background:var(--white);border-radius:50%;cursor:pointer;border:none;}
+.player-score-section{border:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden;}
+.player-score-header{padding:12px 16px;background:var(--grey-1);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.player-score-body{padding:16px;}
+.raw-stats-details{margin-top:12px;}
+.raw-stats-details summary{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;cursor:pointer;padding:8px 0;user-select:none;}
+.raw-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;}
+.raw-stat-cell{display:flex;flex-direction:column;gap:3px;}
+.raw-stat-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;}
+.enemy-lineup-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:var(--border);}
+.enemy-lineup-row:last-child{border-bottom:none;}
 </style>
 <style>@keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes scanSpin{to{transform:rotate(360deg)}}</style>
@@ -890,74 +915,97 @@ async function clearPin(){
 
   <!-- LOG -->
   <div class="page" id="page-log">
+    <!-- Static header -->
     <div style="padding:20px 20px 0;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">LOG GAME</div>
-      <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">Enter match details and player scores</div>
     </div>
+    <!-- Scan button -->
     <div style="padding:10px 20px 0;">
       <input type="file" accept="image/*" multiple id="scan-file-input" style="display:none;" onchange="handleScanFileInput(this)"/>
       <button class="btn btn-full" onclick="openScanModal()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:13px;">
         📸 Scan Screenshot to Auto-Fill
       </button>
     </div>
-    <div class="step-indicator" id="step-indicator"></div>
-    <div id="log-step-0" style="padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Game Details</div>
+    <!-- Step indicator -->
+    <div id="step-indicator" style="display:flex;align-items:center;gap:8px;padding:14px 20px 0;"></div>
+    <!-- Step 0: Game Details -->
+    <div id="log-step-0" style="padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 14px;">GAME DETAILS</div>
+      <!-- Result toggle -->
       <div class="input-group">
-        <label class="input-label">Game Name</label>
-        <input class="input" id="log-game-name" placeholder="e.g. vs Team Phoenix – Game 1"/>
-        <div style="font-size:10px;color:var(--grey-5);margin-top:4px;">Auto-filled from match if linked. Edit freely.</div>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Game Type</label>
-        <select class="input" id="log-type"><option value="Scrim">Scrim</option><option value="Tournament">Tournament / Official</option></select>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Opponent Name (Optional)</label>
-        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
-      </div>
-      <div class="row">
-        <div class="input-group mb-0">
-          <label class="input-label">Opponent Tier</label>
-          <select class="input" id="log-opp-tier">
-            <option value="">Unknown</option><option value="A">A -- Full IC</option>
-            <option value="A+">A+ -- Strong IC/GR</option><option value="S-">S- -- 3-5 GR</option>
-            <option value="S">S -- Strong GR</option><option value="S+">S+ -- Semi-pro</option>
-          </select>
-        </div>
-        <div class="input-group mb-0">
-          <label class="input-label">Result</label>
-          <select class="input" id="log-result"><option value="Win">Win</option><option value="Loss">Loss</option></select>
+        <label class="input-label">Result</label>
+        <div style="display:flex;">
+          <button class="log-toggle-btn active-win" id="log-result-win" onclick="setLogResult('Win')">WIN</button>
+          <button class="log-toggle-btn" id="log-result-loss" onclick="setLogResult('Loss')">LOSS</button>
         </div>
       </div>
-      <div class="input-group mt-16">
-        <label class="input-label">Game Number in Session</label>
-        <input class="input" id="log-game-num" type="number" min="1" max="10" value="1" oninput="autoFillGameName()"/>
-      </div>
+      <!-- Match date -->
       <div class="input-group">
         <label class="input-label">Match Date</label>
-        <input class="input" id="log-date" type="date"/>
+        <input class="input" type="date" id="log-date"/>
       </div>
+      <!-- Game type toggle -->
       <div class="input-group">
-        <label class="input-label">Game Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS — fills from scan)</span></label>
-        <input class="input" id="log-duration" placeholder="e.g. 18:42" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
-        <div style="font-size:10px;color:var(--grey-5);margin-top:4px;">Used for gold/min and pillar calculations.</div>
+        <label class="input-label">Game Type</label>
+        <div style="display:flex;">
+          <button class="log-toggle-btn active" id="log-type-scrim" onclick="setLogType('Scrim')">SCRIM</button>
+          <button class="log-toggle-btn" id="log-type-tournament" onclick="setLogType('Tournament')">TOURNAMENT</button>
+        </div>
       </div>
+      <!-- Opponent name -->
       <div class="input-group">
-        <label class="input-label">VOD / Notes</label>
-        <textarea class="input" id="log-vod" placeholder="Match notes, timestamps..."></textarea>
+        <label class="input-label">Opponent Name <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
       </div>
-      <button class="btn btn-primary btn-full" onclick="logNextStep()">Next -- Score Players</button>
-      <button class="btn btn-full mt-8" onclick="openCreateMatchModal()">📋 Create Match First</button>
+      <!-- Duration -->
+      <div class="input-group">
+        <label class="input-label">Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS)</span></label>
+        <input class="input" id="log-duration" placeholder="12:54" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+      </div>
+      <!-- Kills row -->
+      <div class="input-group">
+        <label class="input-label">Scoreboard Kills</label>
+        <div class="row" style="gap:10px;">
+          <div style="flex:1;">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">OUR KILLS</div>
+            <input class="input" type="number" id="log-team-kills" placeholder="9" min="0"/>
+          </div>
+          <div style="flex:1;">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">THEIR KILLS</div>
+            <input class="input" type="number" id="log-enemy-kills" placeholder="7" min="0"/>
+          </div>
+        </div>
+      </div>
+      <!-- VOD URL -->
+      <div class="input-group">
+        <label class="input-label">VOD URL <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <input class="input" id="log-vod" placeholder="https://..."/>
+      </div>
+      <!-- Notes -->
+      <div class="input-group">
+        <label class="input-label">Notes <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <textarea class="input" id="log-notes" rows="3" placeholder="Match notes..."></textarea>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
     </div>
-    <div id="log-step-player" style="display:none;padding:0 20px 20px;"></div>
-    <div id="log-step-draft" style="display:none;padding:0 20px 20px;"></div>
-    <div id="log-step-review" style="display:none;padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Review &amp; Save</div>
-      <div id="log-review-content"></div>
-      <button class="btn btn-primary btn-full" onclick="saveGame()">Save Game</button>
-      <button class="btn btn-full mt-8" onclick="showDraftFromReview()">← Back to Draft</button>
-      <button class="btn btn-full mt-8" onclick="resetLog()">Start Over</button>
+    <!-- Step 1: Enemy Lineup -->
+    <div id="log-step-enemy" style="display:none;padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 6px;">ENEMY LINEUP</div>
+      <div style="font-size:11px;color:var(--grey-5);margin-bottom:14px;">Enter opponent hero names. Roles are pre-filled where known.</div>
+      <div id="log-enemy-rows"></div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
+        <button class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
+      </div>
+    </div>
+    <!-- Step 2: Player Scoring -->
+    <div id="log-step-players" style="display:none;padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 14px;">PLAYER SCORES</div>
+      <div id="log-player-sections"></div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
+        <button class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
+      </div>
     </div>
   </div>
 
@@ -3069,6 +3117,525 @@ function editAutoAssignDraftPicks(){
     if(draftInp)draftInp.value=heroVal;
   });
   showToast('↺ Draft picks assigned from player scores');
+}
+
+// ══════════════════════════════════════════
+// LOG FORM — Day 2
+// ══════════════════════════════════════════
+
+var PILLAR_MAP = {
+  carry:   ['Lane Influence', 'Scaling', 'Survival', 'Teamfight & Dmg'],
+  midlane: ['Map Influence',  'Scaling', 'Survival', 'Teamfight & Dmg'],
+  offlane: ['Lane Influence', 'Contribution', 'Scaling', 'Wave Management'],
+  jungler: ['Map Influence',  'Gank', 'Objective', 'Scaling'],
+  support: ['Map Influence',  'Teamfight', 'Tank', 'Protection'],
+};
+var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
+
+function initLog(){
+  LS.matchInfo = {};
+  LS.scores    = {};
+  LS.enemyRoles = null;
+  LS._pendingOppTeam = null;
+  LS._step = 0;
+
+  // Default result to Win
+  var winBtn  = document.getElementById('log-result-win');
+  var lossBtn = document.getElementById('log-result-loss');
+  if(winBtn)  { winBtn.className  = 'log-toggle-btn active-win'; }
+  if(lossBtn) { lossBtn.className = 'log-toggle-btn'; }
+  LS.matchInfo.result = 'Win';
+
+  // Default type to Scrim
+  var scrimBtn  = document.getElementById('log-type-scrim');
+  var tournBtn  = document.getElementById('log-type-tournament');
+  if(scrimBtn)  { scrimBtn.className  = 'log-toggle-btn active'; }
+  if(tournBtn)  { tournBtn.className  = 'log-toggle-btn'; }
+  LS.matchInfo.type = 'Scrim';
+
+  // Set today's date
+  var dateEl = document.getElementById('log-date');
+  if(dateEl){
+    var today = new Date();
+    var yyyy  = today.getFullYear();
+    var mm    = String(today.getMonth()+1).padStart(2,'0');
+    var dd    = String(today.getDate()).padStart(2,'0');
+    dateEl.value = yyyy+'-'+mm+'-'+dd;
+  }
+
+  // Pre-fill duration from scan if available
+  if(LS.matchInfo.duration){
+    var durEl = document.getElementById('log-duration');
+    if(durEl) durEl.value = LS.matchInfo.duration;
+  }
+
+  logGoToStep(0);
+}
+
+function logGoToStep(n){
+  var steps = ['log-step-0','log-step-enemy','log-step-players'];
+  steps.forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+  var showId = ['log-step-0','log-step-enemy','log-step-players'][n];
+  var showEl = document.getElementById(showId);
+  if(showEl) showEl.style.display = 'block';
+
+  LS._step = n;
+  renderLogStepIndicator();
+
+  if(n === 1) renderEnemyStep();
+  if(n === 2) renderPlayerStep();
+}
+
+function renderLogStepIndicator(){
+  var el = document.getElementById('step-indicator');
+  if(!el) return;
+  var s = LS._step || 0;
+  var labels = ['Details','Enemy','Players'];
+  var html = '';
+  for(var i = 0; i < 3; i++){
+    var cls, col;
+    if(i === s){
+      cls = 'active'; col = 'var(--white)';
+    } else if(i < s){
+      cls = 'done'; col = 'var(--success)';
+    } else {
+      cls = 'skipped'; col = 'var(--grey-4)';
+    }
+    html += '<div style="display:flex;align-items:center;gap:5px;">';
+    html += '<div style="width:8px;height:8px;border-radius:50%;background:'+col+';"></div>';
+    html += '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:'+col+';letter-spacing:1px;text-transform:uppercase;">'+labels[i]+'</span>';
+    html += '</div>';
+    if(i < 2) html += '<div style="flex:1;height:1px;background:var(--grey-3);margin:0 4px;"></div>';
+  }
+  el.innerHTML = html;
+}
+
+function setLogResult(r){
+  LS.matchInfo.result = r;
+  var winBtn  = document.getElementById('log-result-win');
+  var lossBtn = document.getElementById('log-result-loss');
+  if(r === 'Win'){
+    if(winBtn)  winBtn.className  = 'log-toggle-btn active-win';
+    if(lossBtn) lossBtn.className = 'log-toggle-btn';
+  } else {
+    if(winBtn)  winBtn.className  = 'log-toggle-btn';
+    if(lossBtn) lossBtn.className = 'log-toggle-btn active-loss';
+  }
+}
+
+function setLogType(t){
+  LS.matchInfo.type = t;
+  var scrimBtn = document.getElementById('log-type-scrim');
+  var tournBtn = document.getElementById('log-type-tournament');
+  if(t === 'Scrim'){
+    if(scrimBtn) scrimBtn.className = 'log-toggle-btn active';
+    if(tournBtn) tournBtn.className = 'log-toggle-btn';
+  } else {
+    if(scrimBtn) scrimBtn.className = 'log-toggle-btn';
+    if(tournBtn) tournBtn.className = 'log-toggle-btn active';
+  }
+}
+
+function logStep0Next(){
+  var result   = LS.matchInfo.result || 'Win';
+  var date     = (document.getElementById('log-date')?.value || '').trim();
+  var type     = LS.matchInfo.type || 'Scrim';
+  var opponent = (document.getElementById('log-opponent')?.value || '').trim();
+  var durStr   = (document.getElementById('log-duration')?.value || '').trim();
+  var teamK    = (document.getElementById('log-team-kills')?.value || '').trim();
+  var enemyK   = (document.getElementById('log-enemy-kills')?.value || '').trim();
+  var vod      = (document.getElementById('log-vod')?.value || '').trim();
+  var notes    = (document.getElementById('log-notes')?.value || '').trim();
+
+  if(!date){ showToast('Match date is required'); return; }
+
+  LS.matchInfo.result   = result;
+  LS.matchInfo.date     = date;
+  LS.matchInfo.type     = type;
+  LS.matchInfo.opponent = opponent || null;
+  LS.matchInfo.vod_url  = vod      || null;
+  LS.matchInfo.notes    = notes    || null;
+  LS.matchInfo.team_total_kills  = teamK  ? parseInt(teamK,10)  : null;
+  LS.matchInfo.enemy_total_kills = enemyK ? parseInt(enemyK,10) : null;
+
+  if(durStr){
+    LS.matchInfo.duration = durStr;
+    var parts = durStr.split(':');
+    if(parts.length === 2){
+      LS.matchInfo.duration_seconds = parseInt(parts[0],10)*60 + parseInt(parts[1],10);
+    }
+  } else {
+    LS.matchInfo.duration = null;
+    LS.matchInfo.duration_seconds = null;
+  }
+
+  logGoToStep(1);
+}
+
+function renderEnemyStep(){
+  var container = document.getElementById('log-enemy-rows');
+  if(!container) return;
+
+  var roleOptions = '<option value="" disabled selected>— role —</option>' +
+    GAME_ROLES.map(function(r){ return '<option value="'+r+'">'+r+'</option>'; }).join('');
+
+  var opp = LS._pendingOppTeam;
+  var html = '';
+  for(var i = 0; i < 5; i++){
+    var heroVal = '', goldVal = '', inferredRole = '';
+    if(opp && opp[i]){
+      var entry    = opp[i];
+      var heroName = (entry.extracted && entry.extracted.hero) || '';
+      var heroObj  = entry.hero || findHeroByName(heroName);
+      goldVal      = (entry.extracted && entry.extracted.gold != null) ? entry.extracted.gold : '';
+      heroVal      = heroName;
+      inferredRole = _inferEnemyRole(heroObj, heroName) || '';
+    }
+    var selOpts = GAME_ROLES.map(function(r){
+      return '<option value="'+r+'"'+(r===inferredRole?' selected':'')+'>'+r+'</option>';
+    }).join('');
+    html += '<div class="enemy-lineup-row">';
+    html += '<input class="input" style="flex:2;min-width:0;" id="el-hero-'+i+'" placeholder="Hero name" value="'+heroVal+'" oninput="onEnemyHeroInput('+i+')" />';
+    html += '<select class="input" style="flex:1.5;min-width:0;" id="el-role-'+i+'">';
+    html += '<option value="" disabled'+(inferredRole?'':' selected')+'>— role —</option>';
+    html += selOpts;
+    html += '</select>';
+    html += '<input class="input" style="width:72px;flex-shrink:0;font-family:\'DM Mono\',monospace;" type="number" id="el-gold-'+i+'" placeholder="Gold" value="'+goldVal+'"/>';
+    html += '<span id="el-badge-'+i+'" style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;white-space:nowrap;min-width:0;"></span>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+
+  // Update badges for pre-filled rows
+  if(opp){
+    for(var j = 0; j < 5; j++){
+      if(opp[j]){
+        var e2       = opp[j];
+        var hn2      = (e2.extracted && e2.extracted.hero) || '';
+        var ho2      = e2.hero || findHeroByName(hn2);
+        var ir2      = _inferEnemyRole(ho2, hn2);
+        _updateEnemyBadge(j, ho2, ir2);
+      }
+    }
+  }
+
+  // Consume the pending data
+  LS._pendingOppTeam = null;
+}
+
+function onEnemyHeroInput(i){
+  var val     = (document.getElementById('el-hero-'+i)?.value || '').trim();
+  var heroObj = val ? findHeroByName(val) : null;
+  var inferred = _inferEnemyRole(heroObj, val);
+  if(inferred){
+    var sel = document.getElementById('el-role-'+i);
+    if(sel) sel.value = inferred;
+  }
+  _updateEnemyBadge(i, heroObj, inferred);
+}
+
+function _updateEnemyBadge(i, heroObj, inferredRole){
+  var badge = document.getElementById('el-badge-'+i);
+  if(!badge) return;
+  if(inferredRole){
+    badge.style.color = 'var(--grey-5)';
+    badge.textContent = 'PRE-FILLED';
+  } else if(heroObj && heroObj.roles && heroObj.roles.length > 1){
+    badge.style.color = 'var(--warn)';
+    badge.textContent = 'MULTI-ROLE';
+  } else {
+    badge.textContent = '';
+  }
+}
+
+function logStep1Next(){
+  var rows = [];
+  for(var i = 0; i < 5; i++){
+    var hero = (document.getElementById('el-hero-'+i)?.value || '').trim();
+    var role = document.getElementById('el-role-'+i)?.value || '';
+    var gold = document.getElementById('el-gold-'+i)?.value;
+    if(!role){ showToast('Please select a role for all enemy heroes (row '+(i+1)+')'); return; }
+    rows.push({
+      hero: hero || null,
+      role: role,
+      gold: gold !== '' && gold != null ? parseFloat(gold) : null,
+    });
+  }
+  LS.enemyRoles = rows;
+  logGoToStep(2);
+}
+
+function renderPlayerStep(){
+  PLAYERS = getPlayers();
+  var container = document.getElementById('log-player-sections');
+  if(!container) return;
+
+  var roleOpts = GAME_ROLES.map(function(r){
+    return '<option value="'+r+'">'+r+'</option>';
+  }).join('');
+
+  var playerOpts = function(defaultRole){
+    var active   = PLAYERS.filter(function(p){ return p.status !== 'Inactive'; });
+    var inactive = PLAYERS.filter(function(p){ return p.status === 'Inactive'; });
+    var all = active.concat(inactive);
+    var defaultP = PLAYERS.find(function(p){ return p.role === defaultRole && p.status !== 'Inactive'; }) ||
+                   PLAYERS.find(function(p){ return p.role === defaultRole; });
+    return all.map(function(p){
+      return '<option value="'+p.id+'"'+(defaultP&&p.id===defaultP.id?' selected':'')+'>'+p.nick+' ('+p.role+')</option>';
+    }).join('');
+  };
+
+  var statsFields = [
+    {id:'kills',      label:'Kills'},
+    {id:'deaths',     label:'Deaths'},
+    {id:'assists',    label:'Assists'},
+    {id:'gold',       label:'Gold'},
+    {id:'in_game_rating', label:'Rating'},
+    {id:'dmg_dealt_pct',  label:'Dmg% Dealt'},
+    {id:'dmg_taken_pct',  label:'Dmg% Taken'},
+    {id:'dmg_dealt_raw',  label:'Dmg Dealt'},
+    {id:'dmg_taken_raw',  label:'Dmg Taken'},
+  ];
+
+  var html = '';
+  for(var i = 0; i < 5; i++){
+    var role = GAME_ROLES[i];
+    var roleLower = role.toLowerCase();
+    var defaultP  = PLAYERS.find(function(p){ return p.role === role && p.status !== 'Inactive'; }) ||
+                    PLAYERS.find(function(p){ return p.role === role; });
+    var preHero = (defaultP && LS.scores[defaultP.id] && LS.scores[defaultP.id].hero) ? LS.scores[defaultP.id].hero : '';
+
+    var roleSelOpts = GAME_ROLES.map(function(r){
+      return '<option value="'+r+'"'+(r===role?' selected':'')+'>'+r+'</option>';
+    }).join('');
+
+    var statsHtml = statsFields.map(function(f){
+      return '<div class="raw-stat-cell">'+
+        '<div class="raw-stat-label">'+f.label+'</div>'+
+        '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;"/>'+
+        '</div>';
+    }).join('');
+
+    html += '<div class="player-score-section" id="log-player-section-'+i+'">';
+    html += '<div class="player-score-header">';
+    html += '<select class="input" style="flex:1;font-size:12px;" id="lp-player-'+i+'">';
+    html += playerOpts(role);
+    html += '</select>';
+    html += '<select class="input" style="width:110px;font-size:11px;" id="lp-role-'+i+'" onchange="onLogRoleChange('+i+')">';
+    html += roleSelOpts;
+    html += '</select>';
+    html += '</div>';
+    html += '<div class="player-score-body">';
+    html += '<div class="input-group" style="margin-bottom:10px;">';
+    html += '<label class="input-label">Hero</label>';
+    html += '<input class="input" id="lp-hero-'+i+'" placeholder="Hero name" value="'+preHero+'"/>';
+    html += '</div>';
+    html += '<div id="lp-pillars-'+i+'"></div>';
+    html += '<details class="raw-stats-details">';
+    html += '<summary>Raw Stats</summary>';
+    html += '<div class="raw-stats-grid">'+statsHtml+'</div>';
+    html += '</details>';
+    html += '<div class="input-group" style="margin-top:12px;margin-bottom:0;">';
+    html += '<label class="input-label">Coach Note <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>';
+    html += '<textarea class="input" id="lp-note-'+i+'" rows="2" placeholder="Coach note (optional)"></textarea>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+
+  // Render pillar sliders for each slot
+  for(var j = 0; j < 5; j++){
+    renderPillarSliders(GAME_ROLES[j].toLowerCase(), j);
+  }
+}
+
+function onLogRoleChange(i){
+  var roleEl = document.getElementById('lp-role-'+i);
+  var role   = roleEl ? roleEl.value.toLowerCase() : '';
+  renderPillarSliders(role, i);
+}
+
+function renderPillarSliders(role, slotIdx){
+  var container = document.getElementById('lp-pillars-'+slotIdx);
+  if(!container) return;
+  var pillars = PILLAR_MAP[role] || [];
+  if(!pillars.length){ container.innerHTML = ''; return; }
+  var html = '';
+  for(var n = 0; n < pillars.length; n++){
+    var pName    = pillars[n];
+    var isManual = MANUAL_PILLARS.has(pName);
+    var dispId   = 'lp-pv'+n+'-'+slotIdx;
+    var inpId    = 'lp-p'+n+'-'+slotIdx;
+    html += '<div class="pillar-row">';
+    html += '<div class="pillar-label-row">';
+    html += '<span class="pillar-label">'+pName+'</span>';
+    html += '<span class="pillar-val" id="'+dispId+'">5.0</span>';
+    html += '</div>';
+    if(!isManual){
+      html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Stat-based — drag to override</div>';
+    }
+    html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="0.5" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function updatePillarDisplay(input, displayId){
+  var el = document.getElementById(displayId);
+  if(el) el.textContent = parseFloat(input.value).toFixed(1);
+}
+
+function calculateSuggestion(role, pillarIndex, rawStats){
+  return null; // benchmarks not configured until Day 6
+}
+
+async function saveGame(){
+  var result = LS.matchInfo.result;
+  var date   = LS.matchInfo.date;
+  if(!result){ showToast('Result is required'); return; }
+  if(!date){   showToast('Match date is required'); return; }
+
+  // Soft warning — no block
+  if(!LS.matchInfo.duration_seconds && !LS.matchInfo.team_total_kills){
+    showToast('Tip: duration or kills not set — saving anyway');
+  }
+
+  // Build games_v2 row
+  var gameRow = {
+    match_date:        LS.matchInfo.date,
+    result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
+    game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
+    opponent_name:     LS.matchInfo.opponent  || null,
+    duration_seconds:  LS.matchInfo.duration_seconds || null,
+    team_total_kills:  LS.matchInfo.team_total_kills  || null,
+    enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
+    vod_url:           LS.matchInfo.vod_url  || null,
+    notes:             LS.matchInfo.notes    || null,
+    enemy_roles: LS.enemyRoles
+      ? Object.fromEntries(LS.enemyRoles.map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
+      : null,
+    enemy_gold: LS.enemyRoles
+      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
+      : null,
+    team_total_gold:  null,
+    enemy_total_gold: LS.enemyRoles
+      ? LS.enemyRoles.reduce(function(s,e){ return s+(e.gold||0); }, 0) || null
+      : null,
+  };
+
+  // Per-player data
+  var playerRows = [];
+  var teamTotalGold = 0;
+  var durMin = (LS.matchInfo.duration_seconds || 0) / 60;
+
+  for(var i = 0; i < 5; i++){
+    var pid          = document.getElementById('lp-player-'+i)?.value || null;
+    var hero         = (document.getElementById('lp-hero-'+i)?.value||'').trim() || null;
+    var role         = (document.getElementById('lp-role-'+i)?.value||'').toLowerCase();
+    var kills        = parseFloat(document.getElementById('lp-kills-'+i)?.value)        || 0;
+    var deaths       = parseFloat(document.getElementById('lp-deaths-'+i)?.value)       || 0;
+    var assists      = parseFloat(document.getElementById('lp-assists-'+i)?.value)      || 0;
+    var gold         = parseFloat(document.getElementById('lp-gold-'+i)?.value)         || 0;
+    var rating       = parseFloat(document.getElementById('lp-in_game_rating-'+i)?.value) || null;
+    var dmgDealtPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-'+i)?.value)  || null;
+    var dmgTakenPct  = parseFloat(document.getElementById('lp-dmg_taken_pct-'+i)?.value)  || null;
+    var dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
+    var dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
+    var note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
+    var p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
+    var p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
+    var p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
+    var p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
+
+    teamTotalGold += gold || 0;
+
+    var kda             = (kills + assists) / Math.max(deaths, 1);
+    var goldPerMin      = durMin > 0 ? gold / durMin : null;
+    var minPerDeath     = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
+    var killContribPct  = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
+    var dmgRatio        = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
+    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role.toLowerCase() === role; }) : null;
+    var oppGold         = oppRole ? (oppRole.gold || null) : null;
+    var oppGoldPerMin   = (oppGold && durMin > 0) ? oppGold / durMin : null;
+
+    playerRows.push({
+      game_id:             null, // filled below
+      player_id:           pid  || null,
+      hero_name:           hero || null,
+      role_played:         role || null,
+      kills:               kills,
+      deaths:              deaths,
+      assists:             assists,
+      gold:                gold  || null,
+      in_game_rating:      rating,
+      dmg_dealt_pct:       dmgDealtPct,
+      dmg_taken_pct:       dmgTakenPct,
+      dmg_dealt_raw:       dmgDealtRaw,
+      dmg_taken_raw:       dmgTakenRaw,
+      pillar_1_score:      p1,
+      pillar_2_score:      p2,
+      pillar_3_score:      p3,
+      pillar_4_score:      p4,
+      pillar_1_auto:       null,
+      pillar_2_auto:       null,
+      pillar_3_auto:       null,
+      pillar_4_auto:       null,
+      coach_note:          note,
+      kda:                 kda,
+      gold_per_min:        goldPerMin,
+      min_per_death:       minPerDeath,
+      kill_contribution_pct: killContribPct,
+      dmg_per_dmg_taken:   dmgRatio,
+      opp_gold:            oppGold,
+      opp_gold_per_min:    oppGoldPerMin,
+    });
+  }
+
+  gameRow.team_total_gold = teamTotalGold || null;
+
+  // Build enemy_picks rows
+  var enemyRows = [];
+  if(LS.enemyRoles && LS.enemyRoles.length){
+    LS.enemyRoles.forEach(function(e){
+      enemyRows.push({
+        game_id:   null, // filled below
+        hero_name: e.hero || null,
+        role:      e.role ? e.role.toLowerCase() : null,
+        gold:      e.gold || null,
+      });
+    });
+  }
+
+  // 1. Insert game
+  var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
+  if(gRes.error){ showToast('Save failed: '+gRes.error.message); return; }
+  var gameId = gRes.data.id;
+
+  // Attach game_id
+  playerRows.forEach(function(r){ r.game_id = gameId; });
+  enemyRows.forEach(function(r){  r.game_id = gameId; });
+
+  // 2. Parallel inserts
+  await Promise.all([
+    sb.from('player_scores_v2').insert(playerRows),
+    enemyRows.length ? sb.from('enemy_picks').insert(enemyRows) : Promise.resolve(),
+  ]);
+
+  showToast('✓ Game saved');
+  resetLog();
+}
+
+function resetLog(){
+  LS.matchInfo = {};
+  LS.scores    = {};
+  LS.enemyRoles = null;
+  LS._pendingOppTeam = null;
+  LS._step = 0;
+  showPage('page-home');
 }
 
 // ══════════════════════════════════════════
