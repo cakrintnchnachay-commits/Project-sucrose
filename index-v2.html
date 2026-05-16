@@ -999,12 +999,12 @@ async function clearPin(){
       </div>
     </div>
     <!-- Step 2: Player Scoring -->
-    <div id="log-step-players" style="display:none;padding:16px 20px 20px;">
+    <div id="log-step-players" style="display:none;padding:16px 20px 100px;">
       <div class="section-label" style="padding:0 0 14px;">PLAYER SCORES</div>
       <div id="log-player-sections"></div>
       <div style="display:flex;gap:10px;margin-top:20px;">
         <button type="button" class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
-        <button type="button" class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
+        <button type="button" class="btn btn-primary" id="save-game-btn" onclick="saveGame()" style="flex:2;">Save Game</button>
       </div>
     </div>
   </div>
@@ -3562,139 +3562,157 @@ function calculateSuggestion(role, pillarIndex, rawStats){
 }
 
 async function saveGame(){
-  var result = LS.matchInfo.result;
-  var date   = LS.matchInfo.date;
-  if(!result){ showToast('Result is required'); return; }
-  if(!date){   showToast('Match date is required'); return; }
+  var btn = document.getElementById('save-game-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
 
-  // Soft warning — no block
-  if(!LS.matchInfo.duration_seconds && !LS.matchInfo.team_total_kills){
-    showToast('Tip: duration or kills not set — saving anyway');
-  }
-
-  // Build games_v2 row
-  var gameRow = {
-    match_date:        LS.matchInfo.date,
-    result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
-    game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
-    opponent_name:     LS.matchInfo.opponent  || null,
-    duration_seconds:  LS.matchInfo.duration_seconds || null,
-    team_total_kills:  LS.matchInfo.team_total_kills  || null,
-    enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
-    vod_url:           LS.matchInfo.vod_url  || null,
-    notes:             LS.matchInfo.notes    || null,
-    enemy_roles: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
-      : null,
-    enemy_gold: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
-      : null,
-    team_total_gold:  null,
-    enemy_total_gold: LS.enemyRoles
-      ? LS.enemyRoles.reduce(function(s,e){ return s+(e.gold||0); }, 0) || null
-      : null,
+  var _restoreBtn = function(){
+    if(btn){ btn.disabled = false; btn.textContent = 'Save Game'; }
   };
 
-  // Per-player data
-  var playerRows = [];
-  var teamTotalGold = 0;
-  var durMin = (LS.matchInfo.duration_seconds || 0) / 60;
+  try{
+    var result = LS.matchInfo.result;
+    var date   = LS.matchInfo.date;
+    if(!result){ showToast('Result is required'); _restoreBtn(); return; }
+    if(!date){   showToast('Match date is required'); _restoreBtn(); return; }
 
-  for(var i = 0; i < 5; i++){
-    var pid          = document.getElementById('lp-player-'+i)?.value || null;
-    var hero         = (document.getElementById('lp-hero-'+i)?.value||'').trim() || null;
-    var role         = (document.getElementById('lp-role-'+i)?.value||'').toLowerCase();
-    var kills        = parseFloat(document.getElementById('lp-kills-'+i)?.value)        || 0;
-    var deaths       = parseFloat(document.getElementById('lp-deaths-'+i)?.value)       || 0;
-    var assists      = parseFloat(document.getElementById('lp-assists-'+i)?.value)      || 0;
-    var gold         = parseFloat(document.getElementById('lp-gold-'+i)?.value)         || 0;
-    var rating       = parseFloat(document.getElementById('lp-in_game_rating-'+i)?.value) || null;
-    var dmgDealtPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-'+i)?.value)  || null;
-    var dmgTakenPct  = parseFloat(document.getElementById('lp-dmg_taken_pct-'+i)?.value)  || null;
-    var dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
-    var dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
-    var note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
-    var p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
-    var p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
-    var p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
-    var p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
+    // Soft warning — no block
+    if(!LS.matchInfo.duration_seconds && !LS.matchInfo.team_total_kills){
+      showToast('Tip: duration or kills not set — saving anyway');
+    }
 
-    teamTotalGold += gold || 0;
+    // Build games_v2 row
+    var gameRow = {
+      match_date:        LS.matchInfo.date,
+      result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
+      game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
+      opponent_name:     LS.matchInfo.opponent  || null,
+      duration_seconds:  LS.matchInfo.duration_seconds || null,
+      team_total_kills:  LS.matchInfo.team_total_kills  || null,
+      enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
+      vod_url:           LS.matchInfo.vod_url  || null,
+      notes:             LS.matchInfo.notes    || null,
+      enemy_roles: LS.enemyRoles
+        ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
+        : null,
+      enemy_gold: LS.enemyRoles
+        ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
+        : null,
+      team_total_gold:  null,
+      enemy_total_gold: LS.enemyRoles
+        ? LS.enemyRoles.reduce(function(s,e){ return s+(e.gold||0); }, 0) || null
+        : null,
+    };
 
-    var kda             = (kills + assists) / Math.max(deaths, 1);
-    var goldPerMin      = durMin > 0 ? gold / durMin : null;
-    var minPerDeath     = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
-    var killContribPct  = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
-    var dmgRatio        = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
-    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
-    var oppGold         = oppRole ? (oppRole.gold || null) : null;
-    var oppGoldPerMin   = (oppGold && durMin > 0) ? oppGold / durMin : null;
+    // Per-player data
+    var playerRows = [];
+    var teamTotalGold = 0;
+    var durMin = (LS.matchInfo.duration_seconds || 0) / 60;
 
-    playerRows.push({
-      game_id:             null, // filled below
-      player_id:           pid  || null,
-      hero_name:           hero || null,
-      role_played:         role || null,
-      kills:               kills,
-      deaths:              deaths,
-      assists:             assists,
-      gold:                gold  || null,
-      in_game_rating:      rating,
-      dmg_dealt_pct:       dmgDealtPct,
-      dmg_taken_pct:       dmgTakenPct,
-      dmg_dealt_raw:       dmgDealtRaw,
-      dmg_taken_raw:       dmgTakenRaw,
-      pillar_1_score:      p1,
-      pillar_2_score:      p2,
-      pillar_3_score:      p3,
-      pillar_4_score:      p4,
-      pillar_1_auto:       null,
-      pillar_2_auto:       null,
-      pillar_3_auto:       null,
-      pillar_4_auto:       null,
-      coach_note:          note,
-      kda:                 kda,
-      gold_per_min:        goldPerMin,
-      min_per_death:       minPerDeath,
-      kill_contribution_pct: killContribPct,
-      dmg_per_dmg_taken:   dmgRatio,
-      opp_gold:            oppGold,
-      opp_gold_per_min:    oppGoldPerMin,
-    });
-  }
+    for(var i = 0; i < 5; i++){
+      var pid          = document.getElementById('lp-player-'+i)?.value || null;
+      var hero         = (document.getElementById('lp-hero-'+i)?.value||'').trim() || null;
+      var role         = (document.getElementById('lp-role-'+i)?.value||'').toLowerCase();
+      var kills        = parseFloat(document.getElementById('lp-kills-'+i)?.value)        || 0;
+      var deaths       = parseFloat(document.getElementById('lp-deaths-'+i)?.value)       || 0;
+      var assists      = parseFloat(document.getElementById('lp-assists-'+i)?.value)      || 0;
+      var gold         = parseFloat(document.getElementById('lp-gold-'+i)?.value)         || 0;
+      var rating       = parseFloat(document.getElementById('lp-in_game_rating-'+i)?.value) || null;
+      var dmgDealtPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-'+i)?.value)  || null;
+      var dmgTakenPct  = parseFloat(document.getElementById('lp-dmg_taken_pct-'+i)?.value)  || null;
+      var dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
+      var dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
+      var note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
+      var p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
+      var p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
+      var p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
+      var p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
 
-  gameRow.team_total_gold = teamTotalGold || null;
+      teamTotalGold += gold || 0;
 
-  // Build enemy_picks rows
-  var enemyRows = [];
-  if(LS.enemyRoles && LS.enemyRoles.length){
-    LS.enemyRoles.forEach(function(e){
-      enemyRows.push({
-        game_id:   null, // filled below
-        hero_name: e.hero || null,
-        role:      e.role ? e.role.toLowerCase() : null,
-        gold:      e.gold || null,
+      var kda            = (kills + assists) / Math.max(deaths, 1);
+      var goldPerMin     = durMin > 0 ? gold / durMin : null;
+      var minPerDeath    = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
+      var killContribPct = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
+      var dmgRatio       = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
+      var oppRole        = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+      var oppGold        = oppRole ? (oppRole.gold || null) : null;
+      var oppGoldPerMin  = (oppGold && durMin > 0) ? oppGold / durMin : null;
+
+      playerRows.push({
+        game_id:               null,
+        player_id:             pid  || null,
+        hero_name:             hero || null,
+        role_played:           role || null,
+        kills:                 kills,
+        deaths:                deaths,
+        assists:               assists,
+        gold:                  gold  || null,
+        in_game_rating:        rating,
+        dmg_dealt_pct:         dmgDealtPct,
+        dmg_taken_pct:         dmgTakenPct,
+        dmg_dealt_raw:         dmgDealtRaw,
+        dmg_taken_raw:         dmgTakenRaw,
+        pillar_1_score:        p1,
+        pillar_2_score:        p2,
+        pillar_3_score:        p3,
+        pillar_4_score:        p4,
+        pillar_1_auto:         null,
+        pillar_2_auto:         null,
+        pillar_3_auto:         null,
+        pillar_4_auto:         null,
+        coach_note:            note,
+        kda:                   kda,
+        gold_per_min:          goldPerMin,
+        min_per_death:         minPerDeath,
+        kill_contribution_pct: killContribPct,
+        dmg_per_dmg_taken:     dmgRatio,
+        opp_gold:              oppGold,
+        opp_gold_per_min:      oppGoldPerMin,
       });
-    });
+    }
+
+    gameRow.team_total_gold = teamTotalGold || null;
+
+    // Build enemy_picks rows
+    var enemyRows = [];
+    if(LS.enemyRoles && LS.enemyRoles.length){
+      LS.enemyRoles.forEach(function(e){
+        enemyRows.push({
+          game_id:   null,
+          hero_name: e.hero || null,
+          role:      e.role ? e.role.toLowerCase() : null,
+          gold:      e.gold || null,
+        });
+      });
+    }
+
+    // 1. Insert game row
+    var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
+    if(gRes.error){ showToast('Save failed: '+gRes.error.message); _restoreBtn(); return; }
+    var gameId = gRes.data.id;
+
+    // Attach game_id to child rows
+    playerRows.forEach(function(r){ r.game_id = gameId; });
+    enemyRows.forEach(function(r){  r.game_id = gameId; });
+
+    // 2. Parallel child inserts — check both for errors
+    var results = await Promise.all([
+      sb.from('player_scores_v2').insert(playerRows),
+      enemyRows.length ? sb.from('enemy_picks').insert(enemyRows) : Promise.resolve({error:null}),
+    ]);
+    var pErr = results[0] && results[0].error;
+    var eErr = results[1] && results[1].error;
+    if(pErr){ showToast('Scores not saved: '+pErr.message); _restoreBtn(); return; }
+    if(eErr){ showToast('Enemy picks not saved: '+eErr.message); }
+
+    showToast('✓ Game saved');
+    resetLog();
+
+  }catch(err){
+    console.error('saveGame error', err);
+    showToast('Save error: '+(err.message||String(err)));
+    _restoreBtn();
   }
-
-  // 1. Insert game
-  var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
-  if(gRes.error){ showToast('Save failed: '+gRes.error.message); return; }
-  var gameId = gRes.data.id;
-
-  // Attach game_id
-  playerRows.forEach(function(r){ r.game_id = gameId; });
-  enemyRows.forEach(function(r){  r.game_id = gameId; });
-
-  // 2. Parallel inserts
-  await Promise.all([
-    sb.from('player_scores_v2').insert(playerRows),
-    enemyRows.length ? sb.from('enemy_picks').insert(enemyRows) : Promise.resolve(),
-  ]);
-
-  showToast('✓ Game saved');
-  resetLog();
 }
 
 function resetLog(){
