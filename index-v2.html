@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Sucrose</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 /* ── TOKENS ── */
 :root{
@@ -432,6 +438,8 @@ textarea.input{resize:vertical;min-height:70px;}
 </style>
 <style>@keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes scanSpin{to{transform:rotate(360deg)}}</style>
+</head>
+<body>
 <!-- PIN ENTRY MODAL -->
 <div class="modal-overlay" id="pin-entry-modal">
   <div class="modal">
@@ -514,7 +522,7 @@ async function bootApp(){
       sb.from('heroes').select('*').order('name'),
       sb.from('custom_heroes').select('*').order('name'),
       sb.from('players').select('*').order('nick'),
-      sb.from('games').select('*').order('created_at'),
+      sb.from('games_v2').select('*').order('created_at'),
       sb.from('matches').select('*').order('created_at',{ascending:false}),
       sb.from('meta_tiers').select('*'),
       sb.from('mastery_tiers').select('*'),
@@ -1324,6 +1332,26 @@ function saveData(d){
   if(d.patches) _cache.patches=d.patches;
   if(d.customHeroes) _cache.customHeroes=d.customHeroes;
   if(d.pfp) _cache.pfp=d.pfp;
+}
+
+// ══════════════════════════════════════════
+// LAYOUT HELPERS
+// ══════════════════════════════════════════
+function isDesktop(){return window.innerWidth>=768;}
+function initLayout(){
+  var desktop=isDesktop();
+  var logoBlock=document.getElementById('nav-logo-block');
+  var spacer=document.getElementById('nav-spacer');
+  var settingsBtn=document.getElementById('nav-settings-btn');
+  if(logoBlock) logoBlock.style.display=desktop?'block':'none';
+  if(spacer) spacer.style.display=desktop?'block':'none';
+  if(settingsBtn) settingsBtn.style.display=desktop?'flex':'none';
+}
+window.addEventListener('resize',initLayout);
+
+function renderHome(){
+  var el=document.getElementById('home-date');
+  if(el) el.textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).toUpperCase();
 }
 
 // ══════════════════════════════════════════
@@ -2933,4 +2961,7 @@ function editAutoAssignDraftPicks(){
 }
 
 // ══════════════════════════════════════════
+bootApp();
 </script>
+</body>
+</html>
