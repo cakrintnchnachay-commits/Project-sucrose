@@ -435,6 +435,31 @@ textarea.input{resize:vertical;min-height:70px;}
 .match-mentality-panel{margin:0 20px 12px;background:var(--grey-1);border:var(--border);border-radius:2px;overflow:hidden;}
 .match-mentality-player{padding:12px 16px;border-bottom:var(--border);}
 .match-mentality-player:last-child{border-bottom:none;}
+
+/* ── LOG FORM ── */
+.log-toggle-btn{flex:1;padding:10px;border:var(--border);background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:all 0.15s;}
+.log-toggle-btn:first-child{border-radius:2px 0 0 2px;}
+.log-toggle-btn:last-child{border-radius:0 2px 2px 0;}
+.log-toggle-btn.active{background:var(--white);color:var(--black);border-color:var(--white);}
+.log-toggle-btn.active-win{background:rgba(68,255,136,0.15);color:var(--success);border-color:var(--success);}
+.log-toggle-btn.active-loss{background:rgba(255,68,68,0.15);color:var(--danger);border-color:var(--danger);}
+.pillar-row{margin-bottom:14px;}
+.pillar-label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.pillar-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;}
+.pillar-val{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;color:var(--white);}
+input[type=range].pillar-slider{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--grey-3);border-radius:2px;outline:none;cursor:pointer;margin:0;}
+input[type=range].pillar-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;background:var(--white);border-radius:50%;cursor:pointer;}
+input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;background:var(--white);border-radius:50%;cursor:pointer;border:none;}
+.player-score-section{border:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden;}
+.player-score-header{padding:12px 16px;background:var(--grey-1);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.player-score-body{padding:16px;}
+.raw-stats-details{margin-top:12px;}
+.raw-stats-details summary{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;cursor:pointer;padding:8px 0;user-select:none;}
+.raw-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;}
+.raw-stat-cell{display:flex;flex-direction:column;gap:3px;}
+.raw-stat-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;}
+.enemy-lineup-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:var(--border);}
+.enemy-lineup-row:last-child{border-bottom:none;}
 </style>
 <style>@keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes scanSpin{to{transform:rotate(360deg)}}</style>
@@ -890,74 +915,97 @@ async function clearPin(){
 
   <!-- LOG -->
   <div class="page" id="page-log">
+    <!-- Static header -->
     <div style="padding:20px 20px 0;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">LOG GAME</div>
-      <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">Enter match details and player scores</div>
     </div>
+    <!-- Scan button -->
     <div style="padding:10px 20px 0;">
       <input type="file" accept="image/*" multiple id="scan-file-input" style="display:none;" onchange="handleScanFileInput(this)"/>
       <button class="btn btn-full" onclick="openScanModal()" style="border:1px dashed var(--grey-4);background:transparent;color:var(--grey-6);font-size:13px;">
         📸 Scan Screenshot to Auto-Fill
       </button>
     </div>
-    <div class="step-indicator" id="step-indicator"></div>
-    <div id="log-step-0" style="padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Game Details</div>
+    <!-- Step indicator -->
+    <div id="step-indicator" style="display:flex;align-items:center;gap:8px;padding:14px 20px 0;"></div>
+    <!-- Step 0: Game Details -->
+    <div id="log-step-0" style="padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 14px;">GAME DETAILS</div>
+      <!-- Result toggle -->
       <div class="input-group">
-        <label class="input-label">Game Name</label>
-        <input class="input" id="log-game-name" placeholder="e.g. vs Team Phoenix – Game 1"/>
-        <div style="font-size:10px;color:var(--grey-5);margin-top:4px;">Auto-filled from match if linked. Edit freely.</div>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Game Type</label>
-        <select class="input" id="log-type"><option value="Scrim">Scrim</option><option value="Tournament">Tournament / Official</option></select>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Opponent Name (Optional)</label>
-        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
-      </div>
-      <div class="row">
-        <div class="input-group mb-0">
-          <label class="input-label">Opponent Tier</label>
-          <select class="input" id="log-opp-tier">
-            <option value="">Unknown</option><option value="A">A -- Full IC</option>
-            <option value="A+">A+ -- Strong IC/GR</option><option value="S-">S- -- 3-5 GR</option>
-            <option value="S">S -- Strong GR</option><option value="S+">S+ -- Semi-pro</option>
-          </select>
-        </div>
-        <div class="input-group mb-0">
-          <label class="input-label">Result</label>
-          <select class="input" id="log-result"><option value="Win">Win</option><option value="Loss">Loss</option></select>
+        <label class="input-label">Result</label>
+        <div style="display:flex;">
+          <button class="log-toggle-btn active-win" id="log-result-win" onclick="setLogResult('Win')">WIN</button>
+          <button class="log-toggle-btn" id="log-result-loss" onclick="setLogResult('Loss')">LOSS</button>
         </div>
       </div>
-      <div class="input-group mt-16">
-        <label class="input-label">Game Number in Session</label>
-        <input class="input" id="log-game-num" type="number" min="1" max="10" value="1" oninput="autoFillGameName()"/>
-      </div>
+      <!-- Match date -->
       <div class="input-group">
         <label class="input-label">Match Date</label>
-        <input class="input" id="log-date" type="date"/>
+        <input class="input" type="date" id="log-date"/>
       </div>
+      <!-- Game type toggle -->
       <div class="input-group">
-        <label class="input-label">Game Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS — fills from scan)</span></label>
-        <input class="input" id="log-duration" placeholder="e.g. 18:42" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
-        <div style="font-size:10px;color:var(--grey-5);margin-top:4px;">Used for gold/min and pillar calculations.</div>
+        <label class="input-label">Game Type</label>
+        <div style="display:flex;">
+          <button class="log-toggle-btn active" id="log-type-scrim" onclick="setLogType('Scrim')">SCRIM</button>
+          <button class="log-toggle-btn" id="log-type-tournament" onclick="setLogType('Tournament')">TOURNAMENT</button>
+        </div>
       </div>
+      <!-- Opponent name -->
       <div class="input-group">
-        <label class="input-label">VOD / Notes</label>
-        <textarea class="input" id="log-vod" placeholder="Match notes, timestamps..."></textarea>
+        <label class="input-label">Opponent Name <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
       </div>
-      <button class="btn btn-primary btn-full" onclick="logNextStep()">Next -- Score Players</button>
-      <button class="btn btn-full mt-8" onclick="openCreateMatchModal()">📋 Create Match First</button>
+      <!-- Duration -->
+      <div class="input-group">
+        <label class="input-label">Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS)</span></label>
+        <input class="input" id="log-duration" placeholder="12:54" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+      </div>
+      <!-- Kills row -->
+      <div class="input-group">
+        <label class="input-label">Scoreboard Kills</label>
+        <div class="row" style="gap:10px;">
+          <div style="flex:1;">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">OUR KILLS</div>
+            <input class="input" type="number" id="log-team-kills" placeholder="9" min="0"/>
+          </div>
+          <div style="flex:1;">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">THEIR KILLS</div>
+            <input class="input" type="number" id="log-enemy-kills" placeholder="7" min="0"/>
+          </div>
+        </div>
+      </div>
+      <!-- VOD URL -->
+      <div class="input-group">
+        <label class="input-label">VOD URL <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <input class="input" id="log-vod" placeholder="https://..."/>
+      </div>
+      <!-- Notes -->
+      <div class="input-group">
+        <label class="input-label">Notes <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
+        <textarea class="input" id="log-notes" rows="3" placeholder="Match notes..."></textarea>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="logStep0Next()">Next →</button>
     </div>
-    <div id="log-step-player" style="display:none;padding:0 20px 20px;"></div>
-    <div id="log-step-draft" style="display:none;padding:0 20px 20px;"></div>
-    <div id="log-step-review" style="display:none;padding:0 20px 20px;">
-      <div class="section-label" style="padding:0 0 12px;">Review &amp; Save</div>
-      <div id="log-review-content"></div>
-      <button class="btn btn-primary btn-full" onclick="saveGame()">Save Game</button>
-      <button class="btn btn-full mt-8" onclick="showDraftFromReview()">← Back to Draft</button>
-      <button class="btn btn-full mt-8" onclick="resetLog()">Start Over</button>
+    <!-- Step 1: Enemy Lineup -->
+    <div id="log-step-enemy" style="display:none;padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 6px;">ENEMY LINEUP</div>
+      <div style="font-size:11px;color:var(--grey-5);margin-bottom:14px;">Enter opponent hero names. Roles are pre-filled where known.</div>
+      <div id="log-enemy-rows"></div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn btn-full" onclick="logGoToStep(0)" style="flex:1;">← Back</button>
+        <button class="btn btn-primary" onclick="logStep1Next()" style="flex:2;">Next →</button>
+      </div>
+    </div>
+    <!-- Step 2: Player Scoring -->
+    <div id="log-step-players" style="display:none;padding:16px 20px 20px;">
+      <div class="section-label" style="padding:0 0 14px;">PLAYER SCORES</div>
+      <div id="log-player-sections"></div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn btn-full" onclick="logGoToStep(1)" style="flex:1;">← Back</button>
+        <button class="btn btn-primary" onclick="saveGame()" style="flex:2;">Save Game</button>
+      </div>
     </div>
   </div>
 
