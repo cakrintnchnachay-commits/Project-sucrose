@@ -1649,6 +1649,7 @@ var LS = {
   draft:     null,
   scanData:  null,
   enemyRoles: null,       // [{hero, role, gold}] confirmed by coach
+  scanEnemy:  null,       // [{hero, role, gold}] durable scanned enemy lineup (survives modal skip)
   _pendingOppTeam: null,  // raw oppTeam entries waiting for role confirmation
 };
 // ───────────────────────────────────────────────────────────────────────────
@@ -2250,11 +2251,13 @@ Return this exact shape:
   "endedAt": "HH:MM from clock icon on result screen (NOT game duration) or null",
   "duration": "MM:SS game timer shown at top center or null",
   "mvpIgn": "exact IGN of gold crown MVP on win side only or null",
+  "ourKills": 0,
+  "enemyKills": 0,
   "ourTeam": [
     {"ign":"exact name as shown","hero":"hero name","kills":0,"deaths":0,"assists":0,"gold":0,"gameRating":0.0,"dmgDealtPct":null,"dmgTakenPct":null,"dmgDealt":null,"dmgTaken":null,"mvp":false}
   ],
   "oppTeam": [
-    {"ign":"exact name as shown","hero":"hero name","kills":0,"deaths":0,"assists":0,"gold":null}
+    {"ign":"exact name as shown","hero":"hero name","kills":0,"deaths":0,"assists":0,"gold":0}
   ]
 }
 
@@ -2267,6 +2270,8 @@ Rules:
 - hero is the character name shown beside the hero portrait (e.g. "Keera", "Eland'orr", "TeeMee").
 - ign is the player handle exactly as shown (e.g. "NOR.Pennii", "wildMutt").
 - gold is the numeric value (e.g. 12859). gameRating is the numeric score (e.g. 7.4).
+- oppTeam gold IS shown on the result screen, directly behind/next to each enemy player's K/D/A score. Read it for every enemy row — only use null if it is genuinely not visible anywhere.
+- ourKills and enemyKills are the large per-side TOTAL kill tallies shown at the top of the result screen (one number per side). Use null only if not visible.
 - dmgDealtPct and dmgTakenPct are percentage numbers (0-100) from a damage tab screenshot if provided.
 - dmgDealt and dmgTaken are the absolute damage numbers shown in the bars on the damage tab (e.g. dmgDealt: 45230, dmgTaken: 18000). These are NOT the percentages.
 - If a field is not visible in any screenshot, use null.
@@ -2799,12 +2804,19 @@ function applyScannedData(){
     var dParts=raw.duration.split(':');
     if(dParts.length===2)LS.matchInfo.duration_seconds=parseInt(dParts[0])*60+parseInt(dParts[1]);
   }
-  // team_total_kills
-  if(_scanResult.ourTeam){
-    var totalK=0;
-    _scanResult.ourTeam.forEach(function(e){if(e.extracted&&e.extracted.kills!=null)totalK+=e.extracted.kills;});
-    if(totalK>0)LS.matchInfo.team_total_kills=totalK;
+  // Total kills per side — prefer the scanned tally, else sum per-player kills
+  function _sumKills(list){
+    var t=0,seen=false;
+    (list||[]).forEach(function(e){if(e.extracted&&e.extracted.kills!=null){t+=e.extracted.kills;seen=true;}});
+    return seen?t:null;
   }
+  var ourK=(typeof raw.ourKills==='number')?raw.ourKills:_sumKills(_scanResult.ourTeam);
+  var enemyK=(typeof raw.enemyKills==='number')?raw.enemyKills:_sumKills(_scanResult.oppTeam);
+  if(ourK!=null)LS.matchInfo.team_total_kills=ourK;
+  if(enemyK!=null)LS.matchInfo.enemy_total_kills=enemyK;
+  // Pre-fill Step 0 kill inputs (only when empty) so logStep0Next preserves them
+  if(LS.matchInfo.team_total_kills!=null){var tkEl=document.getElementById('log-team-kills');if(tkEl&&!tkEl.value)tkEl.value=LS.matchInfo.team_total_kills;}
+  if(LS.matchInfo.enemy_total_kills!=null){var ekEl=document.getElementById('log-enemy-kills');if(ekEl&&!ekEl.value)ekEl.value=LS.matchInfo.enemy_total_kills;}
   // Store opp team for enemy role confirmation step
   if(_scanResult.oppTeam&&_scanResult.oppTeam.length){
     LS._pendingOppTeam=_scanResult.oppTeam;
@@ -2841,10 +2853,15 @@ function applyScannedData(){
     if(!LS.scores[pid])LS.scores[pid]={};
     LS.scores[pid].role=_defaultHeroRole(hObj,hName);
   });
-  oppTeam.forEach(function(entry){
+  LS.scanEnemy=oppTeam.map(function(entry){
     var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
     var hObj=entry.hero||findHeroByName(hName);
     entry._inferredRole=_inferEnemyRole(hObj,hName);
+    return {
+      hero: hName,
+      role: entry._inferredRole||'',
+      gold: (entry.extracted&&entry.extracted.gold!=null)?entry.extracted.gold:null
+    };
   });
 
   // Match date → logDraft (scanner has no date; default to the form's date)
@@ -2958,7 +2975,7 @@ function openEnemyRoleConfirm() {
 function closeEnemyRoleConfirm() {
   LS._pendingOppTeam = null;
   document.getElementById('enemy-role-modal').classList.remove('open');
-  showToast('Enemy roles skipped — gold comparison unavailable');
+  showToast('Enemy roles skipped — scanned lineup kept, confirm in Step 1');
 }
 
 function confirmEnemyRoles() {
@@ -3172,6 +3189,7 @@ function initLog(){
   LS.matchInfo = {};
   LS.scores    = {};
   LS.enemyRoles = null;
+  LS.scanEnemy = null;
   LS._pendingOppTeam = null;
   LS._step = 0;
 
@@ -3320,8 +3338,9 @@ function renderEnemyStep(){
     GAME_ROLES.map(function(r){ return '<option value="'+r+'">'+r+'</option>'; }).join('');
 
   var opp = LS._pendingOppTeam;
-  // Roles already confirmed via the enemy modal — pre-fill so the wizard doesn't wipe them
+  // Source priority: modal-confirmed roles → durable scanned enemy → raw pending
   var confirmed = (LS.enemyRoles && LS.enemyRoles.length) ? LS.enemyRoles : null;
+  var scanEnemy = (LS.scanEnemy && LS.scanEnemy.length) ? LS.scanEnemy : null;
   var html = '';
   for(var i = 0; i < 5; i++){
     var heroVal = '', goldVal = '', inferredRole = '';
@@ -3329,6 +3348,10 @@ function renderEnemyStep(){
       heroVal      = confirmed[i].hero || '';
       goldVal      = (confirmed[i].gold != null) ? confirmed[i].gold : '';
       inferredRole = confirmed[i].role || '';
+    } else if(scanEnemy && scanEnemy[i]){
+      heroVal      = scanEnemy[i].hero || '';
+      goldVal      = (scanEnemy[i].gold != null) ? scanEnemy[i].gold : '';
+      inferredRole = scanEnemy[i].role || '';
     } else if(opp && opp[i]){
       var entry    = opp[i];
       var heroName = (entry.extracted && entry.extracted.hero) || '';
@@ -3352,17 +3375,12 @@ function renderEnemyStep(){
   }
   container.innerHTML = html;
 
-  // Update badges for pre-filled rows
-  if(opp){
-    for(var j = 0; j < 5; j++){
-      if(opp[j]){
-        var e2       = opp[j];
-        var hn2      = (e2.extracted && e2.extracted.hero) || '';
-        var ho2      = e2.hero || findHeroByName(hn2);
-        var ir2      = _inferEnemyRole(ho2, hn2);
-        _updateEnemyBadge(j, ho2, ir2);
-      }
-    }
+  // Update badges from whatever hero ended up in each row (any source)
+  for(var j = 0; j < 5; j++){
+    var hn2 = (document.getElementById('el-hero-'+j) || {}).value || '';
+    if(!hn2) continue;
+    var ho2 = findHeroByName(hn2);
+    _updateEnemyBadge(j, ho2, _inferEnemyRole(ho2, hn2));
   }
 
   // Consume the pending data
@@ -3807,6 +3825,7 @@ function resetLog(){
   LS.matchInfo = {};
   LS.scores    = {};
   LS.enemyRoles = null;
+  LS.scanEnemy = null;
   LS._pendingOppTeam = null;
   LS._step = 0;
   showPage('page-home');
