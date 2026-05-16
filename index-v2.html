@@ -431,3 +431,316 @@ textarea.input{resize:vertical;min-height:70px;}
 </style>
 <style>@keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes scanSpin{to{transform:rotate(360deg)}}</style>
+<!-- PIN ENTRY MODAL -->
+<div class="modal-overlay" id="pin-entry-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">🔒 SETTINGS LOCKED</div><button class="modal-close" onclick="closeModal('pin-entry-modal')">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="input-group"><label class="input-label">Enter PIN</label><input class="pin-input" id="pin-entry-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div id="pin-entry-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;">Incorrect PIN</div>
+      <button class="btn btn-primary btn-full" onclick="submitPin()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN CHANGE MODAL -->
+<div class="modal-overlay" id="pin-change-modal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">🔒 CHANGE PIN</div><button class="modal-close" onclick="closeModal('pin-change-modal')">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="input-group"><label class="input-label">New PIN (4–8 digits)</label><input class="pin-input" id="pin-new-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div class="input-group"><label class="input-label">Confirm PIN</label><input class="pin-input" id="pin-confirm-inp" type="password" inputmode="numeric" maxlength="8" placeholder="····"/></div>
+      <div id="pin-change-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-danger btn-sm" onclick="clearPin()">Remove PIN</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="savePin()">Save PIN</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="global-loader" style="display:flex;position:fixed;inset:0;background:var(--black);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:4px;color:var(--white);">SUCROSE</div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:2px;">CONNECTING TO DATABASE...</div>
+  <div style="width:120px;height:2px;background:var(--grey-3);border-radius:2px;overflow:hidden;margin-top:8px;">
+    <div style="height:100%;width:40%;background:var(--white);border-radius:2px;animation:loadBar 1.2s ease-in-out infinite;"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+'use strict';
+
+// ══════════════════════════════════════════
+// SUPABASE CLIENT
+// ══════════════════════════════════════════
+const SUPABASE_URL = 'https://ihxnvlfilhcadqqcpqke.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloeG52bGZpbGhjYWRxcWNwcWtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTI4NDEsImV4cCI6MjA5Mzc4ODg0MX0.c0gKpFDmSiNpjjm2rbnPybbz91-SqmLmAHArotgjbKI';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// In-memory cache (loaded once on boot, kept in sync)
+let _cache = {
+  heroes: [],        // from heroes table
+  customHeroes: [],  // from custom_heroes table
+  heroOverrides: {}, // from app_settings key='hero_overrides'
+  players: [],       // from players table
+  games: [],         // from games table
+  matches: [],       // from matches table
+  tournaments: [],   // from tournaments table (stub, future)
+  metaTiers: {},     // from meta_tiers table ({heroName: {role: tier}})
+  masteryTiers: {},  // from mastery_tiers table (flattened to {playerId: {heroName: tier}})
+  patches: [],       // from patches table
+  pfp: {},           // from app_settings key='pfp'
+  dismissed: {},     // localStorage only (UI state)
+  sheetUrl: '',
+  lastSync: '',
+  loaded: false,
+  settingsPin: '',   // from app_settings key='settings_pin'
+  anthropicKey: '', // from app_settings key='anthropic_key'
+  _pinUnlocked: false,
+};
+
+// Show/hide global loading overlay
+function setLoading(on){
+  let el=document.getElementById('global-loader');
+  if(el) el.style.display=on?'flex':'none';
+}
+
+// Boot: load all data from Supabase into cache
+async function bootApp(){
+  setLoading(true);
+  try{
+    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes] = await Promise.all([
+      sb.from('heroes').select('*').order('name'),
+      sb.from('custom_heroes').select('*').order('name'),
+      sb.from('players').select('*').order('nick'),
+      sb.from('games').select('*').order('created_at'),
+      sb.from('matches').select('*').order('created_at',{ascending:false}),
+      sb.from('meta_tiers').select('*'),
+      sb.from('mastery_tiers').select('*'),
+      sb.from('patches').select('*').order('saved_at'),
+      sb.from('app_settings').select('*'),
+    ]);
+    _cache.heroes = (heroRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
+    _cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
+    _cache.players = (playerRes.data||[]).map(p=>({
+      id:p.id, ign:p.ign, nick:p.nick, role:p.role,
+      status:p.active?(p.rank&&p.rank!=='Unranked'?p.rank:'Starter'):'Inactive',
+      rank:p.rank||'Unranked', active:p.active
+    }));
+    _cache.games = (gameRes.data||[]).map(g=>({
+      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||1, gameName:g.game_name||'',
+      result:g.result==='W'?'Win':'Loss',
+      opponent:g.opponent||'', oppTier:'', notes:g.notes||'',
+      playerScores:g.player_scores||{},
+      matchMentality:g.match_mentality||{},
+      matchId:g.match_id||null,
+      mvpPlayerId:g.mvp_player_id||null,
+      savedAt:g.created_at
+    }));
+    _cache.matches = (matchRes.data||[]).map(m=>({
+      id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
+      oppTier:m.opp_tier||'', notes:m.notes||'',
+      mentality:m.mentality||{},
+      tournamentId:m.tournament_id||null,
+      createdAt:m.created_at,
+    }));
+    // Flatten meta tiers: {heroName: {role: tier}}
+    _cache.metaTiers={};
+    (metaRes.data||[]).forEach(r=>{
+      if(r.role){
+        if(!_cache.metaTiers[r.hero_name]) _cache.metaTiers[r.hero_name]={};
+        _cache.metaTiers[r.hero_name][r.role]=r.tier;
+      }
+    });
+    // Flatten mastery tiers
+    _cache.masteryTiers={};
+    (masteryRes.data||[]).forEach(r=>{
+      if(!_cache.masteryTiers[r.player_id]) _cache.masteryTiers[r.player_id]={};
+      _cache.masteryTiers[r.player_id][r.hero_name]=r.tier;
+    });
+    _cache.patches=(patchRes.data||[]).map(p=>({name:p.name,savedAt:p.saved_at,metaTiers:p.meta_snapshot||{}}));
+    // Settings
+    (settingsRes.data||[]).forEach(s=>{
+      if(s.key==='hero_overrides') _cache.heroOverrides=s.value||{};
+      if(s.key==='pfp') _cache.pfp=s.value||{};
+      if(s.key==='sheet_url') _cache.sheetUrl=s.value||'';
+      if(s.key==='last_sync') _cache.lastSync=s.value||'';
+      if(s.key==='settings_pin') _cache.settingsPin=s.value||'';
+      if(s.key==='anthropic_key') _cache.anthropicKey=(s.value||'').replace(/\s+/g,'');
+      if(s.key==='meta_tiers_json'&&s.value&&!Object.keys(_cache.metaTiers).length) _cache.metaTiers=s.value;
+    });
+    // If no players in DB yet, seed with defaults
+    if(_cache.players.length===0){
+      await seedDefaultPlayers();
+    }
+    _cache.dismissed=JSON.parse(localStorage.getItem('ps_dismissed')||'{}');
+    _cache.loaded=true;
+  }catch(e){
+    console.error('Boot failed',e);
+    showToast('⚠ Could not connect to Supabase');
+  }
+  setLoading(false);
+  PLAYERS=_cache.players;
+  initLayout();
+  renderHome();
+}
+
+async function seedDefaultPlayers(){
+  const defaults=[
+    {id:'gun', ign:'Sutthiphat',nick:'Gun', role:'Support', rank:'Unranked', active:true},
+    {id:'film',ign:'K1rarz',    nick:'Film',role:'Midlane', rank:'Unranked', active:true},
+    {id:'yp',  ign:'Penii',     nick:'YP',  role:'Carry',   rank:'Unranked', active:true},
+    {id:'poom',ign:'WildMutt',  nick:'Poom',role:'Offlane', rank:'Unranked', active:true},
+    {id:'doy', ign:'Doy',       nick:'Doy', role:'Jungler', rank:'Unranked', active:true},
+    {id:'ice', ign:'Ackerman',  nick:'Ice', role:'Jungler', rank:'Unranked', active:false},
+    {id:'ken', ign:'Kenslayer', nick:'Ken', role:'Offlane', rank:'Unranked', active:false},
+  ];
+  await sb.from('players').upsert(defaults,{onConflict:'id'});
+  _cache.players=defaults.map(p=>({...p,status:p.active?'Starter':'Substitute'}));
+}
+
+// ── Supabase write helpers ──────────────────
+
+async function sbSaveSetting(key,value){
+  await sb.from('app_settings').upsert({key,value,updated_at:new Date().toISOString()},{onConflict:'key'});
+}
+
+async function sbSaveGame(gameObj){
+  // Map app game object → DB row
+  const row={
+    id: gameObj.id,
+    date: gameObj.date,
+    result: gameObj.result==='Win'?'W':'L',
+    map: gameObj.type||'Scrim',
+    opponent: gameObj.opponent||null,
+    is_tournament: gameObj.type==='Tournament',
+    notes: gameObj.notes||null,
+    game_num: gameObj.gameNum||1,
+    game_name: gameObj.gameName||null,
+    player_scores: gameObj.playerScores||{},
+    match_mentality: gameObj.matchMentality||{},
+    match_id: gameObj.matchId||null,
+    mvp_player_id: gameObj.mvpPlayerId||null,
+  };
+  const {data,error}=await sb.from('games').upsert(row,{onConflict:'id'}).select().single();
+  if(error) throw error;
+  return data.id;
+}
+
+async function sbDeleteGame(gameId){
+  await sb.from('games').delete().eq('id',gameId);
+}
+
+async function sbSavePlayer(playerObj){
+  const row={
+    id:playerObj.id, ign:playerObj.ign, nick:playerObj.nick,
+    role:playerObj.role, active:playerObj.status!=='Inactive',
+    rank:playerObj.rank||'Unranked',
+  };
+  await sb.from('players').upsert(row,{onConflict:'id'});
+}
+
+async function sbDeletePlayer(playerId){
+  await sb.from('players').delete().eq('id',playerId);
+}
+
+async function sbSaveMetaTier(heroName,role,tier){
+  if(tier){
+    await sb.from('meta_tiers').upsert({hero_name:heroName,role:role,tier,updated_at:new Date().toISOString()},{onConflict:'hero_name,role'});
+  } else {
+    await sb.from('meta_tiers').delete().eq('hero_name',heroName).eq('role',role);
+  }
+}
+
+async function sbSaveMasteryTier(playerId,heroName,tier){
+  if(tier){
+    await sb.from('mastery_tiers').upsert({player_id:playerId,hero_name:heroName,tier,updated_at:new Date().toISOString()},{onConflict:'player_id,hero_name'});
+  } else {
+    await sb.from('mastery_tiers').delete().eq('player_id',playerId).eq('hero_name',heroName);
+  }
+}
+
+async function sbSaveHeroes(heroArr){
+  if(!heroArr.length) return;
+  const rows=heroArr.map(h=>({name:h.name,cls:h.cls,roles:h.roles}));
+  await sb.from('heroes').upsert(rows,{onConflict:'name'});
+}
+
+async function sbSaveCustomHero(h){
+  await sb.from('custom_heroes').upsert({name:h.name,cls:h.cls,roles:h.roles},{onConflict:'name'});
+}
+
+async function sbSavePatch(p){
+  await sb.from('patches').upsert({name:p.name,meta_snapshot:p.metaTiers,saved_at:p.savedAt},{onConflict:'name'});
+}
+
+async function sbSaveMatch(matchObj){
+  const row={
+    id:matchObj.id,
+    name:matchObj.name,
+    date:matchObj.date||null,
+    type:matchObj.type||'Scrim',
+    opp_tier:matchObj.oppTier||null,
+    notes:matchObj.notes||null,
+    mentality:matchObj.mentality||null,
+    tournament_id:matchObj.tournamentId||null,
+  };
+  const {data,error}=await sb.from('matches').upsert(row,{onConflict:'id'}).select().single();
+  if(error) throw error;
+  return data.id;
+}
+
+async function sbDeleteMatch(matchId){
+  // Unlink games first, then delete match
+  await sb.from('games').update({match_id:null}).eq('match_id',matchId);
+  await sb.from('matches').delete().eq('id',matchId);
+}
+
+async function sbAssignGameToMatch(gameId,matchId){
+  const {error}=await sb.from('games').update({match_id:matchId}).eq('id',gameId);
+  if(error) throw error;
+}
+
+// ══════════════════════════════════════════
+// SETTINGS PIN — V7
+// ══════════════════════════════════════════
+function submitPin(){
+  var entered=(document.getElementById('pin-entry-inp')?.value||'').trim();
+  if(entered===String(_cache.settingsPin)){
+    _cache._pinUnlocked=true;
+    setTimeout(function(){_cache._pinUnlocked=false;},5*60*1000);
+    closeModal('pin-entry-modal');
+    showPage('page-settings');
+  } else {
+    document.getElementById('pin-entry-err').style.display='block';
+  }
+}
+
+function showPinChange(){
+  document.getElementById('pin-new-inp').value='';
+  document.getElementById('pin-confirm-inp').value='';
+  document.getElementById('pin-change-err').style.display='none';
+  document.getElementById('pin-change-modal').classList.add('open');
+}
+
+async function savePin(){
+  var nw=(document.getElementById('pin-new-inp')?.value||'').trim();
+  var cf=(document.getElementById('pin-confirm-inp')?.value||'').trim();
+  var errEl=document.getElementById('pin-change-err');
+  if(!/^\d{4,8}$/.test(nw)){errEl.textContent='PIN must be 4–8 digits';errEl.style.display='block';return;}
+  if(nw!==cf){errEl.textContent='PINs do not match';errEl.style.display='block';return;}
+  _cache.settingsPin=nw;
+  _cache._pinUnlocked=true;
+  await sbSaveSetting('settings_pin',nw);
+  closeModal('pin-change-modal');
+  showToast('PIN saved');
+}
+
+async function clearPin(){
+  _cache.settingsPin='';
+  _cache._pinUnlocked=false;
+  await sbSaveSetting('settings_pin','');
+  closeModal('pin-change-modal');
+  showToast('PIN removed');
+}
+</script>
