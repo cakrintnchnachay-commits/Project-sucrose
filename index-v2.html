@@ -2782,9 +2782,14 @@ function applyScannedData(){
   var raw=_scanResult.raw;
   var ourTeam=_scanResult.ourTeam;
   var oppTeam=_scanResult.oppTeam;
+  if(!LS.matchInfo)LS.matchInfo={};
 
-  // Result field
-  if(raw.result){var resEl=document.getElementById('log-result');if(resEl)resEl.value=raw.result;}
+  // Result → logDraft + toggle
+  if(raw.result){
+    var _res=/loss|defeat/i.test(raw.result)?'Loss':'Win';
+    LS.matchInfo.result=_res;
+    if(typeof setLogResult==='function')setLogResult(_res);
+  }
 
   // Match-level: endedAt, duration
   if(_scanChecked['endedAt']&&raw.endedAt){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.endedAt=raw.endedAt;}
@@ -2827,6 +2832,27 @@ function applyScannedData(){
     if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)LS.scores[pid].dmgTaken=ex.dmgTaken;
   });
 
+  // Hero → default role for all 10 players (Flowborn → unassigned, unknown → manual picker)
+  ourTeam.forEach(function(entry){
+    if(!entry.player)return;
+    var pid=entry.player.id;
+    var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
+    var hObj=entry.hero||findHeroByName(hName);
+    if(!LS.scores[pid])LS.scores[pid]={};
+    LS.scores[pid].role=_defaultHeroRole(hObj,hName);
+  });
+  oppTeam.forEach(function(entry){
+    var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
+    var hObj=entry.hero||findHeroByName(hName);
+    entry._inferredRole=_inferEnemyRole(hObj,hName);
+  });
+
+  // Match date → logDraft (scanner has no date; default to the form's date)
+  if(!LS.matchInfo.date){
+    var dEl=document.getElementById('log-date');
+    if(dEl&&dEl.value)LS.matchInfo.date=dEl.value;
+  }
+
   // Populate duration input in the log form if visible
   if(LS.matchInfo.duration){var durInp=document.getElementById('log-duration');if(durInp&&!durInp.value)durInp.value=LS.matchInfo.duration;}
 
@@ -2865,6 +2891,15 @@ function _inferEnemyRole(heroObj, heroName) {
   if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
   if (heroObj.roles.length === 1) return heroObj.roles[0];
   return null; // multiple roles → coach must pick
+}
+
+// Default role for our-side players: first DB role.
+// Flowborn → unassigned; unknown hero → null (manual picker).
+function _defaultHeroRole(heroObj, heroName) {
+  var MULTI_ROLE = ['Flowborn'];
+  if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
+  if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
+  return heroObj.roles[0];
 }
 
 function openEnemyRoleConfirm() {
@@ -3285,10 +3320,16 @@ function renderEnemyStep(){
     GAME_ROLES.map(function(r){ return '<option value="'+r+'">'+r+'</option>'; }).join('');
 
   var opp = LS._pendingOppTeam;
+  // Roles already confirmed via the enemy modal — pre-fill so the wizard doesn't wipe them
+  var confirmed = (LS.enemyRoles && LS.enemyRoles.length) ? LS.enemyRoles : null;
   var html = '';
   for(var i = 0; i < 5; i++){
     var heroVal = '', goldVal = '', inferredRole = '';
-    if(opp && opp[i]){
+    if(confirmed && confirmed[i]){
+      heroVal      = confirmed[i].hero || '';
+      goldVal      = (confirmed[i].gold != null) ? confirmed[i].gold : '';
+      inferredRole = confirmed[i].role || '';
+    } else if(opp && opp[i]){
       var entry    = opp[i];
       var heroName = (entry.extracted && entry.extracted.hero) || '';
       var heroObj  = entry.hero || findHeroByName(heroName);
@@ -3418,10 +3459,13 @@ function renderPlayerStep(){
     var roleLower = role.toLowerCase();
     var defaultP  = PLAYERS.find(function(p){ return p.role === role && p.status !== 'Inactive'; }) ||
                     PLAYERS.find(function(p){ return p.role === role; });
-    var preHero = (defaultP && LS.scores[defaultP.id] && LS.scores[defaultP.id].hero) ? LS.scores[defaultP.id].hero : '';
+    var preScore = (defaultP && LS.scores[defaultP.id]) ? LS.scores[defaultP.id] : null;
+    var preHero  = (preScore && preScore.hero) ? preScore.hero : '';
+    // Inferred hero role pre-selects the picker; null (Flowborn/unknown) falls back to slot role
+    var prefRole = (preScore && preScore.role) ? preScore.role : role;
 
     var roleSelOpts = GAME_ROLES.map(function(r){
-      return '<option value="'+r+'"'+(r===role?' selected':'')+'>'+r+'</option>';
+      return '<option value="'+r+'"'+(r===prefRole?' selected':'')+'>'+r+'</option>';
     }).join('');
 
     var statsHtml = statsFields.map(function(f){
@@ -3460,10 +3504,45 @@ function renderPlayerStep(){
   }
   container.innerHTML = html;
 
-  // Render pillar sliders and initial computed stats for each slot
+  // Pre-fill raw stats + render pillar sliders + suggestions for each slot
   for(var j = 0; j < 5; j++){
-    renderPillarSliders(GAME_ROLES[j].toLowerCase(), j);
+    var dp = PLAYERS.find(function(p){ return p.role === GAME_ROLES[j] && p.status !== 'Inactive'; }) ||
+             PLAYERS.find(function(p){ return p.role === GAME_ROLES[j]; });
+    var sc = (dp && LS.scores[dp.id]) ? LS.scores[dp.id] : null;
+    var rEl = document.getElementById('lp-role-'+j);
+    var rl  = (rEl ? rEl.value : GAME_ROLES[j]).toLowerCase();
+    if(sc) _prefillRawStats(j, sc);
+    renderPillarSliders(rl, j);
+    if(sc) _prefillPillarSuggestions(j, rl, sc);
     updateComputedStats(j);
+  }
+}
+
+function _prefillRawStats(i, sc){
+  function setv(id, v){
+    var el = document.getElementById(id);
+    if(el && v != null && v !== '') el.value = v;
+  }
+  setv('lp-kills-'+i,          sc.kills);
+  setv('lp-deaths-'+i,         sc.deaths);
+  setv('lp-assists-'+i,        sc.assists);
+  setv('lp-gold-'+i,           sc.gold);
+  setv('lp-in_game_rating-'+i, sc.gameRating);
+  setv('lp-dmg_dealt_pct-'+i,  sc.dmgDealtPct);
+  setv('lp-dmg_taken_pct-'+i,  sc.dmgTakenPct);
+  setv('lp-dmg_dealt_raw-'+i,  sc.dmgDealt);
+  setv('lp-dmg_taken_raw-'+i,  sc.dmgTaken);
+}
+
+function _prefillPillarSuggestions(i, role, sc){
+  var pillars = PILLAR_MAP[role] || [];
+  for(var n = 0; n < pillars.length; n++){
+    var sug = calculateSuggestion(role, n, sc);
+    if(sug == null) continue;
+    var inp  = document.getElementById('lp-p'+n+'-'+i);
+    var disp = document.getElementById('lp-pv'+n+'-'+i);
+    if(inp)  inp.value = sug;
+    if(disp) disp.textContent = parseFloat(sug).toFixed(1);
   }
 }
 
