@@ -3355,18 +3355,28 @@ function _updateEnemyBadge(i, heroObj, inferredRole){
 
 function logStep1Next(){
   var rows = [];
+  var valid = true;
   for(var i = 0; i < 5; i++){
     var hero = (document.getElementById('el-hero-'+i)?.value || '').trim();
     var role = document.getElementById('el-role-'+i)?.value || '';
     var gold = document.getElementById('el-gold-'+i)?.value;
-    if(!role){ showToast('Please select a role for all enemy heroes (row '+(i+1)+')'); return; }
+    var roleEl = document.getElementById('el-role-'+i);
+    // Only require a role if the coach entered a hero name
+    if(hero && !role){
+      if(roleEl) roleEl.style.outline = '2px solid var(--danger)';
+      valid = false;
+    } else {
+      if(roleEl) roleEl.style.outline = '';
+    }
     rows.push({
       hero: hero || null,
-      role: role,
+      role: role || null,
       gold: gold !== '' && gold != null ? parseFloat(gold) : null,
     });
   }
-  LS.enemyRoles = rows;
+  if(!valid){ showToast('Select a role for every hero you entered'); return; }
+  // Store only if at least one row has data; otherwise null (no enemy info this game)
+  LS.enemyRoles = rows.some(function(r){ return r.hero || r.role; }) ? rows : null;
   logGoToStep(2);
 }
 
@@ -3518,10 +3528,10 @@ async function saveGame(){
     vod_url:           LS.matchInfo.vod_url  || null,
     notes:             LS.matchInfo.notes    || null,
     enemy_roles: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
+      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
       : null,
     enemy_gold: LS.enemyRoles
-      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
+      ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
       : null,
     team_total_gold:  null,
     enemy_total_gold: LS.enemyRoles
@@ -3560,7 +3570,7 @@ async function saveGame(){
     var minPerDeath     = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
     var killContribPct  = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
     var dmgRatio        = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
-    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role.toLowerCase() === role; }) : null;
+    var oppRole         = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
     var oppGold         = oppRole ? (oppRole.gold || null) : null;
     var oppGoldPerMin   = (oppGold && durMin > 0) ? oppGold / durMin : null;
 
