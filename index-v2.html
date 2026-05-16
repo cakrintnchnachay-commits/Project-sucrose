@@ -1594,6 +1594,17 @@ async function deletePlayer(playerId){
 //   const playerId = player ? player.id : null;
 // ───────────────────────────────────────────────────────────────────────────
 
+// ── LOG SESSION STATE ───────────────────────────────────────────────────────
+var LS = {
+  matchInfo: {},   // result, date, type, opponent, duration, duration_seconds, team_total_kills
+  scores:    {},   // keyed by player id
+  draft:     null,
+  scanData:  null,
+  enemyRoles: null,       // [{hero, role, gold}] confirmed by coach
+  _pendingOppTeam: null,  // raw oppTeam entries waiting for role confirmation
+};
+// ───────────────────────────────────────────────────────────────────────────
+
 // ══════════════════════════════════════════
 // HERO DATABASE + LOOKUP FUNCTIONS
 // ══════════════════════════════════════════
@@ -2793,6 +2804,106 @@ function applyScannedData(){
   if(LS._pendingOppTeam&&LS._pendingOppTeam.length){
     setTimeout(openEnemyRoleConfirm, 300);
   }
+}
+
+// ══════════════════════════════════════════
+// ENEMY ROLE CONFIRMATION
+// ══════════════════════════════════════════
+
+function _inferEnemyRole(heroObj, heroName) {
+  // Multi-role heroes — always require manual selection
+  var MULTI_ROLE = ['Flowborn'];
+  if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
+  if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
+  if (heroObj.roles.length === 1) return heroObj.roles[0];
+  return null; // multiple roles → coach must pick
+}
+
+function openEnemyRoleConfirm() {
+  var opp = LS._pendingOppTeam;
+  if (!opp || !opp.length) return;
+  var roleOptions = GAME_ROLES.map(function(r) {
+    return '<option value="'+r+'">'+r+'</option>';
+  }).join('');
+  var rows = opp.map(function(entry, i) {
+    var heroName = (entry.extracted && entry.extracted.hero) || '';
+    var heroObj  = entry.hero || findHeroByName(heroName);
+    var gold     = (entry.extracted && entry.extracted.gold) || null;
+    var inferred = _inferEnemyRole(heroObj, heroName);
+    var isMulti  = heroObj && heroObj.roles && heroObj.roles.length > 1;
+    var isUnknown = !heroObj;
+    var badgeHtml;
+    if (inferred) {
+      badgeHtml = '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;">'+inferred.toUpperCase()+' · PRE-FILLED</span>';
+    } else if (isMulti) {
+      badgeHtml = '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);letter-spacing:1px;">MULTI-ROLE — SELECT BELOW</span>';
+    } else {
+      badgeHtml = '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;">NOT IN DB — SELECT BELOW</span>';
+    }
+    var selectedRole = inferred || '';
+    var selectHtml =
+      '<select class="input" id="er-role-'+i+'" style="font-size:11px;padding:6px 10px;width:130px;flex-shrink:0;">' +
+        '<option value="" disabled'+(selectedRole?'':' selected')+'>— role —</option>' +
+        GAME_ROLES.map(function(r) {
+          return '<option value="'+r+'"'+(r===selectedRole?' selected':'')+'>'+r+'</option>';
+        }).join('') +
+      '</select>';
+    var goldHtml = gold != null
+      ? '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:8px;">'+Number(gold).toLocaleString()+' g</span>'
+      : '';
+    return '<div id="er-row-'+i+'" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:var(--border);">'+
+      heroPortraitHtml(heroName, 36, false)+
+      '<div style="flex:1;min-width:0;">'+
+        '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
+          (heroName||'Unknown')+goldHtml+
+        '</div>'+
+        '<div style="margin-top:3px;">'+badgeHtml+'</div>'+
+      '</div>'+
+      selectHtml+
+    '</div>';
+  }).join('');
+  document.getElementById('enemy-role-body').innerHTML =
+    '<div style="padding:0 20px;">' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;padding:12px 0 4px;">'+
+        'Heroes pre-filled from database. Adjust any that are wrong before confirming.'+
+      '</div>'+
+      rows+
+    '</div>';
+  document.getElementById('enemy-role-modal').classList.add('open');
+}
+
+function closeEnemyRoleConfirm() {
+  LS._pendingOppTeam = null;
+  document.getElementById('enemy-role-modal').classList.remove('open');
+  showToast('Enemy roles skipped — gold comparison unavailable');
+}
+
+function confirmEnemyRoles() {
+  var opp = LS._pendingOppTeam;
+  if (!opp) return;
+  var result = [];
+  var missing = false;
+  opp.forEach(function(entry, i) {
+    var sel = document.getElementById('er-role-'+i);
+    var role = sel ? sel.value : '';
+    var row  = document.getElementById('er-row-'+i);
+    if (!role) {
+      missing = true;
+      if (row) row.style.outline = '1px solid var(--danger)';
+    } else {
+      if (row) row.style.outline = '';
+      result.push({
+        hero: (entry.extracted && entry.extracted.hero) || '',
+        role: role,
+        gold: (entry.extracted && entry.extracted.gold) || null
+      });
+    }
+  });
+  if (missing) { showToast('Assign a role to every hero first'); return; }
+  LS.enemyRoles = result;
+  LS._pendingOppTeam = null;
+  document.getElementById('enemy-role-modal').classList.remove('open');
+  showToast('Enemy roles confirmed');
 }
 
 function triggerEditScan(){
