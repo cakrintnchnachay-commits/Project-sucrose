@@ -3561,6 +3561,15 @@ function calculateSuggestion(role, pillarIndex, rawStats){
   return null; // benchmarks not configured until Day 6
 }
 
+function _dbErr(err, table){
+  var msg = (err && err.message) || String(err);
+  if(msg.toLowerCase().indexOf('row-level security') !== -1 || (err && (err.code === '42501' || err.status === 401 || err.status === 403))){
+    showToast('Permission denied on '+table+' — run supabase-setup.sql in Supabase dashboard');
+  } else {
+    showToast('DB error ('+table+'): '+msg);
+  }
+}
+
 async function saveGame(){
   var btn = document.getElementById('save-game-btn');
   if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -3688,7 +3697,7 @@ async function saveGame(){
 
     // 1. Insert game row
     var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
-    if(gRes.error){ showToast('Save failed: '+gRes.error.message); _restoreBtn(); return; }
+    if(gRes.error){ _dbErr(gRes.error, 'games_v2'); _restoreBtn(); return; }
     var gameId = gRes.data.id;
 
     // Attach game_id to child rows
@@ -3702,8 +3711,8 @@ async function saveGame(){
     ]);
     var pErr = results[0] && results[0].error;
     var eErr = results[1] && results[1].error;
-    if(pErr){ showToast('Scores not saved: '+pErr.message); _restoreBtn(); return; }
-    if(eErr){ showToast('Enemy picks not saved: '+eErr.message); }
+    if(pErr){ _dbErr(pErr, 'player_scores_v2'); _restoreBtn(); return; }
+    if(eErr){ _dbErr(eErr, 'enemy_picks'); }
 
     showToast('✓ Game saved');
     resetLog();
