@@ -543,7 +543,7 @@ function setLoading(on){
 async function bootApp(){
   setLoading(true);
   try{
-    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes] = await Promise.all([
+    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes, psRes] = await Promise.all([
       sb.from('heroes').select('*').order('name'),
       sb.from('custom_heroes').select('*').order('name'),
       sb.from('players').select('*').order('nick'),
@@ -553,6 +553,7 @@ async function bootApp(){
       sb.from('mastery_tiers').select('*'),
       sb.from('patches').select('*').order('saved_at'),
       sb.from('app_settings').select('*'),
+      sb.from('player_scores_v2').select('*'),
     ]);
     _cache.heroes = (heroRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
     _cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
@@ -565,12 +566,29 @@ async function bootApp(){
       id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||1, gameName:g.game_name||'',
       result:g.result==='W'?'Win':'Loss',
       opponent:g.opponent||'', oppTier:'', notes:g.notes||'',
-      playerScores:g.player_scores||{},
+      playerScores:{},
       matchMentality:g.match_mentality||{},
       matchId:g.match_id||null,
       mvpPlayerId:g.mvp_player_id||null,
       savedAt:g.created_at
     }));
+    // Merge per-player scores from player_scores_v2 into _cache.games
+    var _psMap={};
+    (psRes.data||[]).forEach(function(ps){
+      if(!_psMap[ps.game_id])_psMap[ps.game_id]={};
+      if(ps.player_id){
+        _psMap[ps.game_id][ps.player_id]={
+          hero:ps.hero_name||null,role:ps.role_played||null,
+          kills:ps.kills||0,deaths:ps.deaths||0,assists:ps.assists||0,
+          gold:ps.gold||null,in_game_rating:ps.in_game_rating||null,
+          dmg_dealt_pct:ps.dmg_dealt_pct||null,dmg_taken_pct:ps.dmg_taken_pct||null,
+          dmg_dealt_raw:ps.dmg_dealt_raw||null,dmg_taken_raw:ps.dmg_taken_raw||null,
+          pillar_scores:{p0:ps.pillar_1_score||null,p1:ps.pillar_2_score||null,p2:ps.pillar_3_score||null,p3:ps.pillar_4_score||null},
+          comment:ps.coach_note||null,
+        };
+      }
+    });
+    _cache.games.forEach(function(g){if(_psMap[g.id])g.playerScores=_psMap[g.id];});
     _cache.matches = (matchRes.data||[]).map(m=>({
       id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
       oppTier:m.opp_tier||'', notes:m.notes||'',
@@ -1999,6 +2017,49 @@ var HERO_WINDOWS=[
 ];
 function setHeroWindow(w){_heroState.window=w;renderHeroes();}
 function getHeroCutoff(){var wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
+
+// ── SCORING UTILITIES (ported from index.html; adapted for v2 pillar_scores format) ──
+function parseDate(str){if(!str)return new Date(0);var p=str.split('/');return new Date(+p[2],+p[1]-1,+p[0]);}
+var GRADE_SCALE=[{grade:'S+',min:9.0,cls:'grade-sp'},{grade:'S',min:8.0,cls:'grade-s'},{grade:'S-',min:7.0,cls:'grade-sm'},{grade:'A+',min:6.0,cls:'grade-ap'},{grade:'A',min:5.0,cls:'grade-a'},{grade:'A-',min:0,cls:'grade-am'}];
+function scoreToGrade(score){if(!score||score<=0)return null;for(var i=0;i<GRADE_SCALE.length;i++){if(score>=GRADE_SCALE[i].min)return GRADE_SCALE[i];}return GRADE_SCALE[GRADE_SCALE.length-1];}
+var MENTALITY_CRITERIA=[];
+var GAME_SENSE_CRITERIA=[];
+var ROLE_CRITERIA={Support:[],Midlane:[],Carry:[],Offlane:[],Jungler:[]};
+function calcMentality(s,mentObj){var m=mentObj||s;var c=m.communication||0,d=m.discipline||0,t=m.team_contribution||0;if(c+d+t===0)return 0;return(c*0.5+d*0.25+t*0.25)*2;}
+function calcGameScore(s,role,game,pid){
+  if(!s)return 0;
+  if(s.pillar_scores){
+    var ps=s.pillar_scores;
+    var vals=Object.values(ps).filter(function(v){return v!=null&&v>0;});
+    var avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+    var mentality=0,matchId=game&&game.matchId;
+    if(matchId&&pid){var pm=(_cache.matches||[]).find(function(m){return m.id===matchId;});var mo=pm&&pm.mentality&&pm.mentality[pid]?pm.mentality[pid]:null;if(mo)mentality=calcMentality(null,mo);}
+    var parts=(mentality>0?[mentality]:[]).concat(vals.length?[avg]:[]).filter(function(v){return v>0;});
+    return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
+  }
+  return 0;
+}
+function getPlayerStats(playerId,games){
+  var player=(PLAYERS||[]).find(function(p){return p.id===playerId;})||(_cache.players||[]).find(function(p){return p.id===playerId;});
+  var now=new Date(),oneMonth=new Date(now-30*24*60*60*1000),oneWeek=new Date(now-7*24*60*60*1000);
+  var played=(games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});
+  var monthGames=played.filter(function(g){return parseDate(g.date)>=oneMonth;});
+  var weekGames=played.filter(function(g){return parseDate(g.date)>=oneWeek;});
+  function avg(list){return list.length?list.reduce(function(acc,g){return acc+calcGameScore(g.playerScores[playerId],player?player.role:'',g,playerId);},0)/list.length:0;}
+  return{games:played.length,monthAvg:avg(monthGames),weekAvg:avg(weekGames),playerGames:played};
+}
+function getRadarValues(playerId,games){
+  var player=(PLAYERS||[]).find(function(p){return p.id===playerId;})||(_cache.players||[]).find(function(p){return p.id===playerId;});
+  var empty=[{label:'Mentality',value:0},{label:'Pillar 1',value:0},{label:'Pillar 2',value:0},{label:'Pillar 3',value:0},{label:'Pillar 4',value:0},{label:'Hero Pool',value:0}];
+  if(!player)return empty;
+  var roleKey=(player.role||'').toLowerCase();
+  var pLabels=PILLAR_MAP[roleKey]||[];
+  var now=new Date(),cutoff=new Date(now-30*24*60*60*1000);
+  var monthGames=(games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
+  function avgPillar(idx){var key='p'+idx;var vals=monthGames.map(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&s.pillar_scores?s.pillar_scores[key]:null;}).filter(function(v){return v!=null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  function avgMentality(){var vals=monthGames.map(function(g){var pm=g.matchId?(_cache.matches||[]).find(function(m){return m.id===g.matchId;}):null;var mo=pm&&pm.mentality&&pm.mentality[playerId]?pm.mentality[playerId]:null;return mo?calcMentality(null,mo):null;}).filter(function(v){return v!==null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  return[{label:'Mentality',value:avgMentality()},{label:pLabels[0]||'Pillar 1',value:avgPillar(0)},{label:pLabels[1]||'Pillar 2',value:avgPillar(1)},{label:pLabels[2]||'Pillar 3',value:avgPillar(2)},{label:pLabels[3]||'Pillar 4',value:avgPillar(3)},{label:'Hero Pool',value:0}];
+}
 
 function buildHeroStats(cutoff){
   var games=(_cache.games||[]).filter(function(g){return !cutoff||parseDate(g.date)>=cutoff;});
@@ -3811,6 +3872,29 @@ async function saveGame(){
     if(pErr){ _dbErr(pErr, 'player_scores_v2'); _restoreBtn(); return; }
     if(eErr){ _dbErr(eErr, 'enemy_picks'); }
 
+    // Update local cache so hero page reflects the save immediately
+    (function(){
+      var newPS={};
+      playerRows.forEach(function(r){
+        if(!r.player_id)return;
+        newPS[r.player_id]={
+          hero:r.hero_name||null,role:r.role_played||null,
+          kills:r.kills||0,deaths:r.deaths||0,assists:r.assists||0,
+          gold:r.gold||null,in_game_rating:r.in_game_rating||null,
+          dmg_dealt_pct:r.dmg_dealt_pct||null,dmg_taken_pct:r.dmg_taken_pct||null,
+          dmg_dealt_raw:r.dmg_dealt_raw||null,dmg_taken_raw:r.dmg_taken_raw||null,
+          pillar_scores:{p0:r.pillar_1_score||null,p1:r.pillar_2_score||null,p2:r.pillar_3_score||null,p3:r.pillar_4_score||null},
+          comment:r.coach_note||null,
+        };
+      });
+      _cache.games.unshift({
+        id:gameId,date:LS.matchInfo.date,
+        type:LS.matchInfo.type||'Scrim',gameNum:1,gameName:'',
+        result:LS.matchInfo.result,opponent:LS.matchInfo.opponent||'',
+        oppTier:'',notes:LS.matchInfo.notes||'',playerScores:newPS,
+        matchMentality:{},matchId:null,mvpPlayerId:null,savedAt:new Date().toISOString(),
+      });
+    })();
     showToast('✓ Game saved');
     resetLog();
 
