@@ -2187,6 +2187,8 @@ var HERO_WINDOWS=[
   {k:'All',l:'All Time',days:null}
 ];
 function setHeroWindow(w){_heroState.window=w;renderHeroes();}
+function setHeroRole(r){_heroState.role=r;renderHeroes();}
+function setHeroSort(k){_heroState.sort=k;renderHeroes();}
 function getHeroCutoff(){var wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
 
 // ── SCORING UTILITIES (ported from index.html; adapted for v2 pillar_scores format) ──
@@ -2304,12 +2306,12 @@ function renderHeroes(){
   // Role tabs
   var roles=['All'].concat(GAME_ROLES);
   document.getElementById('heroes-role-tabs').innerHTML=roles.map(function(r){
-    return '<button class="hero-role-tab '+(role===r?'active':'')+'" data-hero-role="'+r+'">'+r+'</button>';
+    return '<button class="hero-role-tab '+(role===r?'active':'')+'" onclick="setHeroRole(\''+r+'\')">'+r+'</button>';
   }).join('');
   // Sort bar
   var sorts=[{k:'picks',l:'Pick Rate'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'},{k:'name',l:'Name'}];
   document.getElementById('heroes-sort-bar').innerHTML=sorts.map(function(s){
-    return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" data-hero-sort="'+s.k+'">'+s.l+'</button>';
+    return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" onclick="setHeroSort(\''+s.k+'\')">'+s.l+'</button>';
   }).join('');
   // Date window bar
   var win=_heroState.window||'All';
@@ -2352,7 +2354,7 @@ function renderHeroes(){
     var grade=avgScore>0?scoreToGrade(avgScore):null;
     var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
     var lowConf=h.picks>0&&h.picks<3?'<span class="low-conf">·</span>':'';
-    return '<div class="hero-row" data-open-hero="'+encodeURIComponent(h.name)+'">'+
+    return '<div class="hero-row" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))">'+
       heroPortraitHtml(h.name,44,false)+
       '<div style="flex:1;min-width:0;margin-left:10px;">'+
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
@@ -2489,7 +2491,7 @@ function buildTop3HeroesHtml(playerId,games){
     var wr=h.picks?Math.round(h.wins/h.picks*100):0;
     var avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
     var gr=avgSc>0?scoreToGrade(avgSc):null;
-    return '<div class="top3-chip" data-open-hero="'+encodeURIComponent(h.name)+'" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
+    return '<div class="top3-chip" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
       '<div class="top3-medal" style="margin-bottom:5px;">'+medals[i]+'</div>'+
       heroPortraitHtml(h.name,56,false)+
       '<div class="top3-hero" style="text-align:center;margin-top:6px;">'+h.name+'</div>'+
