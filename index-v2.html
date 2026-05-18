@@ -460,6 +460,37 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .raw-stat-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;}
 .enemy-lineup-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:var(--border);}
 .enemy-lineup-row:last-child{border-bottom:none;}
+
+/* GAME HISTORY CARDS */
+.game-card{margin:0 20px 10px;background:var(--grey-1);border:var(--border);border-radius:2px;overflow:hidden;cursor:pointer;transition:background 0.15s;}
+.game-card:hover,.game-card:active{background:var(--grey-2);}
+.game-card-row{display:flex;align-items:center;gap:12px;padding:14px 16px;}
+.game-card-badge{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;padding:4px 8px;border-radius:1px;font-weight:700;flex-shrink:0;}
+.game-card-badge-win{background:rgba(68,255,136,0.1);color:var(--success);border:1px solid rgba(68,255,136,0.3);}
+.game-card-badge-loss{background:rgba(255,68,68,0.1);color:var(--danger);border:1px solid rgba(255,68,68,0.3);}
+.game-card-info{flex:1;min-width:0;}
+.game-card-opponent{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.game-card-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;letter-spacing:1px;}
+.game-card-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;}
+
+/* GAME DETAIL in modal */
+.gd-player-row{display:flex;align-items:flex-start;gap:10px;padding:11px 16px;border-bottom:var(--border);}
+.gd-player-row:last-child{border-bottom:none;}
+.gd-player-info{flex:1;min-width:0;}
+.gd-player-name{font-size:12px;font-weight:600;}
+.gd-player-sub{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;margin-top:1px;}
+.gd-pillar-bar{height:3px;background:var(--grey-3);border-radius:2px;margin-top:3px;overflow:hidden;}
+.gd-pillar-fill{height:100%;background:var(--white);border-radius:2px;}
+.gd-stats{display:flex;gap:10px;margin-top:5px;}
+.gd-stat{text-align:center;}
+.gd-stat-val{font-family:'DM Mono',monospace;font-size:10px;}
+.gd-stat-lbl{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);letter-spacing:0.5px;margin-top:1px;}
+.gd-enemy-row{display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:var(--border);}
+.gd-enemy-row:last-child{border-bottom:none;}
+
+/* EDIT GAME MODAL */
+.edit-game-player-tabs{display:flex;overflow-x:auto;gap:4px;padding:12px 16px 8px;border-bottom:var(--border);scrollbar-width:none;}
+.edit-game-player-tabs::-webkit-scrollbar{display:none;}
 </style>
 <style>@keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes scanSpin{to{transform:rotate(360deg)}}</style>
@@ -543,7 +574,7 @@ function setLoading(on){
 async function bootApp(){
   setLoading(true);
   try{
-    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes, psRes] = await Promise.all([
+    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes, psRes, epRes] = await Promise.all([
       sb.from('heroes').select('*').order('name'),
       sb.from('custom_heroes').select('*').order('name'),
       sb.from('players').select('*').order('nick'),
@@ -554,6 +585,7 @@ async function bootApp(){
       sb.from('patches').select('*').order('saved_at'),
       sb.from('app_settings').select('*'),
       sb.from('player_scores_v2').select('*'),
+      sb.from('enemy_picks').select('*'),
     ]);
     _cache.heroes = (heroRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
     _cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
@@ -563,10 +595,20 @@ async function bootApp(){
       rank:p.rank||'Unranked', active:p.active
     }));
     _cache.games = (gameRes.data||[]).map(g=>({
-      id:g.id, date:g.date, type:g.map||'Scrim', gameNum:g.game_num||1, gameName:g.game_name||'',
-      result:g.result==='W'?'Win':'Loss',
-      opponent:g.opponent||'', oppTier:'', notes:g.notes||'',
+      id:g.id,
+      // handle both old column names (date/map/opponent/result=W) and new (match_date/game_type/opponent_name/result=win)
+      date: g.match_date || g.date || '',
+      type: g.game_type ? (g.game_type.charAt(0).toUpperCase()+g.game_type.slice(1)) : (g.map||'Scrim'),
+      result: (g.result==='win'||g.result==='W') ? 'Win' : 'Loss',
+      opponent: g.opponent_name || g.opponent || '',
+      duration_seconds: g.duration_seconds || null,
+      team_total_kills: g.team_total_kills || null,
+      enemy_total_kills: g.enemy_total_kills || null,
+      vod_url: g.vod_url || null,
+      gameNum:g.game_num||1, gameName:g.game_name||'',
+      oppTier:'', notes:g.notes||'',
       playerScores:{},
+      enemyPicks:[],
       matchMentality:g.match_mentality||{},
       matchId:g.match_id||null,
       mvpPlayerId:g.mvp_player_id||null,
@@ -585,10 +627,18 @@ async function bootApp(){
           dmg_dealt_raw:ps.dmg_dealt_raw||null,dmg_taken_raw:ps.dmg_taken_raw||null,
           pillar_scores:{p0:ps.pillar_1_score||null,p1:ps.pillar_2_score||null,p2:ps.pillar_3_score||null,p3:ps.pillar_4_score||null},
           comment:ps.coach_note||null,
+          _psId: ps.id || null,
         };
       }
     });
     _cache.games.forEach(function(g){if(_psMap[g.id])g.playerScores=_psMap[g.id];});
+    // Merge enemy_picks into _cache.games
+    var _epMap={};
+    (epRes.data||[]).forEach(function(ep){
+      if(!_epMap[ep.game_id])_epMap[ep.game_id]=[];
+      _epMap[ep.game_id].push({hero:ep.hero_name||null,role:ep.role||null,gold:ep.gold||null});
+    });
+    _cache.games.forEach(function(g){if(_epMap[g.id])g.enemyPicks=_epMap[g.id];});
     _cache.matches = (matchRes.data||[]).map(m=>({
       id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
       oppTier:m.opp_tier||'', notes:m.notes||'',
@@ -1047,8 +1097,8 @@ async function clearPin(){
         <button class="btn btn-sm btn-primary" onclick="openCreateMatchModal()">+ Match</button>
       </div>
       <div style="display:flex;gap:4px;">
-        <button class="tier-mode-btn active" id="hist-mode-matches" onclick="setHistoryMode('matches')">Matches</button>
-        <button class="tier-mode-btn" id="hist-mode-games" onclick="setHistoryMode('games')">All Games</button>
+        <button class="tier-mode-btn" id="hist-mode-matches" onclick="setHistoryMode('matches')">Matches</button>
+        <button class="tier-mode-btn active" id="hist-mode-games" onclick="setHistoryMode('games')">All Games</button>
       </div>
     </div>
     <div id="history-list"></div>
@@ -1329,6 +1379,34 @@ async function clearPin(){
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="hd-title">HERO STATS</div><button class="modal-close" onclick="closeModal('hero-detail-modal')">&#x2715;</button></div>
     <div class="modal-body" id="hd-body"></div>
+  </div>
+</div>
+
+<!-- GAME DETAIL MODAL -->
+<div class="modal-overlay" id="game-detail-modal">
+  <div class="modal modal-book">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="gdm-title">GAME DETAIL</div>
+        <div id="gdm-sub" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-top:2px;"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn btn-sm" id="gdm-edit-btn" onclick="">Edit</button>
+        <button class="modal-close" onclick="closeModal('game-detail-modal')">&#x2715;</button>
+      </div>
+    </div>
+    <div class="modal-body" style="padding:0;overflow-y:auto;flex:1;" id="gdm-body"></div>
+  </div>
+</div>
+
+<!-- EDIT GAME MODAL -->
+<div class="modal-overlay" id="edit-game-modal">
+  <div class="modal modal-book">
+    <div class="modal-header">
+      <div class="modal-title">EDIT GAME</div>
+      <button class="modal-close" onclick="closeModal('edit-game-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="padding:0;overflow-y:auto;flex:1;display:flex;flex-direction:column;" id="egm-body"></div>
   </div>
 </div>
 
@@ -2192,7 +2270,13 @@ function setHeroSort(k){_heroState.sort=k;renderHeroes();}
 function getHeroCutoff(){var wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
 
 // ── SCORING UTILITIES (ported from index.html; adapted for v2 pillar_scores format) ──
-function parseDate(str){if(!str)return new Date(0);var p=str.split('/');return new Date(+p[2],+p[1]-1,+p[0]);}
+function parseDate(str){
+  if(!str)return new Date(0);
+  // Handle YYYY-MM-DD (ISO) and DD/MM/YYYY (legacy)
+  if(str.includes('-')&&str.length>=10){var d=new Date(str+'T00:00:00');return isNaN(d.getTime())?new Date(0):d;}
+  var p=str.split('/');
+  return new Date(+p[2],+p[1]-1,+p[0]);
+}
 var GRADE_SCALE=[{grade:'S+',min:9.0,cls:'grade-sp'},{grade:'S',min:8.0,cls:'grade-s'},{grade:'S-',min:7.0,cls:'grade-sm'},{grade:'A+',min:6.0,cls:'grade-ap'},{grade:'A',min:5.0,cls:'grade-a'},{grade:'A-',min:0,cls:'grade-am'}];
 function scoreToGrade(score){if(!score||score<=0)return null;for(var i=0;i<GRADE_SCALE.length;i++){if(score>=GRADE_SCALE[i].min)return GRADE_SCALE[i];}return GRADE_SCALE[GRADE_SCALE.length-1];}
 var MENTALITY_CRITERIA=[];
@@ -4135,6 +4219,712 @@ function resetLog(){
   LS._pendingOppTeam = null;
   LS._step = 0;
   showPage('page-home');
+}
+
+// ══════════════════════════════════════════
+// STUB FUNCTIONS (placeholders for pages not yet rebuilt)
+// ══════════════════════════════════════════
+function initTiers(){
+  var meta=document.getElementById('tier-meta-section');
+  var mastery=document.getElementById('tier-mastery-section');
+  var history=document.getElementById('tier-history-section');
+  var tMeta=document.getElementById('tmode-meta');
+  var tMastery=document.getElementById('tmode-mastery');
+  var tHistory=document.getElementById('tmode-history');
+  if(!meta)return;
+  // Default to meta mode if nothing active
+  var active=document.querySelector('.tier-mode-btn.active[id^="tmode-"]');
+  if(!active){if(tMeta)tMeta.classList.add('active');meta.style.display='';if(mastery)mastery.style.display='none';if(history)history.style.display='none';}
+  renderMetaTiers();
+}
+function setTierMode(mode){
+  ['meta','mastery','history'].forEach(function(m){
+    var btn=document.getElementById('tmode-'+m);
+    var sec=document.getElementById('tier-'+m+'-section');
+    if(btn)btn.classList.toggle('active',m===mode);
+    if(sec)sec.style.display=m===mode?'':'none';
+  });
+  if(mode==='meta')renderMetaTiers();
+  else if(mode==='mastery')renderMasteryTiers();
+  else renderPatchHistory();
+}
+function renderMetaTiers(){
+  var data=loadData();
+  var metaTiers=data.metaTiers||{};
+  var role=window._metaRole||GAME_ROLES[0];
+  var roles=GAME_ROLES;
+  document.getElementById('meta-role-tabs').innerHTML=roles.map(function(r){
+    return '<button class="tier-role-tab'+(r===role?' active':'')+'" onclick="setMetaRole(\''+r+'\')">'+r+'</button>';
+  }).join('');
+  var byTier={};
+  META_LEVELS.forEach(function(l){byTier[l.key]=[];});
+  var unplaced=[];
+  var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
+  allH.filter(function(h){return h.roles.includes(role);}).forEach(function(h){
+    var t=metaTiers[h.name]&&metaTiers[h.name][role];
+    if(t&&byTier[t])byTier[t].push(h.name);
+    else unplaced.push(h.name);
+  });
+  var bandsEl=document.getElementById('meta-tier-bands');
+  if(bandsEl)bandsEl.innerHTML=META_LEVELS.map(function(l){
+    var chips=(byTier[l.key]||[]).map(function(name){
+      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+
+        '<span>'+name+'</span>'+
+        '<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(decodeURIComponent(\''+encodeURIComponent(name)+'\'))">✎</button>'+
+      '</div>';
+    }).join('');
+    return '<div class="tier-band"><div class="tier-band-header"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span class="tier-band-desc">'+l.desc+'</span></div><div class="tier-hero-grid">'+chips+'</div></div>';
+  }).join('');
+  var upEl=document.getElementById('meta-unplaced');
+  if(upEl)upEl.innerHTML=unplaced.map(function(name){
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+name+'</div>';
+  }).join('');
+  var pn=document.getElementById('patch-name-display');
+  if(pn)pn.textContent=(_cache.patches&&_cache.patches.length?_cache.patches[_cache.patches.length-1].name:'Current');
+}
+function setMetaRole(r){window._metaRole=r;renderMetaTiers();}
+function renderMasteryTiers(){
+  PLAYERS=getPlayers();
+  var pid=window._masteryPlayer||(PLAYERS[0]&&PLAYERS[0].id)||null;
+  window._masteryPlayer=pid;
+  var masteryRole=window._masteryRole||GAME_ROLES[0];
+  var selEl=document.getElementById('mastery-player-selector');
+  if(selEl)selEl.innerHTML=PLAYERS.filter(function(p){return p.active;}).map(function(p){
+    return '<button class="player-chip'+(p.id===pid?' active':'')+'" onclick="setMasteryPlayer(\''+p.id+'\')">'+p.nick+'</button>';
+  }).join('');
+  document.getElementById('mastery-role-tabs').innerHTML=GAME_ROLES.map(function(r){
+    return '<button class="tier-role-tab'+(r===masteryRole?' active':'')+'" onclick="setMasteryRole(\''+r+'\')">'+r+'</button>';
+  }).join('');
+  var data=loadData();
+  var masteryTiers=(data.masteryTiers||{})[pid]||{};
+  var metaTiers=data.metaTiers||{};
+  var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
+  var roleH=allH.filter(function(h){return h.roles.includes(masteryRole);});
+  var byTier={};MASTERY_LEVELS.forEach(function(l){byTier[l.key]=[];});var unplaced=[];
+  roleH.forEach(function(h){var t=masteryTiers[h.name];if(t&&byTier[t])byTier[t].push(h.name);else unplaced.push(h.name);});
+  var sa=document.getElementById('mastery-score-area');
+  if(sa&&pid){var hp=calcHeroPoolScore(pid);sa.innerHTML='<div class="hp-score-card"><div class="hp-score-big">'+hp.pct+'%</div><div class="hp-score-sub">HERO POOL SCORE — '+masteryRole.toUpperCase()+'</div></div>';}
+  var bandsEl=document.getElementById('mastery-tier-bands');
+  if(bandsEl)bandsEl.innerHTML=MASTERY_LEVELS.map(function(l){
+    var chips=(byTier[l.key]||[]).map(function(name){
+      var mt=metaTiers[name]&&metaTiers[name][masteryRole];
+      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+
+        (mt?'<span class="chip-class">'+mt+'</span>':'')+
+        '<span>'+name+'</span>'+
+      '</div>';
+    }).join('');
+    return '<div class="tier-band"><div class="tier-band-header"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span class="tier-band-desc">'+l.desc+'</span></div><div class="tier-hero-grid">'+chips+'</div></div>';
+  }).join('');
+  var upEl=document.getElementById('mastery-unplaced');
+  if(upEl)upEl.innerHTML=unplaced.map(function(name){
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+name+'</div>';
+  }).join('');
+}
+function setMasteryPlayer(pid){window._masteryPlayer=pid;renderMasteryTiers();}
+function setMasteryRole(r){window._masteryRole=r;renderMasteryTiers();}
+function renderPatchHistory(){
+  var patches=(_cache.patches||[]).slice().reverse();
+  var el=document.getElementById('patch-history-list');
+  if(!el)return;
+  if(!patches.length){el.innerHTML='<div class="empty"><div class="empty-text">No patches saved yet</div></div>';return;}
+  el.innerHTML=patches.map(function(p){
+    return '<div class="patch-history-row"><div style="flex:1;"><div style="font-size:13px;font-weight:600;">'+p.name+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+new Date(p.savedAt).toLocaleDateString('en-GB')+'</div></div></div>';
+  }).join('');
+}
+function openTierAssign(encodedName,role,mode){
+  var heroName=decodeURIComponent(encodedName);
+  var data=loadData();
+  var levels=mode==='meta'?META_LEVELS:MASTERY_LEVELS;
+  var current=mode==='meta'?(data.metaTiers[heroName]&&data.metaTiers[heroName][role]):((data.masteryTiers[window._masteryPlayer]||{})[heroName]);
+  document.getElementById('tier-assign-title').textContent=(mode==='meta'?'META TIER':'MASTERY TIER')+' · '+heroName;
+  document.getElementById('tier-assign-body').innerHTML=
+    '<div style="margin-bottom:16px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+role.toUpperCase()+'</div>'+
+    levels.map(function(l){return '<button class="btn btn-full'+(current===l.key?' btn-primary':'')+' mb-0" style="margin-bottom:8px;justify-content:space-between;" onclick="assignTier(\''+encodedName+'\',\''+role+'\',\''+l.key+'\',\''+mode+'\')"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+l.desc+'</span></button>';}).join('')+
+    '<button class="btn btn-full btn-danger btn-sm" style="margin-top:8px;" onclick="assignTier(\''+encodedName+'\',\''+role+'\',null,\''+mode+'\')">Remove Tier</button>';
+  document.getElementById('tier-assign-modal').classList.add('open');
+}
+async function assignTier(encodedName,role,tier,mode){
+  var heroName=decodeURIComponent(encodedName);
+  var data=loadData();
+  if(mode==='meta'){
+    if(!data.metaTiers[heroName])data.metaTiers[heroName]={};
+    if(tier)data.metaTiers[heroName][role]=tier;
+    else delete data.metaTiers[heroName][role];
+    _cache.metaTiers=data.metaTiers;
+    await sbSaveMetaTier(heroName,role,tier);
+  } else {
+    var pid=window._masteryPlayer;
+    if(!data.masteryTiers[pid])data.masteryTiers[pid]={};
+    if(tier)data.masteryTiers[pid][heroName]=tier;
+    else delete data.masteryTiers[pid][heroName];
+    _cache.masteryTiers=data.masteryTiers;
+    await sbSaveMasteryTier(pid,heroName,tier);
+  }
+  closeModal('tier-assign-modal');
+  mode==='meta'?renderMetaTiers():renderMasteryTiers();
+}
+function openPatchModal(){document.getElementById('patch-modal').classList.add('open');}
+async function savePatch(){
+  var name=(document.getElementById('patch-input')?.value||'').trim();
+  if(!name){showToast('Enter a patch name');return;}
+  var data=loadData();
+  var p={name:name,savedAt:new Date().toISOString(),metaTiers:JSON.parse(JSON.stringify(data.metaTiers))};
+  _cache.patches.push(p);
+  await sbSavePatch(p);
+  closeModal('patch-modal');
+  showToast('Patch "'+name+'" saved');
+}
+function renderCompare(){
+  PLAYERS=getPlayers();
+  var aEl=document.getElementById('cmp-a');var bEl=document.getElementById('cmp-b');
+  if(!aEl||!bEl)return;
+  var opts=PLAYERS.map(function(p){return '<option value="'+p.id+'">'+p.nick+' ('+p.role+')</option>';}).join('');
+  if(!aEl.innerHTML)aEl.innerHTML=opts;
+  if(!bEl.innerHTML){bEl.innerHTML=opts;if(PLAYERS.length>1)bEl.selectedIndex=1;}
+  var aId=aEl.value,bId=bEl.value;
+  var pA=PLAYERS.find(function(p){return p.id===aId;}),pB=PLAYERS.find(function(p){return p.id===bId;});
+  var data=loadData();
+  var cc=document.getElementById('compare-content');if(!cc)return;
+  if(!pA||!pB){cc.innerHTML='<div class="empty"><div class="empty-text">Select two players</div></div>';return;}
+  var stA=getPlayerStats(aId,data.games),stB=getPlayerStats(bId,data.games);
+  var roleA=(pA.role||'').toLowerCase(),roleB=(pB.role||'').toLowerCase();
+  function pAvgPillar(pid,role,idx){
+    var games=(data.games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[pid];return s&&!s.skipped;});
+    var vals=games.map(function(g){var ps=g.playerScores[pid].pillar_scores;return ps?ps['p'+idx]:null;}).filter(function(v){return v!=null&&v>0;});
+    return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+  }
+  var pillarsA=PILLAR_MAP[roleA]||['P1','P2','P3','P4'],pillarsB=PILLAR_MAP[roleB]||['P1','P2','P3','P4'];
+  function grA(score){var g=score>0?scoreToGrade(score):null;return g?'<span class="grade '+g.cls+'" style="font-size:14px;">'+g.grade+'</span>':'--';}
+  function cCell(a,b,aV,bV,lbl){
+    var aWin=aV>bV,bWin=bV>aV;
+    return '<div class="compare-table-row"><div class="compare-table-cell">'+lbl+'</div>'+
+      '<div class="compare-table-cell mono '+(aWin?'compare-winner':bWin?'compare-loser':'')+'">'+a+'</div>'+
+      '<div class="compare-table-cell mono '+(bWin?'compare-winner':aWin?'compare-loser':'')+'">'+b+'</div>'+
+    '</div>';
+  }
+  var radarA=_profileRadarAxes(aId,roleA),radarB=_profileRadarAxes(bId,roleB);
+  var rows='<div class="compare-table-row compare-table-header"><div class="compare-table-cell header-cell">Metric</div><div class="compare-table-cell header-cell">'+pA.nick+'</div><div class="compare-table-cell header-cell">'+pB.nick+'</div></div>'+
+    cCell(grA(stA.monthAvg),grA(stB.monthAvg),stA.monthAvg,stB.monthAvg,'30d Avg')+
+    cCell(stA.games,stB.games,stA.games,stB.games,'Games');
+  [0,1,2,3].forEach(function(i){
+    var vA=pAvgPillar(aId,roleA,i),vB=pAvgPillar(bId,roleB,i);
+    rows+=cCell(vA>0?vA.toFixed(1):'--',vB>0?vB.toFixed(1):'--',vA,vB,(pillarsA[i]||'P'+(i+1))+' vs '+(pillarsB[i]||'P'+(i+1)));
+  });
+  cc.innerHTML='<div class="compare-table">'+rows+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin:0 20px 16px;">'+
+      '<div style="border:var(--border);border-right:none;padding:12px;"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:8px;">'+pA.nick.toUpperCase()+'</div><canvas id="radar-cmp-a" width="200" height="200" style="width:100%;max-width:200px;"></canvas></div>'+
+      '<div style="border:var(--border);padding:12px;"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-bottom:8px;">'+pB.nick.toUpperCase()+'</div><canvas id="radar-cmp-b" width="200" height="200" style="width:100%;max-width:200px;"></canvas></div>'+
+    '</div>';
+  setTimeout(function(){
+    drawRadar('cmp-a',radarA.labels.map(function(l,i){return{label:l,value:radarA.values[i]};}),{colour1:'rgba(100,180,255,1)',showLabels:true,showGrades:false});
+    drawRadar('cmp-b',radarB.labels.map(function(l,i){return{label:l,value:radarB.values[i]};}),{colour1:'rgba(80,220,140,1)',showLabels:true,showGrades:false});
+  },60);
+}
+function openCreateMatchModal(){
+  var d=new Date();
+  var inp=document.getElementById('cm-date');
+  if(inp)inp.value=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+  document.getElementById('cm-name').value='';
+  document.getElementById('cm-notes').value='';
+  document.getElementById('create-match-modal').classList.add('open');
+}
+async function saveCreateMatch(){
+  var name=(document.getElementById('cm-name')?.value||'').trim();
+  var date=(document.getElementById('cm-date')?.value||'').trim();
+  var type=document.getElementById('cm-type')?.value||'Scrim';
+  var oppTier=document.getElementById('cm-opp-tier')?.value||'';
+  var notes=(document.getElementById('cm-notes')?.value||'').trim();
+  if(!name){showToast('Match name is required');return;}
+  var id='m_'+Date.now();
+  var matchObj={id,name,date,type,oppTier,notes,mentality:{},tournamentId:null};
+  try{
+    var newId=await sbSaveMatch(matchObj);
+    matchObj.id=newId||id;
+    _cache.matches.unshift({...matchObj,createdAt:new Date().toISOString()});
+    closeModal('create-match-modal');
+    showToast('Match created');
+    renderHistory();
+  }catch(e){showToast('Save failed: '+(e.message||e));}
+}
+function exportCSV(){
+  var games=(_cache.games||[]).slice().sort(function(a,b){return new Date(b.savedAt)-new Date(a.savedAt);});
+  var players=_cache.players||[];
+  var lines=['Date\tResult\tType\tOpponent\tDuration\tPlayer\tRole\tHero\tKills\tDeaths\tAssists\tGold/Min\tRating\tP1\tP2\tP3\tP4'];
+  games.forEach(function(g){
+    var dur=g.duration_seconds?Math.floor(g.duration_seconds/60)+':'+(''+(g.duration_seconds%60)).padStart(2,'0'):'';
+    players.forEach(function(p){
+      var s=g.playerScores&&g.playerScores[p.id];
+      if(!s)return;
+      var ps=s.pillar_scores||{};
+      lines.push([g.date,g.result,g.type,g.opponent||'',dur,p.nick,s.role||'',s.hero||'',s.kills||0,s.deaths||0,s.assists||0,s.gold_per_min!=null?s.gold_per_min.toFixed(1):'',s.in_game_rating!=null?s.in_game_rating:'',ps.p0||'',ps.p1||'',ps.p2||'',ps.p3||''].join('\t'));
+    });
+  });
+  var text=lines.join('\n');
+  document.getElementById('export-text').value=text;
+  document.getElementById('export-modal').classList.add('open');
+}
+function selectExportText(){var el=document.getElementById('export-text');if(el){el.select();try{document.execCommand('copy');showToast('Copied to clipboard');}catch(e){}}}
+function openBenchmarkPanel(){document.getElementById('benchmark-modal').classList.add('open');renderBenchmarkModal();}
+function renderBenchmarkModal(){
+  var el=document.getElementById('benchmark-body');if(!el)return;
+  el.innerHTML='<div style="padding:20px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Benchmark configuration coming in a future update. For now, pillar suggestions use player averages from logged games.</div>';
+}
+
+// ══════════════════════════════════════════
+// DAY 5 — HISTORY, GAME DETAIL & EDIT GAME
+// ══════════════════════════════════════════
+
+var _histMode = 'games'; // 'games' | 'matches'
+
+function setHistoryMode(mode){
+  _histMode = mode;
+  document.getElementById('hist-mode-matches').classList.toggle('active', mode==='matches');
+  document.getElementById('hist-mode-games').classList.toggle('active', mode==='games');
+  renderHistory();
+}
+
+function renderHistory(){
+  var el = document.getElementById('history-list');
+  if(!el) return;
+  if(_histMode === 'matches'){
+    _renderMatchList(el);
+  } else {
+    _renderGameList(el);
+  }
+}
+
+function _fmtDate(dateStr){
+  if(!dateStr) return '—';
+  // dateStr may be ISO 'YYYY-MM-DD' or 'DD/MM/YYYY'
+  var d;
+  if(dateStr.includes('-') && dateStr.length >= 10){
+    d = new Date(dateStr+'T00:00:00');
+  } else {
+    var p = dateStr.split('/');
+    d = new Date(+p[2], +p[1]-1, +p[0]);
+  }
+  if(isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+}
+
+function _fmtDuration(secs){
+  if(!secs) return null;
+  var m = Math.floor(secs/60);
+  var s = secs % 60;
+  return m + ':' + (''+s).padStart(2,'0');
+}
+
+function _renderGameList(el){
+  var games = (_cache.games||[]).slice().sort(function(a,b){
+    return new Date(b.savedAt||0) - new Date(a.savedAt||0);
+  });
+  if(!games.length){
+    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">No games logged yet</div></div>';
+    return;
+  }
+  el.innerHTML = '<div style="padding:10px 0 2px;">' + games.map(function(g){
+    var isWin = g.result === 'Win';
+    var badgeCls = isWin ? 'game-card-badge-win' : 'game-card-badge-loss';
+    var badgeTxt = isWin ? 'WIN' : 'LOSS';
+    var opp = g.opponent || 'Unknown Opponent';
+    var dur = _fmtDuration(g.duration_seconds);
+    var typeTag = g.type === 'Tournament' ?
+      '<span class="tag tag-tourney" style="font-size:8px;padding:2px 6px;">TOURNAMENT</span>' :
+      '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">Scrim</span>';
+    return '<div class="game-card" onclick="openGameDetail(\''+g.id+'\')">'+
+      '<div class="game-card-row">'+
+        '<span class="game-card-badge '+badgeCls+'">'+badgeTxt+'</span>'+
+        '<div class="game-card-info">'+
+          '<div class="game-card-opponent">'+opp+'</div>'+
+          '<div class="game-card-meta">'+_fmtDate(g.date)+(dur?' · '+dur:'')+'</div>'+
+        '</div>'+
+        '<div class="game-card-right">'+typeTag+'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--grey-4);margin-top:2px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>'+
+      '</div>'+
+    '</div>';
+  }).join('') + '</div>';
+}
+
+function _renderMatchList(el){
+  var matches = (_cache.matches||[]).slice().sort(function(a,b){
+    return new Date(b.createdAt||0) - new Date(a.createdAt||0);
+  });
+  if(!matches.length){
+    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">No matches yet — create one above</div></div>';
+    return;
+  }
+  el.innerHTML = '<div style="padding:10px 0 2px;">' + matches.map(function(m){
+    var mGames = (_cache.games||[]).filter(function(g){return g.matchId===m.id;});
+    var wins = mGames.filter(function(g){return g.result==='Win';}).length;
+    var total = mGames.length;
+    var scoreTxt = total ? wins+'–'+(total-wins) : 'No games';
+    return '<div class="game-card" onclick="">'+
+      '<div class="game-card-row">'+
+        '<div class="game-card-info">'+
+          '<div class="game-card-opponent">'+m.name+'</div>'+
+          '<div class="game-card-meta">'+_fmtDate(m.date)+(m.type?' · '+m.type:'')+'</div>'+
+        '</div>'+
+        '<div class="game-card-right" style="align-items:center;">'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;">'+scoreTxt+'</div>'+
+          '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--grey-4);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('') + '</div>';
+}
+
+// ──────────────────────────────────────────
+// GAME DETAIL VIEW (Task 2)
+// ──────────────────────────────────────────
+function openGameDetail(gameId){
+  var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+  if(!game){showToast('Game not found');return;}
+  var players = _cache.players||[];
+  var isWin = game.result==='Win';
+
+  // Header
+  document.getElementById('gdm-title').textContent = (isWin?'WIN':'LOSS') + (game.opponent?' vs '+game.opponent:'');
+  var dur = _fmtDuration(game.duration_seconds);
+  document.getElementById('gdm-sub').textContent = _fmtDate(game.date) + ' · ' + (game.type||'Scrim') + (dur?' · '+dur:'');
+  document.getElementById('gdm-edit-btn').onclick = function(){ closeModal('game-detail-modal'); openEditGame(gameId); };
+
+  // Body
+  var body = document.getElementById('gdm-body');
+
+  // Pillar label helper
+  function pillarLabels(role){return PILLAR_MAP[(role||'').toLowerCase()]||['P1','P2','P3','P4'];}
+
+  // Player rows
+  var playerHtml = '<div class="section-label" style="padding:14px 20px 8px;">OUR TEAM</div>';
+  var playersWithScores = [];
+  players.forEach(function(p){
+    var s = game.playerScores&&game.playerScores[p.id];
+    if(s) playersWithScores.push({player:p,score:s});
+  });
+  // Also handle any player IDs in scores that aren't in roster
+  Object.keys(game.playerScores||{}).forEach(function(pid){
+    if(!players.find(function(p){return p.id===pid;})){
+      playersWithScores.push({player:{id:pid,nick:pid,role:''},score:game.playerScores[pid]});
+    }
+  });
+
+  if(!playersWithScores.length){
+    playerHtml += '<div class="empty"><div class="empty-text">No player data</div></div>';
+  } else {
+    playerHtml += playersWithScores.map(function(item){
+      var p = item.player, s = item.score;
+      var role = (s.role||p.role||'').toLowerCase();
+      var lbls = pillarLabels(role);
+      var ps = s.pillar_scores||{};
+      var pillarsHtml = ['p0','p1','p2','p3'].map(function(k,i){
+        var v = ps[k];
+        var pct = v ? Math.round(v/10*100) : 0;
+        var col = v>=8?'var(--success)':v>=6?'var(--warn)':'var(--white)';
+        return '<div style="min-width:60px;"><div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:64px;">'+lbls[i]+'</div>'+
+          '<div class="gd-pillar-bar"><div class="gd-pillar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;color:'+col+';">'+(v!=null?v.toFixed(1):'—')+'</div>'+
+        '</div>';
+      }).join('');
+      var kda = ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
+      var kdaTxt = (s.kills||0)+'/'+(s.deaths||0)+'/'+(s.assists||0);
+      var gpm = s.gold_per_min!=null ? Math.round(s.gold_per_min) : null;
+      var rating = s.in_game_rating!=null ? s.in_game_rating.toFixed(1) : null;
+      var overallScore = calcGameScore(s, role, game, p.id);
+      var grade = overallScore>0 ? scoreToGrade(overallScore) : null;
+      return '<div class="gd-player-row">'+
+        '<div style="flex-shrink:0;">'+
+          ((_cache.pfp&&_cache.pfp[p.id]) ?
+            '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid var(--grey-3);flex-shrink:0;"><img src="'+_cache.pfp[p.id]+'" style="width:100%;height:100%;object-fit:cover;"/></div>' :
+            '<div style="width:36px;height:36px;border-radius:50%;background:var(--grey-3);display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:14px;color:var(--grey-6);">'+p.nick[0]+'</div>')+
+        '</div>'+
+        '<div class="gd-player-info">'+
+          '<div style="display:flex;align-items:center;gap:6px;">'+
+            '<span class="gd-player-name">'+p.nick+'</span>'+
+            '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+(s.role||p.role||'')+'</span>'+
+            (s.hero?'<span style="font-size:11px;color:var(--grey-6);">· '+s.hero+'</span>':'')+
+          '</div>'+
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'+pillarsHtml+'</div>'+
+          '<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">'+
+            '<div><div class="gd-stat-val">'+kdaTxt+'</div><div class="gd-stat-lbl">KDA</div></div>'+
+            (gpm!=null?'<div><div class="gd-stat-val">'+gpm+'</div><div class="gd-stat-lbl">G/MIN</div></div>':'')+
+            (rating!=null?'<div><div class="gd-stat-val">'+rating+'</div><div class="gd-stat-lbl">RATING</div></div>':'')+
+          '</div>'+
+        '</div>'+
+        '<div style="flex-shrink:0;text-align:center;">'+
+          '<div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:18px;">'+(grade?grade.grade:'—')+'</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }
+
+  // Enemy team
+  var enemyHtml = '';
+  var ep = game.enemyPicks||[];
+  if(ep.length){
+    enemyHtml = '<div class="section-label" style="padding:14px 20px 8px;">ENEMY TEAM</div>'+
+      ep.map(function(e){
+        return '<div class="gd-enemy-row">'+
+          heroPortraitHtml(e.hero||'?',32,false)+
+          '<div style="flex:1;margin-left:8px;"><div style="font-size:12px;font-weight:600;">'+(e.hero||'Unknown')+'</div>'+
+            '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(e.role||'')+(e.gold?' · '+Number(e.gold).toLocaleString()+' g':'')+'</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+  }
+
+  // Game notes
+  var notesHtml = game.notes ?
+    '<div class="section-label" style="padding:14px 20px 8px;">NOTES</div>'+
+    '<div style="padding:0 20px 16px;font-size:12px;color:var(--grey-6);line-height:1.6;">'+game.notes+'</div>' : '';
+
+  body.innerHTML = playerHtml + enemyHtml + notesHtml + '<div style="height:20px;"></div>';
+  document.getElementById('game-detail-modal').classList.add('open');
+}
+
+// ──────────────────────────────────────────
+// EDIT GAME (Task 3)
+// ──────────────────────────────────────────
+function openEditGame(gameId){
+  var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+  if(!game){showToast('Game not found');return;}
+  window._editingGameId = gameId;
+  var players = _cache.players||[];
+  var activePlayers = players.filter(function(p){return p.active!==false;});
+
+  // Determine which players have scores
+  var scoredPlayers = activePlayers.filter(function(p){return game.playerScores&&game.playerScores[p.id];});
+  if(!scoredPlayers.length) scoredPlayers = activePlayers.slice(0,5);
+
+  window._editGamePlayers = scoredPlayers;
+  window._editGameActiveTab = 0;
+
+  _renderEditGameModal(game, scoredPlayers);
+  document.getElementById('edit-game-modal').classList.add('open');
+}
+
+function _renderEditGameModal(game, scoredPlayers){
+  var body = document.getElementById('egm-body');
+  if(!body) return;
+  var isWin = game.result==='Win';
+  var dur = game.duration_seconds ? (Math.floor(game.duration_seconds/60)+':'+(''+(game.duration_seconds%60)).padStart(2,'0')) : '';
+
+  // Game info header
+  var headerHtml = '<div style="padding:14px 16px;background:var(--grey-1);border-bottom:var(--border);flex-shrink:0;">'+
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
+      '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>'+
+      '<span style="font-size:13px;font-weight:600;">'+(game.opponent||'Unknown Opponent')+'</span>'+
+      '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(game.date)+'</span>'+
+      (dur?'<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+dur+'</span>':'')+
+    '</div>'+
+  '</div>';
+
+  // Player tabs
+  var tabHtml = '<div class="edit-game-player-tabs" style="flex-shrink:0;">' +
+    scoredPlayers.map(function(p,i){
+      return '<button class="edit-player-chip'+(i===window._editGameActiveTab?' active':'')+'" onclick="switchEditGameTab('+i+')">'+p.nick+'</button>';
+    }).join('') +
+  '</div>';
+
+  // Player panels
+  var panelsHtml = scoredPlayers.map(function(p,i){
+    return '<div id="egm-panel-'+i+'" style="'+(i===window._editGameActiveTab?'':'display:none;')+'">' +
+      _buildEditPlayerPanel(game, p, i) +
+    '</div>';
+  }).join('');
+
+  // Footer
+  var footerHtml = '<div style="padding:14px 16px;border-top:var(--border);background:var(--grey-1);flex-shrink:0;display:flex;gap:10px;">'+
+    '<button class="btn" style="flex:1;" onclick="closeModal(\'edit-game-modal\')">Cancel</button>'+
+    '<button class="btn btn-primary" style="flex:2;" id="egm-save-btn" onclick="saveEditGame(\''+game.id+'\')">Save Changes</button>'+
+  '</div>';
+
+  body.innerHTML = headerHtml + '<div style="overflow-y:auto;flex:1;display:flex;flex-direction:column;">' +
+    tabHtml + '<div style="flex:1;overflow-y:auto;">' + panelsHtml + '</div>' +
+  '</div>' + footerHtml;
+}
+
+function _buildEditPlayerPanel(game, player, idx){
+  var s = (game.playerScores&&game.playerScores[player.id]) || {};
+  var role = (s.role||player.role||'support').toLowerCase();
+  var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  var ps = s.pillar_scores || {};
+
+  function sliderRow(label, key, val){
+    var v = val!=null ? val : 5;
+    return '<div class="pillar-row">'+
+      '<div class="pillar-label-row">'+
+        '<span class="pillar-label">'+label+'</span>'+
+        '<span class="pillar-val" id="egm-'+idx+'-'+key+'-val">'+v.toFixed(1)+'</span>'+
+      '</div>'+
+      '<input type="range" class="pillar-slider" min="1" max="10" step="0.1" value="'+v+'" id="egm-'+idx+'-'+key+'" '+
+        'oninput="document.getElementById(\'egm-'+idx+'-'+key+'-val\').textContent=parseFloat(this.value).toFixed(1)"/>'+
+    '</div>';
+  }
+
+  var html = '<div style="padding:14px 16px;">';
+
+  // Hero + role
+  html += '<div class="row" style="gap:8px;margin-bottom:14px;">'+
+    '<div class="input-group mb-0" style="flex:2;">'+
+      '<label class="input-label">Hero</label>'+
+      '<input class="input" id="egm-'+idx+'-hero" value="'+(s.hero||'')+'" placeholder="Hero name"/>'+
+    '</div>'+
+    '<div class="input-group mb-0" style="flex:1;">'+
+      '<label class="input-label">Role</label>'+
+      '<select class="input" id="egm-'+idx+'-role" onchange="refreshEditPillars('+idx+')">'+
+        GAME_ROLES.map(function(r){
+          return '<option value="'+r.toLowerCase()+'"'+(r.toLowerCase()===role?' selected':'')+'>'+r+'</option>';
+        }).join('')+
+      '</select>'+
+    '</div>'+
+  '</div>';
+
+  // Pillar sliders
+  html += '<div class="score-sec">PILLAR SCORES</div>';
+  html += '<div id="egm-'+idx+'-pillars">';
+  pillars.forEach(function(lbl, i){
+    html += sliderRow(lbl, 'p'+i, ps['p'+i]);
+  });
+  html += '</div>';
+
+  // Raw stats
+  html += '<details class="raw-stats-details"><summary>RAW STATS (EDITABLE)</summary><div class="raw-stats-grid">';
+  function rawCell(label, id, val, type){
+    return '<div class="raw-stat-cell"><label class="raw-stat-label">'+label+'</label>'+
+      '<input class="input" type="'+(type||'number')+'" id="egm-'+idx+'-'+id+'" value="'+(val!=null?val:'')+'" placeholder="—" style="padding:6px 8px;font-size:12px;"/>'+
+    '</div>';
+  }
+  html += rawCell('Kills','kills',s.kills,'number');
+  html += rawCell('Deaths','deaths',s.deaths,'number');
+  html += rawCell('Assists','assists',s.assists,'number');
+  html += rawCell('Gold','gold',s.gold,'number');
+  html += rawCell('Rating','in_game_rating',s.in_game_rating,'number');
+  html += rawCell('Dmg %','dmg_dealt_pct',s.dmg_dealt_pct,'number');
+  html += rawCell('Taken %','dmg_taken_pct',s.dmg_taken_pct,'number');
+  html += '</div></details>';
+
+  // Coach note
+  html += '<div class="input-group" style="margin-top:10px;">'+
+    '<label class="input-label">Coach Note</label>'+
+    '<textarea class="input" id="egm-'+idx+'-note" rows="2" placeholder="Optional note...">'+(s.comment||'')+'</textarea>'+
+  '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function refreshEditPillars(idx){
+  var game = (_cache.games||[]).find(function(g){return g.id===window._editingGameId;});
+  if(!game) return;
+  var players = window._editGamePlayers||[];
+  var player = players[idx];
+  if(!player) return;
+  var roleEl = document.getElementById('egm-'+idx+'-role');
+  var role = roleEl ? roleEl.value : (player.role||'support').toLowerCase();
+  var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  var s = (game.playerScores&&game.playerScores[player.id])||{};
+  var ps = s.pillar_scores||{};
+  var container = document.getElementById('egm-'+idx+'-pillars');
+  if(!container) return;
+  container.innerHTML = '';
+  pillars.forEach(function(lbl, i){
+    var v = ps['p'+i]!=null ? ps['p'+i] : 5;
+    container.innerHTML += '<div class="pillar-row">'+
+      '<div class="pillar-label-row">'+
+        '<span class="pillar-label">'+lbl+'</span>'+
+        '<span class="pillar-val" id="egm-'+idx+'-p'+i+'-val">'+v.toFixed(1)+'</span>'+
+      '</div>'+
+      '<input type="range" class="pillar-slider" min="1" max="10" step="0.1" value="'+v+'" id="egm-'+idx+'-p'+i+'" '+
+        'oninput="document.getElementById(\'egm-'+idx+'-p'+i+'-val\').textContent=parseFloat(this.value).toFixed(1)"/>'+
+    '</div>';
+  });
+}
+
+function switchEditGameTab(idx){
+  var players = window._editGamePlayers||[];
+  players.forEach(function(p,i){
+    var panel = document.getElementById('egm-panel-'+i);
+    var chip = document.querySelectorAll('.edit-player-chip')[i];
+    if(panel) panel.style.display = i===idx?'':'none';
+    if(chip) chip.classList.toggle('active', i===idx);
+  });
+  window._editGameActiveTab = idx;
+}
+
+async function saveEditGame(gameId){
+  var btn = document.getElementById('egm-save-btn');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  try{
+    var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+    if(!game) throw new Error('Game not found');
+    var players = window._editGamePlayers||[];
+    var durMin = game.duration_seconds ? game.duration_seconds/60 : 0;
+
+    var updateRows = [];
+    players.forEach(function(p, i){
+      var heroEl   = document.getElementById('egm-'+i+'-hero');
+      var roleEl   = document.getElementById('egm-'+i+'-role');
+      var noteEl   = document.getElementById('egm-'+i+'-note');
+      var hero     = heroEl  ? heroEl.value.trim()  : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].hero)||'';
+      var role     = roleEl  ? roleEl.value         : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].role)||(p.role||'').toLowerCase();
+      var note     = noteEl  ? noteEl.value.trim()  : null;
+      var kills    = parseFloat(document.getElementById('egm-'+i+'-kills')?.value)||0;
+      var deaths   = parseFloat(document.getElementById('egm-'+i+'-deaths')?.value)||0;
+      var assists  = parseFloat(document.getElementById('egm-'+i+'-assists')?.value)||0;
+      var gold     = parseFloat(document.getElementById('egm-'+i+'-gold')?.value)||null;
+      var rating   = parseFloat(document.getElementById('egm-'+i+'-in_game_rating')?.value)||null;
+      var ddPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_pct')?.value)||null;
+      var dtPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_pct')?.value)||null;
+      var p0 = parseFloat(document.getElementById('egm-'+i+'-p0')?.value)||null;
+      var p1 = parseFloat(document.getElementById('egm-'+i+'-p1')?.value)||null;
+      var p2 = parseFloat(document.getElementById('egm-'+i+'-p2')?.value)||null;
+      var p3 = parseFloat(document.getElementById('egm-'+i+'-p3')?.value)||null;
+      var kda = (kills+assists)/Math.max(deaths,1);
+      var gpm = (gold&&durMin>0) ? gold/durMin : null;
+      updateRows.push({
+        player_id: p.id,
+        game_id: gameId,
+        hero_name: hero||null,
+        role_played: role||null,
+        kills: kills, deaths: deaths, assists: assists,
+        gold: gold,
+        in_game_rating: rating,
+        dmg_dealt_pct: ddPct,
+        dmg_taken_pct: dtPct,
+        pillar_1_score: p0, pillar_2_score: p1,
+        pillar_3_score: p2, pillar_4_score: p3,
+        coach_note: note||null,
+        kda: kda,
+        gold_per_min: gpm,
+      });
+    });
+
+    // Upsert player_scores_v2 rows (update by game_id + player_id)
+    var {error: uErr} = await sb.from('player_scores_v2')
+      .upsert(updateRows, {onConflict:'game_id,player_id'});
+    if(uErr) throw uErr;
+
+    // Update local cache
+    players.forEach(function(p, i){
+      var row = updateRows[i];
+      if(!game.playerScores) game.playerScores={};
+      game.playerScores[p.id] = {
+        hero: row.hero_name, role: row.role_played,
+        kills: row.kills, deaths: row.deaths, assists: row.assists,
+        gold: row.gold, gold_per_min: row.gold_per_min,
+        in_game_rating: row.in_game_rating,
+        dmg_dealt_pct: row.dmg_dealt_pct, dmg_taken_pct: row.dmg_taken_pct,
+        pillar_scores: {p0:row.pillar_1_score,p1:row.pillar_2_score,p2:row.pillar_3_score,p3:row.pillar_4_score},
+        comment: row.coach_note,
+      };
+    });
+
+    showToast('✓ Game updated');
+    closeModal('edit-game-modal');
+    renderHistory();
+  } catch(err){
+    showToast('Save failed: '+(err.message||String(err)));
+    if(btn){btn.disabled=false;btn.textContent='Save Changes';}
+  }
 }
 
 // ══════════════════════════════════════════
