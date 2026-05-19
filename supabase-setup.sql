@@ -25,3 +25,9 @@ CREATE POLICY "anon_all" ON enemy_picks
   FOR ALL TO anon
   USING (true)
   WITH CHECK (true);
+
+-- Match linking: games_v2 needs a nullable match_id so a logged game
+-- can be attached to a match/session. Safe to run repeatedly.
+-- If this is NOT run, core game logging still works — only the
+-- "assign game to match" action will fail with a graceful toast.
+ALTER TABLE games_v2 ADD COLUMN IF NOT EXISTS match_id uuid;
