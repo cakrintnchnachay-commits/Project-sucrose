@@ -730,7 +730,10 @@ async function sbSaveGame(gameObj){
 }
 
 async function sbDeleteGame(gameId){
-  await sb.from('games').delete().eq('id',gameId);
+  // Cascade: remove child rows first, then the game itself (games_v2 schema)
+  await sb.from('player_scores_v2').delete().eq('game_id',gameId);
+  await sb.from('enemy_picks').delete().eq('game_id',gameId);
+  await sb.from('games_v2').delete().eq('id',gameId);
 }
 
 async function sbSavePlayer(playerObj){
@@ -793,14 +796,23 @@ async function sbSaveMatch(matchObj){
 }
 
 async function sbDeleteMatch(matchId){
-  // Unlink games first, then delete match
-  await sb.from('games').update({match_id:null}).eq('match_id',matchId);
+  // Unlink games first (games_v2), then delete match
+  await sb.from('games_v2').update({match_id:null}).eq('match_id',matchId);
   await sb.from('matches').delete().eq('id',matchId);
 }
 
 async function sbAssignGameToMatch(gameId,matchId){
-  const {error}=await sb.from('games').update({match_id:matchId}).eq('id',gameId);
+  const {error}=await sb.from('games_v2').update({match_id:matchId}).eq('id',gameId);
   if(error) throw error;
+  var g=(_cache.games||[]).find(function(x){return x.id===gameId;});
+  if(g) g.matchId=matchId;
+}
+
+async function sbUnassignGameFromMatch(gameId){
+  const {error}=await sb.from('games_v2').update({match_id:null}).eq('id',gameId);
+  if(error) throw error;
+  var g=(_cache.games||[]).find(function(x){return x.id===gameId;});
+  if(g) g.matchId=null;
 }
 
 // ══════════════════════════════════════════
@@ -1391,8 +1403,17 @@ async function clearPin(){
         <div id="gdm-sub" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-top:2px;"></div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn btn-sm" id="gdm-assign-btn" onclick="">+ Match</button>
         <button class="btn btn-sm" id="gdm-edit-btn" onclick="">Edit</button>
+        <button class="btn btn-sm btn-danger" id="gdm-delete-btn" onclick="">Delete</button>
         <button class="modal-close" onclick="closeModal('game-detail-modal')">&#x2715;</button>
+      </div>
+    </div>
+    <div class="inline-confirm" id="gdm-del-confirm" style="margin:12px 16px 0;flex-shrink:0;">
+      <div class="inline-confirm-text">Permanently delete this game and all its player scores?</div>
+      <div class="inline-confirm-btns">
+        <button class="btn btn-sm btn-muted" onclick="document.getElementById('gdm-del-confirm').classList.remove('open')">Cancel</button>
+        <button class="btn btn-sm btn-danger" id="gdm-del-confirm-yes" onclick="">Yes, Delete</button>
       </div>
     </div>
     <div class="modal-body" style="padding:0;overflow-y:auto;flex:1;" id="gdm-body"></div>
@@ -4523,25 +4544,56 @@ function _renderGameList(el){
     return;
   }
   el.innerHTML = '<div style="padding:10px 0 2px;">' + games.map(function(g){
+    var incomplete = Object.keys(g.playerScores||{}).length === 0;
     var isWin = g.result === 'Win';
-    var badgeCls = isWin ? 'game-card-badge-win' : 'game-card-badge-loss';
-    var badgeTxt = isWin ? 'WIN' : 'LOSS';
+    var badge = incomplete ?
+      '<span class="tag tag-dnp" style="font-size:9px;letter-spacing:1px;padding:4px 8px;">INCOMPLETE</span>' :
+      '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>';
     var opp = g.opponent || 'Unknown Opponent';
     var dur = _fmtDuration(g.duration_seconds);
     var typeTag = g.type === 'Tournament' ?
       '<span class="tag tag-tourney" style="font-size:8px;padding:2px 6px;">TOURNAMENT</span>' :
       '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">Scrim</span>';
-    return '<div class="game-card" onclick="openGameDetail(\''+g.id+'\')">'+
-      '<div class="game-card-row">'+
-        '<span class="game-card-badge '+badgeCls+'">'+badgeTxt+'</span>'+
+    var trashBtn = '<button title="Delete game" onclick="event.stopPropagation();deleteGame(\''+g.id+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;padding:6px;flex-shrink:0;" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--grey-5)\'">'+
+      '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:15px;height:15px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>'+
+    '</button>';
+    return '<div class="game-card" id="game-card-'+g.id+'">'+
+      '<div class="game-card-row" onclick="openGameDetail(\''+g.id+'\')">'+
+        badge+
         '<div class="game-card-info">'+
           '<div class="game-card-opponent">'+opp+'</div>'+
           '<div class="game-card-meta">'+_fmtDate(g.date)+(dur?' · '+dur:'')+'</div>'+
         '</div>'+
-        '<div class="game-card-right">'+typeTag+'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--grey-4);margin-top:2px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>'+
+        '<div class="game-card-right">'+typeTag+'</div>'+
+        trashBtn+
+      '</div>'+
+      '<div class="inline-confirm" id="del-game-confirm-'+g.id+'" style="margin:0 16px 12px;">'+
+        '<div class="inline-confirm-text">Permanently delete this game and all its player scores?</div>'+
+        '<div class="inline-confirm-btns">'+
+          '<button class="btn btn-sm btn-muted" onclick="event.stopPropagation();document.getElementById(\'del-game-confirm-'+g.id+'\').classList.remove(\'open\')">Cancel</button>'+
+          '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();confirmDeleteGame(\''+g.id+'\')">Yes, Delete</button>'+
+        '</div>'+
       '</div>'+
     '</div>';
   }).join('') + '</div>';
+}
+
+// Delete game: opens inline confirm on the card (or deletes directly if no card present)
+function deleteGame(gameId){
+  var c = document.getElementById('del-game-confirm-'+gameId);
+  if(c){ c.classList.add('open'); return; }
+  confirmDeleteGame(gameId);
+}
+async function confirmDeleteGame(gameId){
+  try{
+    await sbDeleteGame(gameId);
+    _cache.games = (_cache.games||[]).filter(function(g){return g.id!==gameId;});
+    closeModal('game-detail-modal');
+    renderHistory();
+    showToast('✓ Game deleted');
+  }catch(err){
+    showToast('Delete failed: '+(err.message||String(err)));
+  }
 }
 
 function _renderMatchList(el){
@@ -4557,14 +4609,14 @@ function _renderMatchList(el){
     var wins = mGames.filter(function(g){return g.result==='Win';}).length;
     var total = mGames.length;
     var scoreTxt = total ? wins+'–'+(total-wins) : 'No games';
-    return '<div class="game-card" onclick="">'+
+    return '<div class="game-card" onclick="showMatchDetail(\''+m.id+'\')">'+
       '<div class="game-card-row">'+
         '<div class="game-card-info">'+
           '<div class="game-card-opponent">'+m.name+'</div>'+
-          '<div class="game-card-meta">'+_fmtDate(m.date)+(m.type?' · '+m.type:'')+'</div>'+
+          '<div class="game-card-meta">'+_fmtDate(m.date)+(m.type?' · '+m.type:'')+(total?' · '+total+' game'+(total!==1?'s':''):'')+'</div>'+
         '</div>'+
         '<div class="game-card-right" style="align-items:center;">'+
-          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;">'+scoreTxt+'</div>'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;'+(total?'':'color:var(--grey-5);font-size:11px;')+'">'+scoreTxt+'</div>'+
           '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--grey-4);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>'+
         '</div>'+
       '</div>'+
@@ -4586,6 +4638,13 @@ function openGameDetail(gameId){
   var dur = _fmtDuration(game.duration_seconds);
   document.getElementById('gdm-sub').textContent = _fmtDate(game.date) + ' · ' + (game.type||'Scrim') + (dur?' · '+dur:'');
   document.getElementById('gdm-edit-btn').onclick = function(){ closeModal('game-detail-modal'); openEditGame(gameId); };
+  var assignBtn = document.getElementById('gdm-assign-btn');
+  assignBtn.textContent = game.matchId ? '✓ Match' : '+ Match';
+  assignBtn.onclick = function(){ openAssignGameModal(null, gameId); };
+  var delConfirm=document.getElementById('gdm-del-confirm');
+  delConfirm.classList.remove('open');
+  document.getElementById('gdm-delete-btn').onclick = function(){ delConfirm.classList.add('open'); };
+  document.getElementById('gdm-del-confirm-yes').onclick = function(){ confirmDeleteGame(gameId); };
 
   // Body
   var body = document.getElementById('gdm-body');
@@ -4925,6 +4984,290 @@ async function saveEditGame(gameId){
     showToast('Save failed: '+(err.message||String(err)));
     if(btn){btn.disabled=false;btn.textContent='Save Changes';}
   }
+}
+
+// ══════════════════════════════════════════
+// MATCH DETAIL + LINKING (bug fixes)
+// ══════════════════════════════════════════
+
+// Latent bug: summary modal close button referenced this undefined fn
+function closeSummaryAndReturn(){ closeModal('summary-modal'); }
+
+function _matchGames(matchId){
+  return (_cache.games||[]).filter(function(g){return g.matchId===matchId;})
+    .sort(function(a,b){return new Date(a.savedAt||0)-new Date(b.savedAt||0);});
+}
+
+function showMatchDetail(matchId){
+  renderMatchDetail(matchId);
+  showPage('page-match');
+  window.scrollTo(0,0);
+}
+
+function renderMatchDetail(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  var el = document.getElementById('match-content');
+  if(!m){ if(el) el.innerHTML='<div class="empty"><div class="empty-text">Match not found</div></div>'; return; }
+  window._currentMatchId = matchId;
+  var games = _matchGames(matchId);
+  var wins = games.filter(function(g){return g.result==='Win';}).length;
+  var losses = games.length - wins;
+  var players = _cache.players||[];
+
+  // Series score
+  var seriesHtml = '<div class="match-header">'+
+    '<button class="back-btn" style="border:none;padding:0 0 14px;width:auto;" onclick="showPage(\'page-history\')">&#x2190; Back to History</button>'+
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">'+
+      '<div style="min-width:0;">'+
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;line-height:1.1;">'+m.name+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1px;margin-top:4px;">'+
+          _fmtDate(m.date)+' · '+(m.type||'Scrim')+(m.oppTier?' · Tier '+m.oppTier:'')+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+
+        '<div class="match-series-score">'+wins+'–'+losses+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;">'+games.length+' GAME'+(games.length!==1?'S':'')+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'+
+      '<button class="btn btn-sm" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button>'+
+      '<button class="btn btn-sm" onclick="openRateMentalityModal(\''+matchId+'\')">Rate Mentality</button>'+
+      '<button class="btn btn-sm btn-muted" onclick="openEditMatchModal(\''+matchId+'\')">Edit Match</button>'+
+    '</div>'+
+  '</div>';
+
+  // Games list
+  var gamesHtml = '<div class="section-label">Games</div>';
+  if(!games.length){
+    gamesHtml += '<div class="empty" style="padding:28px 20px;"><div class="empty-text">No games assigned yet</div>'+
+      '<button class="btn btn-sm mt-8" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button></div>';
+  } else {
+    gamesHtml += games.map(function(g){
+      var isWin = g.result==='Win';
+      var dur = _fmtDuration(g.duration_seconds);
+      return '<div class="match-game-row" style="cursor:pointer;" onclick="openGameDetail(\''+g.id+'\')">'+
+        '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:12px;font-weight:600;">'+(g.opponent||'Unknown')+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(g.date)+(dur?' · '+dur:'')+'</div>'+
+        '</div>'+
+        '<button title="Remove from match" onclick="event.stopPropagation();removeGameFromMatch(\''+g.id+'\',\''+matchId+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;padding:6px;font-family:\'DM Mono\',monospace;font-size:9px;">UNLINK</button>'+
+      '</div>';
+    }).join('');
+  }
+
+  // Mentality panel
+  var mentHtml = '<div class="section-label">Mentality Notes</div>';
+  var rated = players.filter(function(p){return m.mentality&&m.mentality[p.id];});
+  if(!rated.length){
+    mentHtml += '<div style="padding:0 20px 14px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No mentality ratings yet — tap "Rate Mentality".</div>';
+  } else {
+    mentHtml += '<div class="match-mentality-panel">'+ rated.map(function(p){
+      var mo = m.mentality[p.id];
+      var sc = calcMentality(null, mo);
+      var g = sc>0?scoreToGrade(sc):null;
+      return '<div class="match-mentality-player">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
+          '<div style="font-size:12px;font-weight:600;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</span></div>'+
+          '<div class="grade '+(g?g.cls:'grade-am')+'" style="font-size:16px;">'+(g?g.grade:'--')+'</div>'+
+        '</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:3px;">'+
+          'COMM '+(mo.communication||0)+' · DISC '+(mo.discipline||0)+' · TEAM '+(mo.team_contribution||0)+'</div>'+
+        (mo.note?'<div style="font-size:11px;color:var(--grey-6);margin-top:5px;line-height:1.5;">'+mo.note+'</div>':'')+
+      '</div>';
+    }).join('') +'</div>';
+  }
+
+  var notesHtml = m.notes ?
+    '<div class="section-label">Match Notes</div><div style="padding:0 20px 16px;font-size:12px;color:var(--grey-6);line-height:1.6;">'+m.notes+'</div>' : '';
+
+  el.innerHTML = seriesHtml + gamesHtml + mentHtml + notesHtml + '<div style="height:24px;"></div>';
+}
+
+async function removeGameFromMatch(gameId, matchId){
+  try{
+    await sbUnassignGameFromMatch(gameId);
+    renderMatchDetail(matchId);
+    showToast('Game unlinked');
+  }catch(err){ showToast('Failed: '+(err.message||String(err))); }
+}
+
+// Dual-mode: openAssignGameModal(matchId,null) → pick games for a match
+//            openAssignGameModal(null,gameId)  → pick a match for a game
+function openAssignGameModal(matchId, gameId){
+  var body = document.getElementById('assign-game-body');
+  if(matchId && !gameId){
+    var candidates = (_cache.games||[]).filter(function(g){
+      return Object.keys(g.playerScores||{}).length>0 && (!g.matchId || g.matchId===matchId);
+    }).sort(function(a,b){return new Date(b.savedAt||0)-new Date(a.savedAt||0);});
+    if(!candidates.length){
+      body.innerHTML='<div class="empty"><div class="empty-text">No unassigned games available</div></div>';
+    } else {
+      body.innerHTML =
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:12px;">Select games to include in this match.</div>'+
+        candidates.map(function(g){
+          var checked = g.matchId===matchId ? 'checked' : '';
+          var dur=_fmtDuration(g.duration_seconds);
+          return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);cursor:pointer;">'+
+            '<input type="checkbox" value="'+g.id+'" class="ag-game-cb" '+checked+' style="width:16px;height:16px;flex-shrink:0;"/>'+
+            '<span class="game-card-badge '+(g.result==='Win'?'game-card-badge-win':'game-card-badge-loss')+'">'+(g.result==='Win'?'W':'L')+'</span>'+
+            '<span style="flex:1;font-size:12px;">'+(g.opponent||'Unknown')+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(g.date)+(dur?' · '+dur:'')+'</span></span>'+
+          '</label>';
+        }).join('')+
+        '<button class="btn btn-primary btn-full mt-16" onclick="saveAssignGames(\''+matchId+'\')">Save</button>';
+    }
+  } else {
+    var matches = (_cache.matches||[]).slice().sort(function(a,b){return new Date(b.createdAt||0)-new Date(a.createdAt||0);});
+    var g = (_cache.games||[]).find(function(x){return x.id===gameId;});
+    var cur = g ? g.matchId : null;
+    if(!matches.length){
+      body.innerHTML='<div class="empty"><div class="empty-text">No matches yet</div><button class="btn btn-sm mt-8" onclick="closeModal(\'assign-game-modal\');openCreateMatchModal()">Create Match</button></div>';
+    } else {
+      body.innerHTML =
+        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:12px;">Attach this game to a match.</div>'+
+        '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);cursor:pointer;">'+
+          '<input type="radio" name="ag-match" value="" '+(!cur?'checked':'')+' style="width:16px;height:16px;"/>'+
+          '<span style="font-size:12px;color:var(--grey-5);">None (unassigned)</span></label>'+
+        matches.map(function(mm){
+          return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);cursor:pointer;">'+
+            '<input type="radio" name="ag-match" value="'+mm.id+'" '+(cur===mm.id?'checked':'')+' style="width:16px;height:16px;"/>'+
+            '<span style="flex:1;font-size:12px;">'+mm.name+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(mm.date)+'</span></span>'+
+          '</label>';
+        }).join('')+
+        '<button class="btn btn-primary btn-full mt-16" onclick="saveAssignGameToMatch(\''+gameId+'\')">Save</button>';
+    }
+  }
+  document.getElementById('assign-game-modal').classList.add('open');
+}
+
+async function saveAssignGames(matchId){
+  var cbs = Array.prototype.slice.call(document.querySelectorAll('.ag-game-cb'));
+  try{
+    for(var i=0;i<cbs.length;i++){
+      var gid = cbs[i].value;
+      var g = (_cache.games||[]).find(function(x){return x.id===gid;});
+      if(!g) continue;
+      if(cbs[i].checked && g.matchId!==matchId) await sbAssignGameToMatch(gid, matchId);
+      else if(!cbs[i].checked && g.matchId===matchId) await sbUnassignGameFromMatch(gid);
+    }
+    closeModal('assign-game-modal');
+    renderMatchDetail(matchId);
+    showToast('✓ Games updated');
+  }catch(err){ showToast('Failed: '+(err.message||String(err))); }
+}
+
+async function saveAssignGameToMatch(gameId){
+  var sel = document.querySelector('input[name="ag-match"]:checked');
+  var matchId = sel ? sel.value : '';
+  try{
+    if(matchId) await sbAssignGameToMatch(gameId, matchId);
+    else await sbUnassignGameFromMatch(gameId);
+    closeModal('assign-game-modal');
+    closeModal('game-detail-modal');
+    renderHistory();
+    showToast(matchId?'✓ Assigned to match':'✓ Unassigned');
+  }catch(err){ showToast('Failed: '+(err.message||String(err))); }
+}
+
+function openEditMatchModal(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  if(!m){showToast('Match not found');return;}
+  var body = document.getElementById('edit-match-body');
+  body.innerHTML =
+    '<div class="input-group"><label class="input-label">Match Name</label><input class="input" id="em-name" value="'+(m.name||'').replace(/"/g,'&quot;')+'"/></div>'+
+    '<div class="row">'+
+      '<div class="input-group mb-0"><label class="input-label">Date</label><input class="input" id="em-date" type="date" value="'+(m.date||'')+'"/></div>'+
+      '<div class="input-group mb-0"><label class="input-label">Type</label><select class="input" id="em-type">'+
+        ['Scrim','Tournament'].map(function(t){return '<option'+(m.type===t?' selected':'')+'>'+t+'</option>';}).join('')+
+      '</select></div>'+
+    '</div>'+
+    '<div class="input-group mt-16"><label class="input-label">Opponent Tier</label><select class="input" id="em-opp-tier">'+
+      ['','A','A+','S-','S','S+'].map(function(t){return '<option value="'+t+'"'+(m.oppTier===t?' selected':'')+'>'+(t||'Unknown')+'</option>';}).join('')+
+    '</select></div>'+
+    '<div class="input-group"><label class="input-label">Notes</label><textarea class="input" id="em-notes" style="min-height:60px;">'+(m.notes||'')+'</textarea></div>'+
+    '<div style="display:flex;gap:10px;margin-top:8px;">'+
+      '<button class="btn btn-danger btn-sm" onclick="document.getElementById(\'em-del-confirm\').classList.add(\'open\')">Delete</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="saveEditMatch(\''+matchId+'\')">Save Changes</button>'+
+    '</div>'+
+    '<div class="inline-confirm" id="em-del-confirm"><div class="inline-confirm-text">Delete this match? Its games will be unlinked but not deleted.</div>'+
+      '<div class="inline-confirm-btns">'+
+        '<button class="btn btn-sm btn-muted" onclick="document.getElementById(\'em-del-confirm\').classList.remove(\'open\')">Cancel</button>'+
+        '<button class="btn btn-sm btn-danger" onclick="confirmDeleteMatch(\''+matchId+'\')">Yes, Delete</button>'+
+      '</div></div>';
+  document.getElementById('edit-match-modal').classList.add('open');
+}
+
+async function saveEditMatch(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  if(!m) return;
+  m.name = (document.getElementById('em-name').value||'').trim()||m.name;
+  m.date = document.getElementById('em-date').value||'';
+  m.type = document.getElementById('em-type').value||'Scrim';
+  m.oppTier = document.getElementById('em-opp-tier').value||'';
+  m.notes = (document.getElementById('em-notes').value||'').trim();
+  try{
+    await sbSaveMatch(m);
+    closeModal('edit-match-modal');
+    renderMatchDetail(matchId);
+    showToast('✓ Match updated');
+  }catch(err){ showToast('Save failed: '+(err.message||String(err))); }
+}
+
+async function confirmDeleteMatch(matchId){
+  try{
+    await sbDeleteMatch(matchId);
+    (_cache.games||[]).forEach(function(g){ if(g.matchId===matchId) g.matchId=null; });
+    _cache.matches = (_cache.matches||[]).filter(function(x){return x.id!==matchId;});
+    closeModal('edit-match-modal');
+    showPage('page-history');
+    showToast('✓ Match deleted');
+  }catch(err){ showToast('Delete failed: '+(err.message||String(err))); }
+}
+
+function openRateMentalityModal(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  if(!m){showToast('Match not found');return;}
+  var players = (_cache.players||[]).filter(function(p){return p.active!==false;});
+  var body = document.getElementById('rate-mentality-body');
+  function fld(pid,key,val){
+    return '<input type="number" id="rm-'+pid+'-'+key+'" min="0" max="5" step="0.5" value="'+(val!=null?val:'')+'" placeholder="0–5" class="input" style="padding:6px 8px;font-size:12px;text-align:center;"/>';
+  }
+  body.innerHTML =
+    '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:12px;">Rate each player 0–5 on communication, discipline, and team contribution.</div>'+
+    players.map(function(p){
+      var mo=(m.mentality&&m.mentality[p.id])||{};
+      return '<div style="border:var(--border);border-radius:2px;padding:12px;margin-bottom:10px;">'+
+        '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</span></div>'+
+        '<div class="row" style="gap:8px;">'+
+          '<div style="flex:1;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">COMM</div>'+fld(p.id,'communication',mo.communication)+'</div>'+
+          '<div style="flex:1;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">DISC</div>'+fld(p.id,'discipline',mo.discipline)+'</div>'+
+          '<div style="flex:1;"><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">TEAM</div>'+fld(p.id,'team_contribution',mo.team_contribution)+'</div>'+
+        '</div>'+
+        '<div class="input-group mb-0" style="margin-top:8px;"><textarea class="input" id="rm-'+p.id+'-note" placeholder="Note (optional)" style="min-height:44px;font-size:12px;">'+(mo.note||'')+'</textarea></div>'+
+      '</div>';
+    }).join('')+
+    '<button class="btn btn-primary btn-full" onclick="saveRateMentality(\''+matchId+'\')">Save Ratings</button>';
+  document.getElementById('rate-mentality-modal').classList.add('open');
+}
+
+async function saveRateMentality(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  if(!m) return;
+  var players = (_cache.players||[]).filter(function(p){return p.active!==false;});
+  var mentality = m.mentality || {};
+  players.forEach(function(p){
+    function num(key){var v=parseFloat(document.getElementById('rm-'+p.id+'-'+key)?.value);return isNaN(v)?0:v;}
+    var note=(document.getElementById('rm-'+p.id+'-note')?.value||'').trim();
+    var c=num('communication'),d=num('discipline'),t=num('team_contribution');
+    if(c||d||t||note) mentality[p.id]={communication:c,discipline:d,team_contribution:t,note:note||undefined};
+    else delete mentality[p.id];
+  });
+  m.mentality = mentality;
+  try{
+    await sbSaveMatch(m);
+    closeModal('rate-mentality-modal');
+    renderMatchDetail(matchId);
+    showToast('✓ Mentality saved');
+  }catch(err){ showToast('Save failed: '+(err.message||String(err))); }
 }
 
 // ══════════════════════════════════════════
