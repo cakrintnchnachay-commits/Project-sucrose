@@ -5013,74 +5013,148 @@ function renderMatchDetail(matchId){
   var wins = games.filter(function(g){return g.result==='Win';}).length;
   var losses = games.length - wins;
   var players = _cache.players||[];
+  var activePlayers = players.filter(function(p){return p.status!=='Inactive';});
 
-  // Series score
-  var seriesHtml = '<div class="match-header">'+
-    '<button class="back-btn" style="border:none;padding:0 0 14px;width:auto;" onclick="showPage(\'page-history\')">&#x2190; Back to History</button>'+
-    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">'+
-      '<div style="min-width:0;">'+
-        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;line-height:1.1;">'+m.name+'</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1px;margin-top:4px;">'+
-          _fmtDate(m.date)+' · '+(m.type||'Scrim')+(m.oppTier?' · Tier '+m.oppTier:'')+'</div>'+
-      '</div>'+
-      '<div style="text-align:right;flex-shrink:0;">'+
-        '<div class="match-series-score">'+wins+'–'+losses+'</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;">'+games.length+' GAME'+(games.length!==1?'S':'')+'</div>'+
-      '</div>'+
-    '</div>'+
-    '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'+
-      '<button class="btn btn-sm" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button>'+
-      '<button class="btn btn-sm" onclick="openRateMentalityModal(\''+matchId+'\')">Rate Mentality</button>'+
-      '<button class="btn btn-sm btn-muted" onclick="openEditMatchModal(\''+matchId+'\')">Edit Match</button>'+
-    '</div>'+
-  '</div>';
-
-  // Games list
-  var gamesHtml = '<div class="section-label">Games</div>';
-  if(!games.length){
-    gamesHtml += '<div class="empty" style="padding:28px 20px;"><div class="empty-text">No games assigned yet</div>'+
-      '<button class="btn btn-sm mt-8" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button></div>';
-  } else {
-    gamesHtml += games.map(function(g){
-      var isWin = g.result==='Win';
-      var dur = _fmtDuration(g.duration_seconds);
-      return '<div class="match-game-row" style="cursor:pointer;" onclick="openGameDetail(\''+g.id+'\')">'+
-        '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>'+
-        '<div style="flex:1;min-width:0;">'+
-          '<div style="font-size:12px;font-weight:600;">'+(g.opponent||'Unknown')+'</div>'+
-          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(g.date)+(dur?' · '+dur:'')+'</div>'+
-        '</div>'+
-        '<button title="Remove from match" onclick="event.stopPropagation();removeGameFromMatch(\''+g.id+'\',\''+matchId+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;padding:6px;font-family:\'DM Mono\',monospace;font-size:9px;">UNLINK</button>'+
-      '</div>';
-    }).join('');
+  // ── Series trend bar (W/L dots in order) ──
+  var trendHtml = '';
+  if(games.length){
+    trendHtml = '<div style="display:flex;gap:6px;align-items:center;margin-top:12px;flex-wrap:wrap;">'+
+      games.map(function(g,idx){
+        var isWin = g.result==='Win';
+        var num = idx+1;
+        return '<div title="Game '+num+' · '+g.result+'" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:\'DM Mono\',monospace;font-size:9px;font-weight:700;'+
+          (isWin?'background:rgba(68,255,136,0.15);border:1px solid rgba(68,255,136,0.5);color:var(--success);':'background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);color:var(--danger);')+
+          '">'+num+'</div>';
+      }).join('<div style="width:12px;height:1px;background:var(--grey-3);"></div>')+
+    '</div>';
   }
 
-  // Mentality panel
-  var mentHtml = '<div class="section-label">Mentality Notes</div>';
-  var rated = players.filter(function(p){return m.mentality&&m.mentality[p.id];});
-  if(!rated.length){
-    mentHtml += '<div style="padding:0 20px 14px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No mentality ratings yet — tap "Rate Mentality".</div>';
+  // ── Player summary (avg score + mentality per player) ──
+  var playerSummaryHtml;
+  if(games.length && activePlayers.length){
+    var rows = activePlayers.map(function(p){
+      var played = games.filter(function(g){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+      if(!played.length) return null;
+      var avgScore = played.map(function(g){return calcGameScore(g.playerScores[p.id],p.role,g,p.id);}).reduce(function(a,b){return a+b;},0)/played.length;
+      var mentObj = m.mentality&&m.mentality[p.id]?m.mentality[p.id]:null;
+      var avgMent = mentObj?calcMentality(null,mentObj):null;
+      var grd = scoreToGrade(avgScore);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:var(--border);">'+
+        '<div style="font-size:13px;font-weight:600;width:48px;flex-shrink:0;">'+p.nick+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);width:38px;flex-shrink:0;">'+(p.role||'').substring(0,3).toUpperCase()+'</div>'+
+        '<div style="flex:1;">'+
+          '<div style="font-size:9px;color:var(--grey-5);font-family:\'DM Mono\',monospace;margin-bottom:3px;">AVG SCORE</div>'+
+          '<div style="height:2px;background:var(--grey-3);"><div style="height:100%;width:'+(Math.min(avgScore/10,1)*100)+'%;background:var(--white);"></div></div>'+
+        '</div>'+
+        (grd?'<div class="grade '+grd.cls+'" style="font-size:16px;width:28px;text-align:right;">'+grd.grade+'</div>':'<div style="width:28px;"></div>')+
+        '<div style="text-align:right;min-width:52px;">'+
+          (avgMent!==null?
+            '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">MENT</div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:'+(avgMent>=7?'var(--success)':avgMent>=5?'var(--warn)':'var(--danger)')+';">'+avgMent.toFixed(1)+'</div>':
+            '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">—</div>')+
+        '</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);width:24px;text-align:right;">'+played.length+'G</div>'+
+      '</div>';
+    }).filter(Boolean).join('');
+    playerSummaryHtml = rows||'<div style="padding:16px 20px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">No player data yet</div>';
   } else {
-    mentHtml += '<div class="match-mentality-panel">'+ rated.map(function(p){
+    playerSummaryHtml = '<div style="padding:16px 20px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">Log games to see player averages</div>';
+  }
+
+  // ── Mentality detail (if rated) ──
+  var rated = activePlayers.filter(function(p){return m.mentality&&m.mentality[p.id];});
+  var mentDetailHtml = rated.length ?
+    '<div class="match-mentality-panel">'+rated.map(function(p){
       var mo = m.mentality[p.id];
-      var sc = calcMentality(null, mo);
-      var g = sc>0?scoreToGrade(sc):null;
+      var sc = calcMentality(null,mo);
+      var grd = sc>0?scoreToGrade(sc):null;
       return '<div class="match-mentality-player">'+
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
           '<div style="font-size:12px;font-weight:600;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</span></div>'+
-          '<div class="grade '+(g?g.cls:'grade-am')+'" style="font-size:16px;">'+(g?g.grade:'--')+'</div>'+
+          '<div class="grade '+(grd?grd.cls:'grade-am')+'" style="font-size:16px;">'+(grd?grd.grade:'--')+'</div>'+
         '</div>'+
         '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:3px;">'+
           'COMM '+(mo.communication||0)+' · DISC '+(mo.discipline||0)+' · TEAM '+(mo.team_contribution||0)+'</div>'+
         (mo.note?'<div style="font-size:11px;color:var(--grey-6);margin-top:5px;line-height:1.5;">'+mo.note+'</div>':'')+
       '</div>';
-    }).join('') +'</div>';
-  }
+    }).join('')+'</div>' :
+    '<div style="padding:0 20px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">No mentality ratings yet.</div>';
 
-  var notesHtml = m.notes ?
-    '<div class="section-label">Match Notes</div><div style="padding:0 20px 16px;font-size:12px;color:var(--grey-6);line-height:1.6;">'+m.notes+'</div>' : '';
+  // ── Game rows ──
+  var gameRowsHtml = games.length ? games.map(function(g,idx){
+    var isWin = g.result==='Win';
+    var num = idx+1;
+    var mvpP = g.mvpPlayerId?players.find(function(p){return p.id===g.mvpPlayerId;}):null;
+    var played = players.filter(function(p){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+    var heroList = played.map(function(p){var s=g.playerScores[p.id];return s.hero||'?';}).join(', ');
+    return '<div class="match-game-row" style="cursor:pointer;" onclick="openGameDetail(\''+g.id+'\')">'+
+      '<div style="flex:1;">'+
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'+
+          '<span class="tag '+(isWin?'tag-win':'tag-loss')+'" style="font-size:8px;">'+g.result+'</span>'+
+          '<span style="font-size:12px;font-weight:600;">Game '+num+'</span>'+
+          (mvpP?'<span style="font-size:11px;color:var(--warn);">⭐ '+mvpP.nick+'</span>':'')+
+        '</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(g.date)+(heroList?' · '+heroList:'')+'</div>'+
+      '</div>'+
+      '<button class="btn btn-sm" onclick="event.stopPropagation();openEditGame(\''+g.id+'\')">Edit</button>'+
+      '<button class="btn btn-sm btn-muted" onclick="event.stopPropagation();removeGameFromMatch(\''+g.id+'\',\''+matchId+'\')">↩</button>'+
+    '</div>';
+  }).join('') :
+    '<div class="empty" style="padding:30px 20px;"><div class="empty-icon">🎮</div><div class="empty-text">No games yet — add one below</div></div>';
 
-  el.innerHTML = seriesHtml + gamesHtml + mentHtml + notesHtml + '<div style="height:24px;"></div>';
+  el.innerHTML =
+    '<button class="back-btn" onclick="showPage(\'page-history\')">&#x2190; Back to History</button>'+
+
+    '<div class="match-header">'+
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;">'+
+        '<div>'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;line-height:1.1;">'+m.name+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-top:4px;">'+
+            (_fmtDate(m.date)||'No date')+' · '+(m.type||'Scrim')+(m.oppTier?' · Tier '+m.oppTier:'')+
+          '</div>'+
+        '</div>'+
+        '<button class="btn btn-sm btn-muted" onclick="openEditMatchModal(\''+matchId+'\')">Edit</button>'+
+      '</div>'+
+      (games.length?
+        '<div style="display:flex;align-items:baseline;gap:8px;margin-top:12px;">'+
+          '<div class="match-series-score '+(wins>losses?'grade-s':wins<losses?'grade-am':'')+'">'+wins+' – '+losses+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+(wins>losses?'LEAD':wins<losses?'TRAILING':'TIED')+'</div>'+
+        '</div>' :
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);margin-top:8px;">No games logged yet</div>')+
+      trendHtml+
+    '</div>'+
+
+    '<div class="section-label">Player Summary <span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· THIS MATCH</span></div>'+
+    '<div style="border-top:var(--border);">'+playerSummaryHtml+'</div>'+
+
+    '<div style="padding:12px 20px;border-top:var(--border);display:flex;align-items:center;justify-content:space-between;">'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);">Mentality</div>'+
+      '<button class="btn btn-sm" onclick="openRateMentalityModal(\''+matchId+'\')">🧠 Rate Mentality</button>'+
+    '</div>'+
+    mentDetailHtml+
+
+    '<div class="section-label">Games</div>'+
+    gameRowsHtml+
+    '<div style="padding:16px 20px;border-top:var(--border);display:flex;gap:10px;">'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button>'+
+    '</div>'+
+
+    '<div class="section-label">Coaching Notes</div>'+
+    '<div style="padding:0 20px 16px;">'+
+      '<textarea class="input" id="match-notes-area" placeholder="Tactics, VOD timestamps, areas to improve..." style="min-height:90px;">'+(m.notes||'')+'</textarea>'+
+      '<button class="btn btn-primary btn-full mt-8" onclick="saveMatchNotes(\''+matchId+'\')">Save Notes</button>'+
+    '</div>'+
+
+    '<div style="padding:16px 20px;border-top:var(--border);">'+
+      '<button class="btn btn-danger btn-full" onclick="openEditMatchModal(\''+matchId+'\')">Delete Match</button>'+
+    '</div>'+
+    '<div style="height:20px;"></div>';
+}
+
+function saveMatchNotes(matchId){
+  var idx = _cache.matches.findIndex(function(m){return m.id===matchId;});
+  if(idx===-1) return;
+  _cache.matches[idx].notes = document.getElementById('match-notes-area')?.value||'';
+  sbSaveMatch(_cache.matches[idx]).then(function(){showToast('Notes saved');}).catch(function(e){showToast('Failed: '+e.message);});
 }
 
 async function removeGameFromMatch(gameId, matchId){
