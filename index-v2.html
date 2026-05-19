@@ -3579,6 +3579,7 @@ function initLog(){
   LS.enemyRoles = null;
   LS.scanEnemy = null;
   LS._pendingOppTeam = null;
+  LS._matchId = null;
   LS._step = 0;
 
   // Default result to Win
@@ -4219,11 +4220,19 @@ async function saveGame(){
         type:LS.matchInfo.type||'Scrim',gameNum:1,gameName:'',
         result:LS.matchInfo.result,opponent:LS.matchInfo.opponent||'',
         oppTier:'',notes:LS.matchInfo.notes||'',playerScores:newPS,
-        matchMentality:{},matchId:null,mvpPlayerId:null,savedAt:new Date().toISOString(),
+        matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:null,savedAt:new Date().toISOString(),
       });
     })();
+
+    // If launched from a match, link the game now
+    var _returnMatchId = LS._matchId||null;
+    if(_returnMatchId){
+      try{ await sbAssignGameToMatch(gameId, _returnMatchId); }catch(e){ console.warn('match link failed',e); }
+    }
+
     showToast('✓ Game saved');
     resetLog();
+    if(_returnMatchId) showMatchDetail(_returnMatchId);
 
   }catch(err){
     console.error('saveGame error', err);
@@ -4456,7 +4465,7 @@ async function saveCreateMatch(){
   var oppTier=document.getElementById('cm-opp-tier')?.value||'';
   var notes=(document.getElementById('cm-notes')?.value||'').trim();
   if(!name){showToast('Match name is required');return;}
-  var id='m_'+Date.now();
+  var id=crypto.randomUUID();
   var matchObj={id,name,date,type,oppTier,notes,mentality:{},tournamentId:null};
   try{
     var newId=await sbSaveMatch(matchObj);
@@ -5135,7 +5144,8 @@ function renderMatchDetail(matchId){
     '<div class="section-label">Games</div>'+
     gameRowsHtml+
     '<div style="padding:16px 20px;border-top:var(--border);display:flex;gap:10px;">'+
-      '<button class="btn btn-primary" style="flex:1;" onclick="openAssignGameModal(\''+matchId+'\',null)">+ Add Game</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="addGameToMatch(\''+matchId+'\')">+ Log Game</button>'+
+      '<button class="btn btn-full" onclick="openAssignGameModal(\''+matchId+'\',null)">Assign Existing</button>'+
     '</div>'+
 
     '<div class="section-label">Coaching Notes</div>'+
@@ -5163,6 +5173,22 @@ async function removeGameFromMatch(gameId, matchId){
     renderMatchDetail(matchId);
     showToast('Game unlinked');
   }catch(err){ showToast('Failed: '+(err.message||String(err))); }
+}
+
+function addGameToMatch(matchId){
+  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  if(!m) return;
+  var nextNum = _matchGames(matchId).length+1;
+  showPage('page-log'); // triggers initLog(), which resets LS.*
+  LS._matchId = matchId; // set after initLog so it isn't cleared
+  setTimeout(function(){
+    var oppEl = document.getElementById('log-opponent');
+    if(oppEl) oppEl.value = m.name;
+    if(m.date){ var dateEl=document.getElementById('log-date'); if(dateEl) dateEl.value=m.date; }
+    if(m.type==='Tournament') setLogType('Tournament'); else setLogType('Scrim');
+    var notesEl = document.getElementById('log-notes');
+    if(notesEl) notesEl.value = m.name+' – Game '+nextNum;
+  },50);
 }
 
 // Dual-mode: openAssignGameModal(matchId,null) → pick games for a match
