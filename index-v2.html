@@ -358,6 +358,28 @@ textarea.input{resize:vertical;min-height:70px;}
 .patch-history-row:hover{background:var(--grey-1);}
 .patch-history-row:last-child{border-bottom:none;}
 
+/* BENCHMARK PANEL */
+.bench-tabs{display:flex;border-bottom:var(--border);flex-shrink:0;}
+.bench-tab{flex:1;padding:12px 4px;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;color:var(--grey-5);background:none;border:none;border-bottom:2px solid transparent;transition:all 0.15s;}
+.bench-tab.active{color:var(--white);border-bottom-color:var(--white);}
+.bench-tab:hover{color:var(--white);}
+.bench-scroll{overflow-y:auto;flex:1;min-height:0;padding:14px 20px 18px;}
+.bench-field{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--grey-2);}
+.bench-field-label{flex:1;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--white);text-transform:uppercase;}
+.bench-field-input{width:80px;padding:8px 10px;background:var(--grey-2);border:var(--border);color:var(--white);font-family:'DM Mono',monospace;font-size:12px;border-radius:2px;outline:none;text-align:right;}
+.bench-field-input:focus{border-color:var(--grey-5);}
+.bench-auto{display:flex;align-items:center;gap:6px;cursor:pointer;}
+.bench-auto-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);}
+.bench-switch{position:relative;display:inline-block;width:34px;height:18px;flex-shrink:0;}
+.bench-switch input{opacity:0;width:0;height:0;position:absolute;}
+.bench-switch-track{position:absolute;inset:0;background:var(--grey-3);border-radius:18px;transition:background 0.15s;}
+.bench-switch-thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;background:var(--grey-6);border-radius:50%;transition:transform 0.15s,background 0.15s;}
+.bench-switch input:checked + .bench-switch-track{background:var(--white);}
+.bench-switch input:checked + .bench-switch-track .bench-switch-thumb{transform:translateX(16px);background:var(--black);}
+.bench-preset{border-top:var(--border);padding:14px 20px 16px;flex-shrink:0;background:var(--grey-1);}
+.bench-preset-row{display:flex;gap:8px;margin-bottom:8px;}
+.bench-preset-row:last-child{margin-bottom:0;}
+
 /* SETTINGS PAGE */
 .settings-section{padding:0 20px 20px;}
 .settings-section-title{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);padding:20px 0 12px;border-bottom:var(--border);margin-bottom:16px;}
@@ -4034,7 +4056,7 @@ function renderPlayerStep(){
     var sc = (dp && LS.scores[dp.id]) ? LS.scores[dp.id] : null;
     var rEl = document.getElementById('lp-role-'+j);
     var rl  = (rEl ? rEl.value : GAME_ROLES[j]).toLowerCase();
-    if(sc) _prefillRawStats(j, sc);
+    if(sc){ if(dp) sc._playerId = dp.id; _prefillRawStats(j, sc); }
     renderPillarSliders(rl, j);
     if(sc) _prefillPillarSuggestions(j, rl, sc);
     updateComputedStats(j);
@@ -4159,8 +4181,130 @@ function updatePillarDisplay(input, displayId){
   if(el) el.textContent = parseFloat(input.value).toFixed(1);
 }
 
+// ── DAY 6 — BENCHMARK MODEL ──────────────────────────
+// Pillar index N maps to benchmark field N for that role.
+var BENCHMARK_ROLES  = ['carry','midlane','offlane','jungler','support'];
+var BENCHMARK_LABELS = {carry:'Carry',midlane:'Midlane',offlane:'Offlane',jungler:'Jungler',support:'Support'};
+var BENCHMARK_FIELDS = {
+  carry:   [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'}],
+  midlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'}],
+  offlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'rating',label:'Rating'}],
+  jungler: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'}],
+  support: [{k:'kda',label:'KDA'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'}],
+};
+var BENCHMARK_LS_KEY = 'sucrose_benchmarks';
+
+function _benchEmptyConfig(){
+  var cur={};
+  BENCHMARK_ROLES.forEach(function(role){
+    cur[role]={};
+    BENCHMARK_FIELDS[role].forEach(function(f){ cur[role][f.k]={value:'',auto:false}; });
+  });
+  return cur;
+}
+// Normalise any stored config so every role/field exists.
+function _benchMergeShape(cfg){
+  var out=_benchEmptyConfig();
+  if(cfg&&typeof cfg==='object'){
+    BENCHMARK_ROLES.forEach(function(role){
+      BENCHMARK_FIELDS[role].forEach(function(f){
+        var src=cfg[role]&&cfg[role][f.k];
+        if(src&&typeof src==='object'){
+          out[role][f.k]={value:(src.value==null?'':src.value),auto:!!src.auto};
+        }
+      });
+    });
+  }
+  return out;
+}
+function _benchLoadStore(){
+  var raw=null;
+  try{ raw=JSON.parse(localStorage.getItem(BENCHMARK_LS_KEY)||'null'); }catch(e){}
+  if(!raw||typeof raw!=='object') raw={};
+  raw.current=_benchMergeShape(raw.current);
+  if(!raw.presets||typeof raw.presets!=='object') raw.presets={};
+  return raw;
+}
+function _benchSaveStore(store){
+  try{ localStorage.setItem(BENCHMARK_LS_KEY, JSON.stringify(store)); }catch(e){}
+}
+var _benchmarkStore=null;
+function _benchStore(){ if(!_benchmarkStore) _benchmarkStore=_benchLoadStore(); return _benchmarkStore; }
+
+// Compute a single metric from a stored player_scores_v2 row.
+function _benchMetricFromScore(fieldKey, s, g){
+  if(!s) return null;
+  switch(fieldKey){
+    case 'kda':           return ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
+    case 'gpm':           return s.gold_per_min!=null ? s.gold_per_min
+                                 : (g&&g.duration_seconds&&s.gold ? s.gold/(g.duration_seconds/60) : null);
+    case 'dmg_dealt_pct': return s.dmg_dealt_pct!=null ? s.dmg_dealt_pct : null;
+    case 'dmg_taken_pct': return s.dmg_taken_pct!=null ? s.dmg_taken_pct : null;
+    case 'kill_contrib':  return (g&&g.team_total_kills) ? ((s.kills||0)+(s.assists||0))/g.team_total_kills*100 : null;
+    case 'rating':        return s.in_game_rating!=null ? s.in_game_rating : null;
+  }
+  return null;
+}
+// Compute a metric from a not-yet-saved log entry (LS.scores row + LS.matchInfo).
+function _benchMetricFromRaw(fieldKey, raw){
+  if(!raw) return null;
+  var mi=(typeof LS!=='undefined'&&LS.matchInfo)?LS.matchInfo:{};
+  var durMin=mi.duration_seconds?mi.duration_seconds/60:0;
+  var teamK=mi.team_total_kills||0;
+  switch(fieldKey){
+    case 'kda':           return ((raw.kills||0)+(raw.assists||0))/Math.max(raw.deaths||0,1);
+    case 'gpm':           return (durMin>0&&raw.gold) ? raw.gold/durMin : null;
+    case 'dmg_dealt_pct': return raw.dmgDealtPct!=null ? raw.dmgDealtPct : null;
+    case 'dmg_taken_pct': return raw.dmgTakenPct!=null ? raw.dmgTakenPct : null;
+    case 'kill_contrib':  return teamK>0 ? ((raw.kills||0)+(raw.assists||0))/teamK*100 : null;
+    case 'rating':        return raw.gameRating!=null ? raw.gameRating : null;
+  }
+  return null;
+}
+// Player's own average for a metric across logged games in that role (needs 3+).
+function _benchPlayerAvg(role, fieldKey, playerId){
+  if(!playerId) return null;
+  var vals=[];
+  (_cache.games||[]).forEach(function(g){
+    var s=g.playerScores&&g.playerScores[playerId];
+    if(!s) return;
+    if((s.role||'').toLowerCase()!==role) return;
+    var v=_benchMetricFromScore(fieldKey,s,g);
+    if(v!=null&&!isNaN(v)) vals.push(v);
+  });
+  if(vals.length<3) return null;
+  return vals.reduce(function(a,b){return a+b;},0)/vals.length;
+}
+// ── THE single source for benchmark values — swap this out later. ──
+// Returns the resolved benchmark number, or null for a "Not set" metric.
+function getBenchmark(role, fieldKey, playerId){
+  var cell=_benchStore().current[role] && _benchStore().current[role][fieldKey];
+  if(!cell) return null;
+  var fixed=(cell.value!==''&&cell.value!=null&&!isNaN(parseFloat(cell.value))) ? parseFloat(cell.value) : null;
+  if(cell.auto){
+    var avg=_benchPlayerAvg(role,fieldKey,playerId);
+    if(avg!=null) return avg;
+    return fixed; // <3 games — fall back to fixed (null => Not set)
+  }
+  return fixed; // Auto off — fixed number, or null when blank => Not set
+}
+
 function calculateSuggestion(role, pillarIndex, rawStats){
-  return null; // benchmarks not configured until Day 6
+  if(!role||!rawStats) return null;
+  role=String(role).toLowerCase();
+  var fields=BENCHMARK_FIELDS[role];
+  if(!fields||pillarIndex<0||pillarIndex>=fields.length) return null;
+  var fieldKey=fields[pillarIndex].k;
+  var playerId=rawStats._playerId||rawStats.playerId||rawStats.id||null;
+  var benchmark=getBenchmark(role,fieldKey,playerId);
+  if(benchmark==null||benchmark<=0) return null; // Not set — skip this metric
+  var actual=_benchMetricFromRaw(fieldKey,rawStats);
+  if(actual==null||isNaN(actual)) return null;
+  // 5.0 = at benchmark; scaled linearly and clamped to the 1-10 slider.
+  var score=5*(actual/benchmark);
+  if(score<1) score=1;
+  if(score>10) score=10;
+  return Math.round(score*2)/2; // 0.5 steps
 }
 
 function _dbErr(err, table){
@@ -4669,10 +4813,105 @@ function exportCSV(){
   document.getElementById('export-modal').classList.add('open');
 }
 function selectExportText(){var el=document.getElementById('export-text');if(el){el.select();try{document.execCommand('copy');showToast('Copied to clipboard');}catch(e){}}}
-function openBenchmarkPanel(){document.getElementById('benchmark-modal').classList.add('open');renderBenchmarkModal();}
+var _benchTab='carry';
+function _benchEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function openBenchmarkPanel(){
+  _benchmarkStore=_benchLoadStore();
+  document.getElementById('benchmark-modal').classList.add('open');
+  renderBenchmarkModal();
+}
+function setBenchTab(role){ _benchTab=role; renderBenchmarkModal(); }
+
 function renderBenchmarkModal(){
   var el=document.getElementById('benchmark-body');if(!el)return;
-  el.innerHTML='<div style="padding:20px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Benchmark configuration coming in a future update. For now, pillar suggestions use player averages from logged games.</div>';
+  var store=_benchStore();
+  var role=_benchTab;
+  var html='';
+  // role tabs
+  html+='<div class="bench-tabs">';
+  BENCHMARK_ROLES.forEach(function(r){
+    html+='<button class="bench-tab'+(r===role?' active':'')+'" onclick="setBenchTab(\''+r+'\')">'+BENCHMARK_LABELS[r]+'</button>';
+  });
+  html+='</div>';
+  // fields
+  html+='<div class="bench-scroll">';
+  html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);line-height:1.7;margin-bottom:4px;">Set a target number per metric, or flip <strong>Auto</strong> to use the player\'s own average from logged games (needs 3+, otherwise the number is used). Blank with Auto off = not set &mdash; that metric is skipped.</div>';
+  BENCHMARK_FIELDS[role].forEach(function(f){
+    var cell=store.current[role][f.k]||{value:'',auto:false};
+    var notSet=(cell.value===''||cell.value==null)&&!cell.auto;
+    html+='<div class="bench-field">';
+    html+='<div class="bench-field-label">'+f.label+(notSet?' <span style="color:var(--grey-4);font-size:8px;letter-spacing:0;">&middot; not set</span>':'')+'</div>';
+    html+='<input type="number" step="0.1" class="bench-field-input" placeholder="&mdash;" value="'+(cell.value==null?'':_benchEsc(cell.value))+'" oninput="benchSetField(\''+role+'\',\''+f.k+'\',\'value\',this.value)"/>';
+    html+='<label class="bench-auto"><span class="bench-auto-label">Auto</span>';
+    html+='<span class="bench-switch"><input type="checkbox" '+(cell.auto?'checked':'')+' onchange="benchSetField(\''+role+'\',\''+f.k+'\',\'auto\',this.checked)"/><span class="bench-switch-track"><span class="bench-switch-thumb"></span></span></span>';
+    html+='</label>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // presets
+  var presetNames=Object.keys(store.presets||{}).sort();
+  html+='<div class="bench-preset">';
+  html+='<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);text-transform:uppercase;margin-bottom:8px;">Presets</div>';
+  html+='<div class="bench-preset-row">';
+  html+='<input class="input" id="bench-preset-name" placeholder="New preset name" style="margin:0;flex:1;"/>';
+  html+='<button class="btn btn-primary btn-sm" onclick="benchSavePreset()">Save Preset</button>';
+  html+='</div>';
+  html+='<div class="bench-preset-row">';
+  html+='<select class="input" id="bench-preset-select" style="margin:0;flex:1;">';
+  if(!presetNames.length){ html+='<option value="">No saved presets</option>'; }
+  else { presetNames.forEach(function(n){ html+='<option value="'+_benchEsc(n)+'">'+_benchEsc(n)+'</option>'; }); }
+  html+='</select>';
+  html+='<button class="btn btn-sm" onclick="benchLoadPreset()">Load</button>';
+  html+='<button class="btn btn-danger btn-sm" onclick="benchDeletePreset()">Delete</button>';
+  html+='</div>';
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+function benchSetField(role,key,prop,val){
+  var store=_benchStore();
+  if(!store.current[role]) store.current[role]={};
+  if(!store.current[role][key]) store.current[role][key]={value:'',auto:false};
+  if(prop==='value') store.current[role][key].value=(val===''?'':val);
+  else store.current[role][key].auto=!!val;
+  _benchSaveStore(store);
+  if(prop==='auto') renderBenchmarkModal();
+}
+
+function benchSavePreset(){
+  var inp=document.getElementById('bench-preset-name');
+  var name=((inp&&inp.value)||'').trim();
+  if(!name){ showToast('Enter a preset name'); return; }
+  var store=_benchStore();
+  store.presets[name]=JSON.parse(JSON.stringify(store.current));
+  _benchSaveStore(store);
+  showToast('Preset "'+name+'" saved');
+  renderBenchmarkModal();
+}
+
+function benchLoadPreset(){
+  var sel=document.getElementById('bench-preset-select');
+  var name=sel&&sel.value;
+  if(!name){ showToast('No preset selected'); return; }
+  var store=_benchStore();
+  if(!store.presets[name]){ showToast('Preset not found'); return; }
+  store.current=_benchMergeShape(store.presets[name]);
+  _benchSaveStore(store);
+  showToast('Loaded preset "'+name+'"');
+  renderBenchmarkModal();
+}
+
+function benchDeletePreset(){
+  var sel=document.getElementById('bench-preset-select');
+  var name=sel&&sel.value;
+  if(!name){ showToast('No preset selected'); return; }
+  if(!confirm('Delete preset "'+name+'"? This cannot be undone.')) return;
+  var store=_benchStore();
+  delete store.presets[name];
+  _benchSaveStore(store);
+  showToast('Preset "'+name+'" deleted');
+  renderBenchmarkModal();
 }
 
 // ══════════════════════════════════════════
