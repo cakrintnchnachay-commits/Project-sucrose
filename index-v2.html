@@ -650,6 +650,9 @@ async function bootApp(){
           gold:ps.gold||null,gold_per_min:ps.gold_per_min||null,in_game_rating:ps.in_game_rating||null,
           dmg_dealt_pct:ps.dmg_dealt_pct||null,dmg_taken_pct:ps.dmg_taken_pct||null,
           dmg_dealt_raw:ps.dmg_dealt_raw||null,dmg_taken_raw:ps.dmg_taken_raw||null,
+          kda:ps.kda||null,min_per_death:ps.min_per_death||null,
+          kill_contribution_pct:ps.kill_contribution_pct||null,dmg_per_dmg_taken:ps.dmg_per_dmg_taken||null,
+          opp_gold:ps.opp_gold||null,opp_gold_per_min:ps.opp_gold_per_min||null,
           pillar_scores:{p0:ps.pillar_1_score||null,p1:ps.pillar_2_score||null,p2:ps.pillar_3_score||null,p3:ps.pillar_4_score||null},
           comment:ps.coach_note||null,
           _psId: ps.id || null,
@@ -4087,7 +4090,7 @@ function _prefillPillarSuggestions(i, role, sc){
     var inp  = document.getElementById('lp-p'+n+'-'+i);
     var disp = document.getElementById('lp-pv'+n+'-'+i);
     if(inp)  inp.value = sug;
-    if(disp) disp.textContent = parseFloat(sug).toFixed(1);
+    if(disp) disp.textContent = parseFloat(sug).toFixed(0);
   }
 }
 
@@ -4165,12 +4168,12 @@ function renderPillarSliders(role, slotIdx){
     html += '<div class="pillar-row">';
     html += '<div class="pillar-label-row">';
     html += '<span class="pillar-label">'+pName+'</span>';
-    html += '<span class="pillar-val" id="'+dispId+'">5.0</span>';
+    html += '<span class="pillar-val" id="'+dispId+'">5</span>';
     html += '</div>';
     if(!isManual){
       html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Stat-based — drag to override</div>';
     }
-    html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="0.5" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
+    html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
     html += '</div>';
   }
   container.innerHTML = html;
@@ -4178,19 +4181,26 @@ function renderPillarSliders(role, slotIdx){
 
 function updatePillarDisplay(input, displayId){
   var el = document.getElementById(displayId);
-  if(el) el.textContent = parseFloat(input.value).toFixed(1);
+  if(el) el.textContent = parseFloat(input.value).toFixed(0);
 }
 
 // ── DAY 6 — BENCHMARK MODEL ──────────────────────────
 // Pillar index N maps to benchmark field N for that role.
 var BENCHMARK_ROLES  = ['carry','midlane','offlane','jungler','support'];
 var BENCHMARK_LABELS = {carry:'Carry',midlane:'Midlane',offlane:'Offlane',jungler:'Jungler',support:'Support'};
+// First 4 fields per role map 1:1 to pillar index 0-3 (used by calculateSuggestion).
+// Fields beyond index 3 are extra reference data shown in the panel for coaching decisions.
 var BENCHMARK_FIELDS = {
-  carry:   [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'}],
-  midlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'}],
-  offlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'rating',label:'Rating'}],
-  jungler: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'}],
-  support: [{k:'kda',label:'KDA'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'}],
+  carry:   [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'},
+            {k:'kill_contrib',label:'Kill Contribution %'},{k:'min_per_death',label:'Min / Death'},{k:'dmg_per_dmg_taken',label:'Dmg / Dmg Taken'}],
+  midlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'},{k:'rating',label:'Rating'},
+            {k:'kill_contrib',label:'Kill Contribution %'},{k:'min_per_death',label:'Min / Death'},{k:'dmg_per_dmg_taken',label:'Dmg / Dmg Taken'}],
+  offlane: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'rating',label:'Rating'},
+            {k:'kill_contrib',label:'Kill Contribution %'},{k:'min_per_death',label:'Min / Death'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'}],
+  jungler: [{k:'kda',label:'KDA'},{k:'gpm',label:'Gold / Min'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'},
+            {k:'min_per_death',label:'Min / Death'},{k:'dmg_per_dmg_taken',label:'Dmg / Dmg Taken'},{k:'dmg_dealt_pct',label:'Dmg Dealt %'}],
+  support: [{k:'kda',label:'KDA'},{k:'dmg_taken_pct',label:'Dmg Taken %'},{k:'kill_contrib',label:'Kill Contribution %'},{k:'rating',label:'Rating'},
+            {k:'gpm',label:'Gold / Min'},{k:'min_per_death',label:'Min / Death'},{k:'dmg_per_dmg_taken',label:'Dmg / Dmg Taken'}],
 };
 var BENCHMARK_LS_KEY = 'sucrose_benchmarks';
 
@@ -4240,8 +4250,13 @@ function _benchMetricFromScore(fieldKey, s, g){
                                  : (g&&g.duration_seconds&&s.gold ? s.gold/(g.duration_seconds/60) : null);
     case 'dmg_dealt_pct': return s.dmg_dealt_pct!=null ? s.dmg_dealt_pct : null;
     case 'dmg_taken_pct': return s.dmg_taken_pct!=null ? s.dmg_taken_pct : null;
-    case 'kill_contrib':  return (g&&g.team_total_kills) ? ((s.kills||0)+(s.assists||0))/g.team_total_kills*100 : null;
+    case 'kill_contrib':  return s.kill_contribution_pct!=null ? s.kill_contribution_pct
+                                 : ((g&&g.team_total_kills) ? ((s.kills||0)+(s.assists||0))/g.team_total_kills*100 : null);
     case 'rating':        return s.in_game_rating!=null ? s.in_game_rating : null;
+    case 'min_per_death': return s.min_per_death!=null ? s.min_per_death
+                                 : ((g&&g.duration_seconds) ? (g.duration_seconds/60)/Math.max(s.deaths||0,1) : null);
+    case 'dmg_per_dmg_taken': return s.dmg_per_dmg_taken!=null ? s.dmg_per_dmg_taken
+                                 : ((s.dmg_dealt_raw&&s.dmg_taken_raw) ? s.dmg_dealt_raw/Math.max(s.dmg_taken_raw,1) : null);
   }
   return null;
 }
@@ -4258,6 +4273,8 @@ function _benchMetricFromRaw(fieldKey, raw){
     case 'dmg_taken_pct': return raw.dmgTakenPct!=null ? raw.dmgTakenPct : null;
     case 'kill_contrib':  return teamK>0 ? ((raw.kills||0)+(raw.assists||0))/teamK*100 : null;
     case 'rating':        return raw.gameRating!=null ? raw.gameRating : null;
+    case 'min_per_death': return durMin>0 ? durMin/Math.max(raw.deaths||0,1) : null;
+    case 'dmg_per_dmg_taken': return (raw.dmgDealt&&raw.dmgTaken) ? raw.dmgDealt/Math.max(raw.dmgTaken,1) : null;
   }
   return null;
 }
@@ -4300,11 +4317,28 @@ function calculateSuggestion(role, pillarIndex, rawStats){
   if(benchmark==null||benchmark<=0) return null; // Not set — skip this metric
   var actual=_benchMetricFromRaw(fieldKey,rawStats);
   if(actual==null||isNaN(actual)) return null;
-  // 5.0 = at benchmark; scaled linearly and clamped to the 1-10 slider.
+  return _benchScale(actual,benchmark);
+}
+
+// Shared scaler: 5 = at benchmark, linear, clamped + rounded to 1-10.
+function _benchScale(actual,benchmark){
+  if(actual==null||isNaN(actual)||benchmark==null||benchmark<=0) return null;
   var score=5*(actual/benchmark);
   if(score<1) score=1;
   if(score>10) score=10;
-  return Math.round(score*2)/2; // 0.5 steps
+  return Math.round(score);
+}
+
+// Benchmark suggestion from a stored player_scores_v2 row (used by the edit-game page).
+function calculateSuggestionFromScore(role, pillarIndex, score, game, playerId){
+  if(!role||!score) return null;
+  role=String(role).toLowerCase();
+  var fields=BENCHMARK_FIELDS[role];
+  if(!fields||pillarIndex<0||pillarIndex>=fields.length) return null;
+  var fieldKey=fields[pillarIndex].k;
+  var benchmark=getBenchmark(role,fieldKey,playerId||score._playerId||null);
+  if(benchmark==null||benchmark<=0) return null;
+  return _benchScale(_benchMetricFromScore(fieldKey,score,game),benchmark);
 }
 
 function _dbErr(err, table){
@@ -4471,6 +4505,9 @@ async function saveGame(){
           gold:r.gold||null,gold_per_min:r.gold_per_min||null,in_game_rating:r.in_game_rating||null,
           dmg_dealt_pct:r.dmg_dealt_pct||null,dmg_taken_pct:r.dmg_taken_pct||null,
           dmg_dealt_raw:r.dmg_dealt_raw||null,dmg_taken_raw:r.dmg_taken_raw||null,
+          kda:r.kda||null,min_per_death:r.min_per_death||null,
+          kill_contribution_pct:r.kill_contribution_pct||null,dmg_per_dmg_taken:r.dmg_per_dmg_taken||null,
+          opp_gold:r.opp_gold||null,opp_gold_per_min:r.opp_gold_per_min||null,
           pillar_scores:{p0:r.pillar_1_score||null,p1:r.pillar_2_score||null,p2:r.pillar_3_score||null,p3:r.pillar_4_score||null},
           comment:r.coach_note||null,
         };
@@ -4480,6 +4517,10 @@ async function saveGame(){
         type:LS.matchInfo.type||'Scrim',gameNum:1,gameName:'',
         result:LS.matchInfo.result,opponent:LS.matchInfo.opponent||'',
         oppTier:'',notes:LS.matchInfo.notes||'',playerScores:newPS,
+        duration_seconds:LS.matchInfo.duration_seconds||null,
+        team_total_kills:LS.matchInfo.team_total_kills||null,
+        enemy_total_kills:LS.matchInfo.enemy_total_kills||null,
+        enemyPicks:enemyRows.map(function(e){return {hero:e.hero_name,role:e.role,gold:e.gold};}),
         matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:null,savedAt:new Date().toISOString(),
       });
     })();
@@ -4559,6 +4600,7 @@ function renderMetaTiers(){
   if(bandsEl)bandsEl.innerHTML=META_LEVELS.map(function(l){
     var chips=(byTier[l.key]||[]).map(function(name){
       return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+
+        heroPortraitHtml(name,22,false)+
         '<span>'+name+'</span>'+
         '<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(decodeURIComponent(\''+encodeURIComponent(name)+'\'))">✎</button>'+
       '</div>';
@@ -4567,7 +4609,7 @@ function renderMetaTiers(){
   }).join('');
   var upEl=document.getElementById('meta-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
-    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+name+'</div>';
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
   var pn=document.getElementById('patch-name-display');
   if(pn)pn.textContent=(_cache.patches&&_cache.patches.length?_cache.patches[_cache.patches.length-1].name:'Current');
@@ -4599,6 +4641,7 @@ function renderMasteryTiers(){
     var chips=(byTier[l.key]||[]).map(function(name){
       var mt=metaTiers[name]&&metaTiers[name][masteryRole];
       return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+
+        heroPortraitHtml(name,22,false)+
         (mt?'<span class="chip-class">'+mt+'</span>':'')+
         '<span>'+name+'</span>'+
       '</div>';
@@ -4607,7 +4650,7 @@ function renderMasteryTiers(){
   }).join('');
   var upEl=document.getElementById('mastery-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
-    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+name+'</div>';
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
 }
 function setMasteryPlayer(pid){window._masteryPlayer=pid;renderMasteryTiers();}
@@ -4837,7 +4880,10 @@ function renderBenchmarkModal(){
   // fields
   html+='<div class="bench-scroll">';
   html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);line-height:1.7;margin-bottom:4px;">Set a target number per metric, or flip <strong>Auto</strong> to use the player\'s own average from logged games (needs 3+, otherwise the number is used). Blank with Auto off = not set &mdash; that metric is skipped.</div>';
-  BENCHMARK_FIELDS[role].forEach(function(f){
+  BENCHMARK_FIELDS[role].forEach(function(f,fi){
+    if(fi===4){
+      html+='<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);text-transform:uppercase;margin:14px 0 6px;padding-top:10px;border-top:1px solid var(--grey-2);">Reference metrics</div>';
+    }
     var cell=store.current[role][f.k]||{value:'',auto:false};
     var notSet=(cell.value===''||cell.value==null)&&!cell.auto;
     html+='<div class="bench-field">';
@@ -5103,13 +5149,34 @@ function openGameDetail(gameId){
         var col = v>=8?'var(--success)':v>=6?'var(--warn)':'var(--white)';
         return '<div style="min-width:60px;"><div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:64px;">'+lbls[i]+'</div>'+
           '<div class="gd-pillar-bar"><div class="gd-pillar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'+
-          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;color:'+col+';">'+(v!=null?v.toFixed(1):'—')+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;color:'+col+';">'+(v!=null?v.toFixed(0):'—')+'</div>'+
         '</div>';
       }).join('');
-      var kda = ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
       var kdaTxt = (s.kills||0)+'/'+(s.deaths||0)+'/'+(s.assists||0);
       var gpm = s.gold_per_min!=null ? Math.round(s.gold_per_min) : null;
       var rating = s.in_game_rating!=null ? s.in_game_rating.toFixed(1) : null;
+      // Computed metrics — prefer the stored column, fall back to recomputing.
+      var durMinD = game.duration_seconds ? game.duration_seconds/60 : 0;
+      var kdaVal  = s.kda!=null ? s.kda : ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
+      var killCt  = s.kill_contribution_pct!=null ? s.kill_contribution_pct
+                      : (game.team_total_kills ? ((s.kills||0)+(s.assists||0))/game.team_total_kills*100 : null);
+      var minDth  = s.min_per_death!=null ? s.min_per_death
+                      : (durMinD>0 ? durMinD/Math.max(s.deaths||0,1) : null);
+      var dmgRt   = s.dmg_per_dmg_taken!=null ? s.dmg_per_dmg_taken
+                      : ((s.dmg_dealt_raw&&s.dmg_taken_raw) ? s.dmg_dealt_raw/Math.max(s.dmg_taken_raw,1) : null);
+      var oppG    = s.opp_gold!=null ? s.opp_gold : null;
+      var oppGpm  = s.opp_gold_per_min!=null ? s.opp_gold_per_min
+                      : ((oppG&&durMinD>0) ? oppG/durMinD : null);
+      function _gdStat(val,lbl){ return val==null?'':'<div><div class="gd-stat-val">'+val+'</div><div class="gd-stat-lbl">'+lbl+'</div></div>'; }
+      var extraStats = ''+
+        _gdStat(kdaVal!=null?kdaVal.toFixed(2):null,'KDA RATIO')+
+        _gdStat(killCt!=null?killCt.toFixed(1)+'%':null,'KILL%')+
+        _gdStat(minDth!=null?minDth.toFixed(1):null,'MIN/DTH')+
+        _gdStat(dmgRt!=null?dmgRt.toFixed(2):null,'DMG RATIO')+
+        _gdStat(s.dmg_dealt_raw!=null?Number(s.dmg_dealt_raw).toLocaleString():null,'DMG DEALT')+
+        _gdStat(s.dmg_taken_raw!=null?Number(s.dmg_taken_raw).toLocaleString():null,'DMG TAKEN')+
+        _gdStat(oppG!=null?Number(oppG).toLocaleString():null,'OPP GOLD')+
+        _gdStat(oppGpm!=null?Math.round(oppGpm):null,'OPP G/MIN');
       var overallScore = calcGameScore(s, role, game, p.id);
       var grade = overallScore>0 ? scoreToGrade(overallScore) : null;
       return '<div class="gd-player-row">'+
@@ -5129,6 +5196,7 @@ function openGameDetail(gameId){
             '<div><div class="gd-stat-val">'+kdaTxt+'</div><div class="gd-stat-lbl">KDA</div></div>'+
             (gpm!=null?'<div><div class="gd-stat-val">'+gpm+'</div><div class="gd-stat-lbl">G/MIN</div></div>':'')+
             (rating!=null?'<div><div class="gd-stat-val">'+rating+'</div><div class="gd-stat-lbl">RATING</div></div>':'')+
+            extraStats+
           '</div>'+
         '</div>'+
         '<div style="flex-shrink:0;text-align:center;">'+
@@ -5230,15 +5298,18 @@ function _buildEditPlayerPanel(game, player, idx){
   var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
   var ps = s.pillar_scores || {};
 
-  function sliderRow(label, key, val){
-    var v = val!=null ? val : 5;
+  function sliderRow(label, key, val, sug){
+    var v = Math.round(val!=null ? val : (sug!=null ? sug : 5));
+    var hint = (sug!=null)
+      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
+      : '';
     return '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
         '<span class="pillar-label">'+label+'</span>'+
-        '<span class="pillar-val" id="egm-'+idx+'-'+key+'-val">'+v.toFixed(1)+'</span>'+
-      '</div>'+
-      '<input type="range" class="pillar-slider" min="1" max="10" step="0.1" value="'+v+'" id="egm-'+idx+'-'+key+'" '+
-        'oninput="document.getElementById(\'egm-'+idx+'-'+key+'-val\').textContent=parseFloat(this.value).toFixed(1)"/>'+
+        '<span class="pillar-val" id="egm-'+idx+'-'+key+'-val">'+v.toFixed(0)+'</span>'+
+      '</div>'+ hint +
+      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="egm-'+idx+'-'+key+'" '+
+        'oninput="document.getElementById(\'egm-'+idx+'-'+key+'-val\').textContent=parseFloat(this.value).toFixed(0)"/>'+
     '</div>';
   }
 
@@ -5264,7 +5335,7 @@ function _buildEditPlayerPanel(game, player, idx){
   html += '<div class="score-sec">PILLAR SCORES</div>';
   html += '<div id="egm-'+idx+'-pillars">';
   pillars.forEach(function(lbl, i){
-    html += sliderRow(lbl, 'p'+i, ps['p'+i]);
+    html += sliderRow(lbl, 'p'+i, ps['p'+i], calculateSuggestionFromScore(role, i, s, game, player.id));
   });
   html += '</div>';
 
@@ -5282,6 +5353,8 @@ function _buildEditPlayerPanel(game, player, idx){
   html += rawCell('Rating','in_game_rating',s.in_game_rating,'number');
   html += rawCell('Dmg %','dmg_dealt_pct',s.dmg_dealt_pct,'number');
   html += rawCell('Taken %','dmg_taken_pct',s.dmg_taken_pct,'number');
+  html += rawCell('Dmg Dealt','dmg_dealt_raw',s.dmg_dealt_raw,'number');
+  html += rawCell('Dmg Taken','dmg_taken_raw',s.dmg_taken_raw,'number');
   html += '</div></details>';
 
   // Coach note
@@ -5309,14 +5382,18 @@ function refreshEditPillars(idx){
   if(!container) return;
   container.innerHTML = '';
   pillars.forEach(function(lbl, i){
-    var v = ps['p'+i]!=null ? ps['p'+i] : 5;
+    var sug = calculateSuggestionFromScore(role, i, s, game, player.id);
+    var v = Math.round(ps['p'+i]!=null ? ps['p'+i] : (sug!=null ? sug : 5));
+    var hint = (sug!=null)
+      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
+      : '';
     container.innerHTML += '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
         '<span class="pillar-label">'+lbl+'</span>'+
-        '<span class="pillar-val" id="egm-'+idx+'-p'+i+'-val">'+v.toFixed(1)+'</span>'+
-      '</div>'+
-      '<input type="range" class="pillar-slider" min="1" max="10" step="0.1" value="'+v+'" id="egm-'+idx+'-p'+i+'" '+
-        'oninput="document.getElementById(\'egm-'+idx+'-p'+i+'-val\').textContent=parseFloat(this.value).toFixed(1)"/>'+
+        '<span class="pillar-val" id="egm-'+idx+'-p'+i+'-val">'+v.toFixed(0)+'</span>'+
+      '</div>'+ hint +
+      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="egm-'+idx+'-p'+i+'" '+
+        'oninput="document.getElementById(\'egm-'+idx+'-p'+i+'-val\').textContent=parseFloat(this.value).toFixed(0)"/>'+
     '</div>';
   });
 }
@@ -5340,6 +5417,8 @@ async function saveEditGame(gameId){
     if(!game) throw new Error('Game not found');
     var players = window._editGamePlayers||[];
     var durMin = game.duration_seconds ? game.duration_seconds/60 : 0;
+    var teamK  = game.team_total_kills || 0;
+    var enemyPicks = game.enemyPicks || [];
 
     var updateRows = [];
     players.forEach(function(p, i){
@@ -5356,12 +5435,21 @@ async function saveEditGame(gameId){
       var rating   = parseFloat(document.getElementById('egm-'+i+'-in_game_rating')?.value)||null;
       var ddPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_pct')?.value)||null;
       var dtPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_pct')?.value)||null;
+      var ddRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_raw')?.value)||null;
+      var dtRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_raw')?.value)||null;
       var p0 = parseFloat(document.getElementById('egm-'+i+'-p0')?.value)||null;
       var p1 = parseFloat(document.getElementById('egm-'+i+'-p1')?.value)||null;
       var p2 = parseFloat(document.getElementById('egm-'+i+'-p2')?.value)||null;
       var p3 = parseFloat(document.getElementById('egm-'+i+'-p3')?.value)||null;
-      var kda = (kills+assists)/Math.max(deaths,1);
-      var gpm = (gold&&durMin>0) ? gold/durMin : null;
+      // Derived metrics — kept in sync with the new-game save path.
+      var kda            = (kills+assists)/Math.max(deaths,1);
+      var gpm            = (gold&&durMin>0) ? gold/durMin : null;
+      var minPerDeath    = durMin>0 ? durMin/Math.max(deaths,1) : null;
+      var killContribPct = teamK>0 ? (kills+assists)/teamK*100 : null;
+      var dmgRatio       = (ddRaw&&dtRaw) ? ddRaw/Math.max(dtRaw,1) : null;
+      var oppPick        = enemyPicks.find(function(e){ return e.role && e.role.toLowerCase()===String(role).toLowerCase(); });
+      var oppGold        = oppPick ? (oppPick.gold||null) : null;
+      var oppGoldPerMin  = (oppGold&&durMin>0) ? oppGold/durMin : null;
       updateRows.push({
         player_id: p.id,
         game_id: gameId,
@@ -5372,17 +5460,26 @@ async function saveEditGame(gameId){
         in_game_rating: rating,
         dmg_dealt_pct: ddPct,
         dmg_taken_pct: dtPct,
+        dmg_dealt_raw: ddRaw,
+        dmg_taken_raw: dtRaw,
         pillar_1_score: p0, pillar_2_score: p1,
         pillar_3_score: p2, pillar_4_score: p3,
         coach_note: note||null,
         kda: kda,
         gold_per_min: gpm,
+        min_per_death: minPerDeath,
+        kill_contribution_pct: killContribPct,
+        dmg_per_dmg_taken: dmgRatio,
+        opp_gold: oppGold,
+        opp_gold_per_min: oppGoldPerMin,
       });
     });
 
-    // Upsert player_scores_v2 rows (update by game_id + player_id)
-    var {error: uErr} = await sb.from('player_scores_v2')
-      .upsert(updateRows, {onConflict:'game_id,player_id'});
+    // Replace this game's player_scores_v2 rows.
+    // (Avoids the ON CONFLICT spec, which needs a (game_id,player_id) unique constraint.)
+    var {error: delErr} = await sb.from('player_scores_v2').delete().eq('game_id', gameId);
+    if(delErr) throw delErr;
+    var {error: uErr} = await sb.from('player_scores_v2').insert(updateRows);
     if(uErr) throw uErr;
 
     // Update local cache
@@ -5395,6 +5492,11 @@ async function saveEditGame(gameId){
         gold: row.gold, gold_per_min: row.gold_per_min,
         in_game_rating: row.in_game_rating,
         dmg_dealt_pct: row.dmg_dealt_pct, dmg_taken_pct: row.dmg_taken_pct,
+        dmg_dealt_raw: row.dmg_dealt_raw, dmg_taken_raw: row.dmg_taken_raw,
+        kda: row.kda, min_per_death: row.min_per_death,
+        kill_contribution_pct: row.kill_contribution_pct,
+        dmg_per_dmg_taken: row.dmg_per_dmg_taken,
+        opp_gold: row.opp_gold, opp_gold_per_min: row.opp_gold_per_min,
         pillar_scores: {p0:row.pillar_1_score,p1:row.pillar_2_score,p2:row.pillar_3_score,p3:row.pillar_4_score},
         comment: row.coach_note,
       };
