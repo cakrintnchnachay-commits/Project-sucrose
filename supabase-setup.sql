@@ -31,3 +31,21 @@ CREATE POLICY "anon_all" ON enemy_picks
 -- If this is NOT run, core game logging still works — only the
 -- "assign game to match" action will fail with a graceful toast.
 ALTER TABLE games_v2 ADD COLUMN IF NOT EXISTS match_id uuid;
+
+-- games_v2: team/enemy gold totals + enemy role/gold snapshot.
+ALTER TABLE games_v2 ADD COLUMN IF NOT EXISTS team_total_gold  integer;
+ALTER TABLE games_v2 ADD COLUMN IF NOT EXISTS enemy_total_gold integer;
+ALTER TABLE games_v2 ADD COLUMN IF NOT EXISTS enemy_roles      jsonb;
+
+-- player_scores_v2: computed/derived metrics. Each is calculated on save
+-- (see saveGame / saveEditGame) and stored so history & detail views can
+-- display them without recomputing. Safe to run repeatedly.
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS gold_per_min          numeric; -- gold / duration_min
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS opp_gold              integer; -- enemy player gold in same role
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS opp_gold_per_min      numeric; -- opp_gold / duration_min
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS min_per_death         numeric; -- duration_min / max(deaths,1)
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS kill_contribution_pct numeric; -- (kills+assists) / team_total_kills * 100
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS kda                   numeric; -- (kills+assists) / max(deaths,1)
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_dealt_raw         integer; -- raw damage dealt from scanner
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_taken_raw         integer; -- raw damage taken from scanner
+ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_per_dmg_taken     numeric; -- dmg_dealt_raw / max(dmg_taken_raw,1)
