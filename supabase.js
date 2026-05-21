@@ -1,5 +1,8 @@
 'use strict';
 
+// App namespace — shared mutable state lives here, not on the flat global scope.
+const App = { cache: {}, log: {}, players: [], ui: {} };
+
 // ══════════════════════════════════════════
 // SUPABASE CLIENT
 // ══════════════════════════════════════════
@@ -8,7 +11,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // In-memory cache (loaded once on boot, kept in sync)
-let _cache = {
+App.cache = {
   heroes: [],        // from heroes table
   customHeroes: [],  // from custom_heroes table
   heroOverrides: {}, // from app_settings key='hero_overrides'
@@ -31,83 +34,111 @@ let _cache = {
 
 // Show/hide global loading overlay
 function setLoading(on){
-  let el=document.getElementById('global-loader');
+  const el=document.getElementById('global-loader');
   if(el) el.style.display=on?'flex':'none';
 }
 
-// Boot: load all data from Supabase into cache
+// Most-recent games load first for a fast cold start; the rest stream in
+// behind the initial render via _loadRemainingGames(). Aggregate views are
+// briefly computed on the first page, then re-rendered once the full set lands.
+const GAMES_PAGE_SIZE = 60;
+
+// games_v2 rows -> app game objects.
+function _mapGameRows(rows){
+  return (rows||[]).map(g=>({
+    id:g.id,
+    // handle both old column names (date/map/opponent/result=W) and new (match_date/game_type/opponent_name/result=win)
+    date: g.match_date || g.date || '',
+    type: g.game_type ? (g.game_type.charAt(0).toUpperCase()+g.game_type.slice(1)) : (g.map||'Scrim'),
+    result: (g.result==='win'||g.result==='W') ? 'Win' : 'Loss',
+    opponent: g.opponent_name || g.opponent || '',
+    duration_seconds: g.duration_seconds || null,
+    team_total_kills: g.team_total_kills || null,
+    enemy_total_kills: g.enemy_total_kills || null,
+    vod_url: g.vod_url || null,
+    gameNum:g.game_num||1, gameName:g.game_name||'',
+    oppTier:'', notes:g.notes||'',
+    playerScores:{},
+    enemyPicks:[],
+    matchMentality:g.match_mentality||{},
+    matchId:g.match_id||null,
+    mvpPlayerId:g.mvp_player_id||null,
+    savedAt:g.created_at
+  }));
+}
+
+// Merge player_scores_v2 + enemy_picks rows into the given game objects.
+function _mergeChildRows(games, psRows, epRows){
+  const _psMap={};
+  (psRows||[]).forEach(function(ps){
+    if(!_psMap[ps.game_id])_psMap[ps.game_id]={};
+    if(ps.player_id){
+      _psMap[ps.game_id][ps.player_id]={
+        hero:ps.hero_name||null,role:ps.role_played||null,
+        kills:ps.kills||0,deaths:ps.deaths||0,assists:ps.assists||0,
+        gold:ps.gold||null,gold_per_min:ps.gold_per_min||null,in_game_rating:ps.in_game_rating||null,
+        dmg_dealt_pct:ps.dmg_dealt_pct||null,dmg_taken_pct:ps.dmg_taken_pct||null,
+        dmg_dealt_raw:ps.dmg_dealt_raw||null,dmg_taken_raw:ps.dmg_taken_raw||null,
+        kda:ps.kda||null,min_per_death:ps.min_per_death||null,
+        kill_contribution_pct:ps.kill_contribution_pct||null,dmg_per_dmg_taken:ps.dmg_per_dmg_taken||null,
+        opp_gold:ps.opp_gold||null,opp_gold_per_min:ps.opp_gold_per_min||null,
+        pillar_scores:{p0:ps.pillar_1_score||null,p1:ps.pillar_2_score||null,p2:ps.pillar_3_score||null,p3:ps.pillar_4_score||null},
+        comment:ps.coach_note||null,
+        _psId: ps.id || null,
+      };
+    }
+  });
+  const _epMap={};
+  (epRows||[]).forEach(function(ep){
+    if(!_epMap[ep.game_id])_epMap[ep.game_id]=[];
+    _epMap[ep.game_id].push({hero:ep.hero_name||null,role:ep.role||null,gold:ep.gold||null});
+  });
+  games.forEach(function(g){
+    if(_psMap[g.id])g.playerScores=_psMap[g.id];
+    if(_epMap[g.id])g.enemyPicks=_epMap[g.id];
+  });
+}
+
+// Keep games oldest-first (matches the original .order('created_at') boot).
+function _sortGamesAsc(games){
+  games.sort(function(a,b){ return new Date(a.savedAt||0)-new Date(b.savedAt||0); });
+}
+
+// Boot: load core tables + the most recent page of games into cache
 async function bootApp(){
   setLoading(true);
   try{
-    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes, psRes, epRes] = await Promise.all([
+    const [heroRes, customRes, playerRes, gameRes, matchRes, metaRes, masteryRes, patchRes, settingsRes] = await Promise.all([
       sb.from('heroes').select('*').order('name'),
       sb.from('custom_heroes').select('*').order('name'),
       sb.from('players').select('*').order('nick'),
-      sb.from('games_v2').select('*').order('created_at'),
+      sb.from('games_v2').select('*').order('created_at',{ascending:false}).limit(GAMES_PAGE_SIZE),
       sb.from('matches').select('*').order('created_at',{ascending:false}),
       sb.from('meta_tiers').select('*'),
       sb.from('mastery_tiers').select('*'),
       sb.from('patches').select('*').order('saved_at'),
       sb.from('app_settings').select('*'),
-      sb.from('player_scores_v2').select('*'),
-      sb.from('enemy_picks').select('*'),
     ]);
-    _cache.heroes = (heroRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
-    _cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
-    _cache.players = (playerRes.data||[]).map(p=>({
+    App.cache.heroes = (heroRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
+    App.cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
+    App.cache.players = (playerRes.data||[]).map(p=>({
       id:p.id, ign:p.ign, nick:p.nick, role:p.role,
       status:p.active?(p.rank&&p.rank!=='Unranked'?p.rank:'Starter'):'Inactive',
       rank:p.rank||'Unranked', active:p.active
     }));
-    _cache.games = (gameRes.data||[]).map(g=>({
-      id:g.id,
-      // handle both old column names (date/map/opponent/result=W) and new (match_date/game_type/opponent_name/result=win)
-      date: g.match_date || g.date || '',
-      type: g.game_type ? (g.game_type.charAt(0).toUpperCase()+g.game_type.slice(1)) : (g.map||'Scrim'),
-      result: (g.result==='win'||g.result==='W') ? 'Win' : 'Loss',
-      opponent: g.opponent_name || g.opponent || '',
-      duration_seconds: g.duration_seconds || null,
-      team_total_kills: g.team_total_kills || null,
-      enemy_total_kills: g.enemy_total_kills || null,
-      vod_url: g.vod_url || null,
-      gameNum:g.game_num||1, gameName:g.game_name||'',
-      oppTier:'', notes:g.notes||'',
-      playerScores:{},
-      enemyPicks:[],
-      matchMentality:g.match_mentality||{},
-      matchId:g.match_id||null,
-      mvpPlayerId:g.mvp_player_id||null,
-      savedAt:g.created_at
-    }));
-    // Merge per-player scores from player_scores_v2 into _cache.games
-    var _psMap={};
-    (psRes.data||[]).forEach(function(ps){
-      if(!_psMap[ps.game_id])_psMap[ps.game_id]={};
-      if(ps.player_id){
-        _psMap[ps.game_id][ps.player_id]={
-          hero:ps.hero_name||null,role:ps.role_played||null,
-          kills:ps.kills||0,deaths:ps.deaths||0,assists:ps.assists||0,
-          gold:ps.gold||null,gold_per_min:ps.gold_per_min||null,in_game_rating:ps.in_game_rating||null,
-          dmg_dealt_pct:ps.dmg_dealt_pct||null,dmg_taken_pct:ps.dmg_taken_pct||null,
-          dmg_dealt_raw:ps.dmg_dealt_raw||null,dmg_taken_raw:ps.dmg_taken_raw||null,
-          kda:ps.kda||null,min_per_death:ps.min_per_death||null,
-          kill_contribution_pct:ps.kill_contribution_pct||null,dmg_per_dmg_taken:ps.dmg_per_dmg_taken||null,
-          opp_gold:ps.opp_gold||null,opp_gold_per_min:ps.opp_gold_per_min||null,
-          pillar_scores:{p0:ps.pillar_1_score||null,p1:ps.pillar_2_score||null,p2:ps.pillar_3_score||null,p3:ps.pillar_4_score||null},
-          comment:ps.coach_note||null,
-          _psId: ps.id || null,
-        };
-      }
-    });
-    _cache.games.forEach(function(g){if(_psMap[g.id])g.playerScores=_psMap[g.id];});
-    // Merge enemy_picks into _cache.games
-    var _epMap={};
-    (epRes.data||[]).forEach(function(ep){
-      if(!_epMap[ep.game_id])_epMap[ep.game_id]=[];
-      _epMap[ep.game_id].push({hero:ep.hero_name||null,role:ep.role||null,gold:ep.gold||null});
-    });
-    _cache.games.forEach(function(g){if(_epMap[g.id])g.enemyPicks=_epMap[g.id];});
-    _cache.matches = (matchRes.data||[]).map(m=>({
+    App.cache.games = _mapGameRows(gameRes.data);
+    // Load child rows for just this first page of games.
+    const _firstIds = App.cache.games.map(function(g){return g.id;});
+    let psRes={data:[]}, epRes={data:[]};
+    if(_firstIds.length){
+      [psRes, epRes] = await Promise.all([
+        sb.from('player_scores_v2').select('*').in('game_id', _firstIds),
+        sb.from('enemy_picks').select('*').in('game_id', _firstIds),
+      ]);
+    }
+    _mergeChildRows(App.cache.games, psRes.data, epRes.data);
+    _sortGamesAsc(App.cache.games);
+    App.cache.matches = (matchRes.data||[]).map(m=>({
       id:m.id, name:m.name, date:m.date||'', type:m.type||'Scrim',
       oppTier:m.opp_tier||'', notes:m.notes||'',
       mentality:m.mentality||{},
@@ -115,44 +146,66 @@ async function bootApp(){
       createdAt:m.created_at,
     }));
     // Flatten meta tiers: {heroName: {role: tier}}
-    _cache.metaTiers={};
+    App.cache.metaTiers={};
     (metaRes.data||[]).forEach(r=>{
       if(r.role){
-        if(!_cache.metaTiers[r.hero_name]) _cache.metaTiers[r.hero_name]={};
-        _cache.metaTiers[r.hero_name][r.role]=r.tier;
+        if(!App.cache.metaTiers[r.hero_name]) App.cache.metaTiers[r.hero_name]={};
+        App.cache.metaTiers[r.hero_name][r.role]=r.tier;
       }
     });
     // Flatten mastery tiers
-    _cache.masteryTiers={};
+    App.cache.masteryTiers={};
     (masteryRes.data||[]).forEach(r=>{
-      if(!_cache.masteryTiers[r.player_id]) _cache.masteryTiers[r.player_id]={};
-      _cache.masteryTiers[r.player_id][r.hero_name]=r.tier;
+      if(!App.cache.masteryTiers[r.player_id]) App.cache.masteryTiers[r.player_id]={};
+      App.cache.masteryTiers[r.player_id][r.hero_name]=r.tier;
     });
-    _cache.patches=(patchRes.data||[]).map(p=>({name:p.name,savedAt:p.saved_at,metaTiers:p.meta_snapshot||{}}));
+    App.cache.patches=(patchRes.data||[]).map(p=>({name:p.name,savedAt:p.saved_at,metaTiers:p.meta_snapshot||{}}));
     // Settings
     (settingsRes.data||[]).forEach(s=>{
-      if(s.key==='hero_overrides') _cache.heroOverrides=s.value||{};
-      if(s.key==='pfp') _cache.pfp=s.value||{};
-      if(s.key==='sheet_url') _cache.sheetUrl=s.value||'';
-      if(s.key==='last_sync') _cache.lastSync=s.value||'';
-      if(s.key==='settings_pin') _cache.settingsPin=s.value||'';
-      if(s.key==='anthropic_key') _cache.anthropicKey=(s.value||'').replace(/\s+/g,'');
-      if(s.key==='meta_tiers_json'&&s.value&&!Object.keys(_cache.metaTiers).length) _cache.metaTiers=s.value;
+      if(s.key==='hero_overrides') App.cache.heroOverrides=s.value||{};
+      if(s.key==='pfp') App.cache.pfp=s.value||{};
+      if(s.key==='sheet_url') App.cache.sheetUrl=s.value||'';
+      if(s.key==='last_sync') App.cache.lastSync=s.value||'';
+      if(s.key==='settings_pin') App.cache.settingsPin=s.value||'';
+      if(s.key==='anthropic_key') App.cache.anthropicKey=(s.value||'').replace(/\s+/g,'');
+      if(s.key==='meta_tiers_json'&&s.value&&!Object.keys(App.cache.metaTiers).length) App.cache.metaTiers=s.value;
     });
     // If no players in DB yet, seed with defaults
-    if(_cache.players.length===0){
+    if(App.cache.players.length===0){
       await seedDefaultPlayers();
     }
-    _cache.dismissed=JSON.parse(localStorage.getItem('ps_dismissed')||'{}');
-    _cache.loaded=true;
+    App.cache.dismissed=JSON.parse(localStorage.getItem('ps_dismissed')||'{}');
+    App.cache.loaded=true;
   }catch(e){
     console.error('Boot failed',e);
     showToast('⚠ Could not connect to Supabase');
   }
   setLoading(false);
-  PLAYERS=_cache.players;
+  App.players=App.cache.players;
   initLayout();
   renderHome();
+  _loadRemainingGames();
+}
+
+// Stream the full game history in after the initial paint so aggregate
+// views (hero stats, player averages, benchmarks) become complete.
+// On failure the first page stands — degraded, not broken.
+async function _loadRemainingGames(){
+  if(App.cache.games.length < GAMES_PAGE_SIZE) return; // first page already had everything
+  try{
+    const [gameRes, psRes, epRes] = await Promise.all([
+      sb.from('games_v2').select('*').order('created_at',{ascending:false}),
+      sb.from('player_scores_v2').select('*'),
+      sb.from('enemy_picks').select('*'),
+    ]);
+    if(!gameRes.data || gameRes.data.length <= App.cache.games.length) return; // nothing new
+    const full = _mapGameRows(gameRes.data);
+    _mergeChildRows(full, psRes.data, epRes.data);
+    _sortGamesAsc(full);
+    App.cache.games = full;
+    if(typeof renderHome==='function') renderHome();
+    if(typeof renderHistory==='function') renderHistory();
+  }catch(e){ console.warn('Background history load failed', e); }
 }
 
 async function seedDefaultPlayers(){
@@ -166,7 +219,7 @@ async function seedDefaultPlayers(){
     {id:'ken', ign:'Kenslayer', nick:'Ken', role:'Offlane', rank:'Unranked', active:false},
   ];
   await sb.from('players').upsert(defaults,{onConflict:'id'});
-  _cache.players=defaults.map(p=>({...p,status:p.active?'Starter':'Substitute'}));
+  App.cache.players=defaults.map(p=>({...p,status:p.active?'Starter':'Substitute'}));
 }
 
 // ── Supabase write helpers ──────────────────
@@ -272,14 +325,14 @@ async function sbDeleteMatch(matchId){
 async function sbAssignGameToMatch(gameId,matchId){
   const {error}=await sb.from('games_v2').update({match_id:matchId}).eq('id',gameId);
   if(error) throw error;
-  var g=(_cache.games||[]).find(function(x){return x.id===gameId;});
+  const g=(App.cache.games||[]).find(function(x){return x.id===gameId;});
   if(g) g.matchId=matchId;
 }
 
 async function sbUnassignGameFromMatch(gameId){
   const {error}=await sb.from('games_v2').update({match_id:null}).eq('id',gameId);
   if(error) throw error;
-  var g=(_cache.games||[]).find(function(x){return x.id===gameId;});
+  const g=(App.cache.games||[]).find(function(x){return x.id===gameId;});
   if(g) g.matchId=null;
 }
 
@@ -287,10 +340,10 @@ async function sbUnassignGameFromMatch(gameId){
 // SETTINGS PIN — V7
 // ══════════════════════════════════════════
 function submitPin(){
-  var entered=(document.getElementById('pin-entry-inp')?.value||'').trim();
-  if(entered===String(_cache.settingsPin)){
-    _cache._pinUnlocked=true;
-    setTimeout(function(){_cache._pinUnlocked=false;},5*60*1000);
+  const entered=(document.getElementById('pin-entry-inp')?.value||'').trim();
+  if(entered===String(App.cache.settingsPin)){
+    App.cache._pinUnlocked=true;
+    setTimeout(function(){App.cache._pinUnlocked=false;},5*60*1000);
     closeModal('pin-entry-modal');
     showPage('page-settings');
   } else {
@@ -306,21 +359,21 @@ function showPinChange(){
 }
 
 async function savePin(){
-  var nw=(document.getElementById('pin-new-inp')?.value||'').trim();
-  var cf=(document.getElementById('pin-confirm-inp')?.value||'').trim();
-  var errEl=document.getElementById('pin-change-err');
+  const nw=(document.getElementById('pin-new-inp')?.value||'').trim();
+  const cf=(document.getElementById('pin-confirm-inp')?.value||'').trim();
+  const errEl=document.getElementById('pin-change-err');
   if(!/^\d{4,8}$/.test(nw)){errEl.textContent='PIN must be 4–8 digits';errEl.style.display='block';return;}
   if(nw!==cf){errEl.textContent='PINs do not match';errEl.style.display='block';return;}
-  _cache.settingsPin=nw;
-  _cache._pinUnlocked=true;
+  App.cache.settingsPin=nw;
+  App.cache._pinUnlocked=true;
   await sbSaveSetting('settings_pin',nw);
   closeModal('pin-change-modal');
   showToast('PIN saved');
 }
 
 async function clearPin(){
-  _cache.settingsPin='';
-  _cache._pinUnlocked=false;
+  App.cache.settingsPin='';
+  App.cache._pinUnlocked=false;
   await sbSaveSetting('settings_pin','');
   closeModal('pin-change-modal');
   showToast('PIN removed');

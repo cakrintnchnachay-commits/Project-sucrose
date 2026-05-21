@@ -8,7 +8,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 // ── LOG SESSION STATE ───────────────────────────────────────────────────────
-var LS = {
+App.log = {
   matchInfo: {},   // result, date, type, opponent, duration, duration_seconds, team_total_kills
   scores:    {},   // keyed by player id
   draft:     null,
@@ -25,10 +25,10 @@ var LS = {
 // ══════════════════════════════════════════
 // HERO DATABASE (Supabase-backed, cache reads)
 // ══════════════════════════════════════════
-function getHeroDB(){ return _cache.heroes; }
-function saveHeroDB(arr){ _cache.heroes=arr; sbSaveHeroes(arr); }
-function getHeroOverrides(){ return _cache.heroOverrides||{}; }
-function saveHeroOverrides(obj){ _cache.heroOverrides=obj; sbSaveSetting('hero_overrides',obj); }
+function getHeroDB(){ return App.cache.heroes; }
+function saveHeroDB(arr){ App.cache.heroes=arr; sbSaveHeroes(arr); }
+function getHeroOverrides(){ return App.cache.heroOverrides||{}; }
+function saveHeroOverrides(obj){ App.cache.heroOverrides=obj; sbSaveSetting('hero_overrides',obj); }
 
 function getLiveHeroes(){
   const db=getHeroDB();
@@ -42,7 +42,7 @@ function getLiveHeroes(){
 
 function getHeroList(){
   const db=getLiveHeroes();
-  const custom=_cache.customHeroes||[];
+  const custom=App.cache.customHeroes||[];
   const names=[...db,...custom].map(function(h){return h.name;});
   Object.keys(HERO_IMG_MAP).forEach(function(n){if(!names.includes(n))names.push(n);});
   return [...new Set(names)].sort();
@@ -66,11 +66,11 @@ function importFromSheet(){
     if(!heroes.length){if(statusEl)statusEl.textContent='No heroes parsed. Check columns: Name, Class, Roles.';return;}
     try{
       await sbSaveHeroes(heroes);
-      _cache.heroes=heroes;
-      _cache.sheetUrl=url;
-      _cache.lastSync=new Date().toISOString();
+      App.cache.heroes=heroes;
+      App.cache.sheetUrl=url;
+      App.cache.lastSync=new Date().toISOString();
       await sbSaveSetting('sheet_url',url);
-      await sbSaveSetting('last_sync',_cache.lastSync);
+      await sbSaveSetting('last_sync',App.cache.lastSync);
       updateDBStatusCard();
       if(statusEl) statusEl.textContent='Imported '+heroes.length+' heroes.';
       showToast(heroes.length+' heroes imported');
@@ -91,10 +91,10 @@ function importFromFile(input){
       const heroes=parseHeroCSV(e.target.result);
       if(!heroes.length) throw new Error('No heroes parsed — check columns: Name, Class, Roles (pipe-separated)');
       await sbSaveHeroes(heroes);
-      _cache.heroes=heroes;
-      _cache.lastSync=new Date().toISOString();
-      _cache.sheetUrl='local:'+file.name;
-      await sbSaveSetting('last_sync',_cache.lastSync);
+      App.cache.heroes=heroes;
+      App.cache.lastSync=new Date().toISOString();
+      App.cache.sheetUrl='local:'+file.name;
+      await sbSaveSetting('last_sync',App.cache.lastSync);
       await sbSaveSetting('sheet_url','local:'+file.name);
       updateDBStatusCard();
       if(statusEl) statusEl.textContent='Imported '+heroes.length+' heroes from '+file.name;
@@ -142,10 +142,10 @@ function parseHeroCSV(csv){
 
 async function clearHeroDB(){
   await sb.from('heroes').delete().neq('id','00000000-0000-0000-0000-000000000000'); // delete all
-  _cache.heroes=[];
-  _cache.heroOverrides={};
-  _cache.sheetUrl='';
-  _cache.lastSync='';
+  App.cache.heroes=[];
+  App.cache.heroOverrides={};
+  App.cache.sheetUrl='';
+  App.cache.lastSync='';
   await sbSaveSetting('hero_overrides',{});
   await sbSaveSetting('sheet_url','');
   await sbSaveSetting('last_sync','');
@@ -159,12 +159,12 @@ function updateDBStatusCard(){
   const syncEl=document.getElementById('db-last-sync');
   const srcEl=document.getElementById('db-source-url');
   if(countEl) countEl.textContent=heroes.length;
-  if(syncEl) syncEl.textContent=_cache.lastSync?new Date(_cache.lastSync).toLocaleString('en-GB'):'Never';
-  if(srcEl) srcEl.textContent=_cache.sheetUrl||'Not set';
+  if(syncEl) syncEl.textContent=App.cache.lastSync?new Date(App.cache.lastSync).toLocaleString('en-GB'):'Never';
+  if(srcEl) srcEl.textContent=App.cache.sheetUrl||'Not set';
   const urlInput=document.getElementById('sheet-url-input');
-  if(urlInput&&_cache.sheetUrl&&!urlInput.value) urlInput.value=_cache.sheetUrl;
+  if(urlInput&&App.cache.sheetUrl&&!urlInput.value) urlInput.value=App.cache.sheetUrl;
   const keyInput=document.getElementById('anthropic-key-input');
-  if(keyInput&&_cache.anthropicKey&&!keyInput.value) keyInput.value=_cache.anthropicKey;
+  if(keyInput&&App.cache.anthropicKey&&!keyInput.value) keyInput.value=App.cache.anthropicKey;
 }
 
 // ══════════════════════════════════════════
@@ -207,15 +207,15 @@ function openHeroEditModal(heroName){
 }
 
 function previewHeroImg(){
-  var url=(document.getElementById('he-img')?.value||'').trim();
-  var prev=document.getElementById('he-img-preview');
+  const url=(document.getElementById('he-img')?.value||'').trim();
+  const prev=document.getElementById('he-img-preview');
   if(!prev) return;
   if(url){
     prev.innerHTML='<div class="hero-img-wrap" style="width:80px;height:80px;">'+
       '<img class="hero-img" src="'+url+'" alt="" loading="eager" onerror="this.style.display=\'none\'"/>'+
     '</div>';
   } else {
-    var name=(document.getElementById('hero-edit-title')?.textContent||'').replace('EDIT: ','');
+    const name=(document.getElementById('hero-edit-title')?.textContent||'').replace('EDIT: ','');
     prev.innerHTML=heroPortraitHtml(name,80,false);
   }
 }
@@ -259,19 +259,19 @@ const HERO_IMG_MAP={
 };
 
 function heroImgUrl(name){
-  var ov=getHeroOverrides();
+  const ov=getHeroOverrides();
   if(ov[name]&&ov[name].img) return ov[name].img;
   if(!name) return '';
-  var mapped=HERO_IMG_MAP[name];
+  const mapped=HERO_IMG_MAP[name];
   if(mapped) return HERO_IMG_BASE+(mapped.includes('/')?mapped:mapped+'.jpg');
   return HERO_IMG_BASE+name+'.jpg';
 }
 
 function heroPortraitHtml(name,px,showName){
-  var url=heroImgUrl(name);
-  var init=(name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase()||'?';
-  var fs=Math.max(9,Math.round(px*0.36));
-  var wrap='<div class="hero-img-wrap" style="width:'+px+'px;height:'+px+'px;">'+
+  const url=heroImgUrl(name);
+  const init=(name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase()||'?';
+  const fs=Math.max(9,Math.round(px*0.36));
+  let wrap='<div class="hero-img-wrap" style="width:'+px+'px;height:'+px+'px;">'+
     '<span class="hero-img-fallback" style="font-size:'+fs+'px;">'+init+'</span>'+
     (url?'<img class="hero-img" src="'+url+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>':'')+
   '</div>';
@@ -309,7 +309,7 @@ function calcHeroPoolScore(playerId){
   const data=loadData();
   const metaTiers=data.metaTiers||{};
   const playerMastery=(data.masteryTiers||{})[playerId]||{};
-  const player=PLAYERS.find(function(p){return p.id===playerId;});
+  const player=App.players.find(function(p){return p.id===playerId;});
   if(!player) return {pct:0,topSlice:[],scored:[],flagged:[],benchmarkCount:0,N:0,heroCount:0};
   const allHeroes=getLiveHeroes().concat(data.customHeroes||[]);
   const roleHeroes=allHeroes.filter(function(h){return h.roles.includes(player.role);});
@@ -346,9 +346,9 @@ function calcHeroPoolScore(playerId){
 // ══════════════════════════════════════════
 // HERO SEARCH
 // ══════════════════════════════════════════
-function buildHeroInput(wrapId,inputId,dropId,val){var el=document.getElementById(wrapId);if(!el)return;el.innerHTML='<label class="input-label">Hero Played</label><div class="hero-search-wrap"><input class="input" id="'+inputId+'" placeholder="Type to search..." autocomplete="off" value="'+(val||'')+'" oninput="filterHeroes(\''+inputId+'\',\''+dropId+'\')" onfocus="filterHeroes(\''+inputId+'\',\''+dropId+'\')"/><div class="hero-dropdown" id="'+dropId+'"></div></div>';}
-function filterHeroes(inputId,dropId){var inp=document.getElementById(inputId);var drop=document.getElementById(dropId);if(!inp||!drop)return;var val=inp.value.trim().toLowerCase();var heroes=getHeroList();var filtered=val?heroes.filter(function(h){return h.toLowerCase().includes(val);}):heroes;var html=filtered.slice(0,10).map(function(h){return '<div class="hero-option" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+h.replace(/'/g,"\\'")+'\')">'+h+'</div>';}).join('');var raw=inp.value.trim();if(raw&&!heroes.find(function(h){return h.toLowerCase()===raw.toLowerCase();})) html+='<div class="hero-option new-hero" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+raw.replace(/'/g,"\\'")+'\')">+ Add "'+raw+'"</div>';if(!html) html='<div class="hero-option new-hero" style="cursor:default;">Type a hero name</div>';drop.innerHTML=html;drop.classList.add('open');}
-function selectHero(inputId,dropId,name){var inp=document.getElementById(inputId);var drop=document.getElementById(dropId);if(inp)inp.value=name;if(drop)drop.classList.remove('open');}
+function buildHeroInput(wrapId,inputId,dropId,val){const el=document.getElementById(wrapId);if(!el)return;el.innerHTML='<label class="input-label">Hero Played</label><div class="hero-search-wrap"><input class="input" id="'+inputId+'" placeholder="Type to search..." autocomplete="off" value="'+(val||'')+'" oninput="filterHeroes(\''+inputId+'\',\''+dropId+'\')" onfocus="filterHeroes(\''+inputId+'\',\''+dropId+'\')"/><div class="hero-dropdown" id="'+dropId+'"></div></div>';}
+function filterHeroes(inputId,dropId){const inp=document.getElementById(inputId);const drop=document.getElementById(dropId);if(!inp||!drop)return;const val=inp.value.trim().toLowerCase();const heroes=getHeroList();const filtered=val?heroes.filter(function(h){return h.toLowerCase().includes(val);}):heroes;let html=filtered.slice(0,10).map(function(h){return '<div class="hero-option" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+h.replace(/'/g,"\\'")+'\')">'+h+'</div>';}).join('');const raw=inp.value.trim();if(raw&&!heroes.find(function(h){return h.toLowerCase()===raw.toLowerCase();})) html+='<div class="hero-option new-hero" ontouchstart="" onclick="selectHero(\''+inputId+'\',\''+dropId+'\',\''+raw.replace(/'/g,"\\'")+'\')">+ Add "'+raw+'"</div>';if(!html) html='<div class="hero-option new-hero" style="cursor:default;">Type a hero name</div>';drop.innerHTML=html;drop.classList.add('open');}
+function selectHero(inputId,dropId,name){const inp=document.getElementById(inputId);const drop=document.getElementById(dropId);if(inp)inp.value=name;if(drop)drop.classList.remove('open');}
 
 
 // ══════════════════════════════════════════
@@ -365,84 +365,84 @@ var HERO_WINDOWS=[
 function setHeroWindow(w){_heroState.window=w;renderHeroes();}
 function setHeroRole(r){_heroState.role=r;renderHeroes();}
 function setHeroSort(k){_heroState.sort=k;renderHeroes();}
-function getHeroCutoff(){var wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
+function getHeroCutoff(){const wDays=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{}).days||null;return wDays?new Date(Date.now()-wDays*24*60*60*1000):null;}
 
 // ── SCORING UTILITIES (ported from index.html; adapted for v2 pillar_scores format) ──
 function parseDate(str){
   if(!str)return new Date(0);
   // Handle YYYY-MM-DD (ISO) and DD/MM/YYYY (legacy)
-  if(str.includes('-')&&str.length>=10){var d=new Date(str+'T00:00:00');return isNaN(d.getTime())?new Date(0):d;}
-  var p=str.split('/');
+  if(str.includes('-')&&str.length>=10){const d=new Date(str+'T00:00:00');return isNaN(d.getTime())?new Date(0):d;}
+  const p=str.split('/');
   return new Date(+p[2],+p[1]-1,+p[0]);
 }
 var GRADE_SCALE=[{grade:'S+',min:9.0,cls:'grade-sp'},{grade:'S',min:8.0,cls:'grade-s'},{grade:'S-',min:7.0,cls:'grade-sm'},{grade:'A+',min:6.0,cls:'grade-ap'},{grade:'A',min:5.0,cls:'grade-a'},{grade:'A-',min:0,cls:'grade-am'}];
-function scoreToGrade(score){if(!score||score<=0)return null;for(var i=0;i<GRADE_SCALE.length;i++){if(score>=GRADE_SCALE[i].min)return GRADE_SCALE[i];}return GRADE_SCALE[GRADE_SCALE.length-1];}
+function scoreToGrade(score){if(!score||score<=0)return null;for(let i=0;i<GRADE_SCALE.length;i++){if(score>=GRADE_SCALE[i].min)return GRADE_SCALE[i];}return GRADE_SCALE[GRADE_SCALE.length-1];}
 var MENTALITY_CRITERIA=[];
 var GAME_SENSE_CRITERIA=[];
 var ROLE_CRITERIA={Support:[],Midlane:[],Carry:[],Offlane:[],Jungler:[]};
-function calcMentality(s,mentObj){var m=mentObj||s;var c=m.communication||0,d=m.discipline||0,t=m.team_contribution||0;if(c+d+t===0)return 0;return(c*0.5+d*0.25+t*0.25)*2;}
+function calcMentality(s,mentObj){const m=mentObj||s;const c=m.communication||0,d=m.discipline||0,t=m.team_contribution||0;if(c+d+t===0)return 0;return(c*0.5+d*0.25+t*0.25)*2;}
 function calcGameScore(s,role,game,pid){
   if(!s)return 0;
   if(s.pillar_scores){
-    var ps=s.pillar_scores;
-    var vals=Object.values(ps).filter(function(v){return v!=null&&v>0;});
-    var avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
-    var mentality=0,matchId=game&&game.matchId;
-    if(matchId&&pid){var pm=(_cache.matches||[]).find(function(m){return m.id===matchId;});var mo=pm&&pm.mentality&&pm.mentality[pid]?pm.mentality[pid]:null;if(mo)mentality=calcMentality(null,mo);}
-    var parts=(mentality>0?[mentality]:[]).concat(vals.length?[avg]:[]).filter(function(v){return v>0;});
+    const ps=s.pillar_scores;
+    const vals=Object.values(ps).filter(function(v){return v!=null&&v>0;});
+    const avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
+    let mentality=0,matchId=game&&game.matchId;
+    if(matchId&&pid){const pm=(App.cache.matches||[]).find(function(m){return m.id===matchId;});const mo=pm&&pm.mentality&&pm.mentality[pid]?pm.mentality[pid]:null;if(mo)mentality=calcMentality(null,mo);}
+    const parts=(mentality>0?[mentality]:[]).concat(vals.length?[avg]:[]).filter(function(v){return v>0;});
     return parts.length?parts.reduce(function(a,b){return a+b;},0)/parts.length:0;
   }
   return 0;
 }
 function getPlayerStats(playerId,games){
-  var player=(PLAYERS||[]).find(function(p){return p.id===playerId;})||(_cache.players||[]).find(function(p){return p.id===playerId;});
-  var now=new Date(),oneMonth=new Date(now-30*24*60*60*1000),oneWeek=new Date(now-7*24*60*60*1000);
-  var played=(games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});
-  var monthGames=played.filter(function(g){return parseDate(g.date)>=oneMonth;});
-  var weekGames=played.filter(function(g){return parseDate(g.date)>=oneWeek;});
+  const player=(App.players||[]).find(function(p){return p.id===playerId;})||(App.cache.players||[]).find(function(p){return p.id===playerId;});
+  const now=new Date(),oneMonth=new Date(now-30*24*60*60*1000),oneWeek=new Date(now-7*24*60*60*1000);
+  const played=(games||[]).filter(function(g){const s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped;});
+  const monthGames=played.filter(function(g){return parseDate(g.date)>=oneMonth;});
+  const weekGames=played.filter(function(g){return parseDate(g.date)>=oneWeek;});
   function avg(list){return list.length?list.reduce(function(acc,g){return acc+calcGameScore(g.playerScores[playerId],player?player.role:'',g,playerId);},0)/list.length:0;}
   return{games:played.length,monthAvg:avg(monthGames),weekAvg:avg(weekGames),playerGames:played};
 }
 function getRadarValues(playerId,games){
-  var player=(PLAYERS||[]).find(function(p){return p.id===playerId;})||(_cache.players||[]).find(function(p){return p.id===playerId;});
-  var empty=[{label:'Mentality',value:0},{label:'Pillar 1',value:0},{label:'Pillar 2',value:0},{label:'Pillar 3',value:0},{label:'Pillar 4',value:0},{label:'Hero Pool',value:0}];
+  const player=(App.players||[]).find(function(p){return p.id===playerId;})||(App.cache.players||[]).find(function(p){return p.id===playerId;});
+  const empty=[{label:'Mentality',value:0},{label:'Pillar 1',value:0},{label:'Pillar 2',value:0},{label:'Pillar 3',value:0},{label:'Pillar 4',value:0},{label:'Hero Pool',value:0}];
   if(!player)return empty;
-  var roleKey=(player.role||'').toLowerCase();
-  var pLabels=PILLAR_MAP[roleKey]||[];
-  var now=new Date(),cutoff=new Date(now-30*24*60*60*1000);
-  var monthGames=(games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
-  function avgPillar(idx){var key='p'+idx;var vals=monthGames.map(function(g){var s=g.playerScores&&g.playerScores[playerId];return s&&s.pillar_scores?s.pillar_scores[key]:null;}).filter(function(v){return v!=null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
-  function avgMentality(){var vals=monthGames.map(function(g){var pm=g.matchId?(_cache.matches||[]).find(function(m){return m.id===g.matchId;}):null;var mo=pm&&pm.mentality&&pm.mentality[playerId]?pm.mentality[playerId]:null;return mo?calcMentality(null,mo):null;}).filter(function(v){return v!==null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  const roleKey=(player.role||'').toLowerCase();
+  const pLabels=PILLAR_MAP[roleKey]||[];
+  const now=new Date(),cutoff=new Date(now-30*24*60*60*1000);
+  const monthGames=(games||[]).filter(function(g){const s=g.playerScores&&g.playerScores[playerId];return s&&!s.skipped&&parseDate(g.date)>=cutoff;});
+  function avgPillar(idx){const key='p'+idx;const vals=monthGames.map(function(g){const s=g.playerScores&&g.playerScores[playerId];return s&&s.pillar_scores?s.pillar_scores[key]:null;}).filter(function(v){return v!=null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+  function avgMentality(){const vals=monthGames.map(function(g){const pm=g.matchId?(App.cache.matches||[]).find(function(m){return m.id===g.matchId;}):null;const mo=pm&&pm.mentality&&pm.mentality[playerId]?pm.mentality[playerId]:null;return mo?calcMentality(null,mo):null;}).filter(function(v){return v!==null&&v>0;});return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
   return[{label:'Mentality',value:avgMentality()},{label:pLabels[0]||'Pillar 1',value:avgPillar(0)},{label:pLabels[1]||'Pillar 2',value:avgPillar(1)},{label:pLabels[2]||'Pillar 3',value:avgPillar(2)},{label:pLabels[3]||'Pillar 4',value:avgPillar(3)},{label:'Hero Pool',value:0}];
 }
 
 function buildHeroStats(cutoff){
-  var games=(_cache.games||[]).filter(function(g){return !cutoff||parseDate(g.date)>=cutoff;});
-  var totalGames=games.length;
-  var heroMap={};
-  var players=_cache.players||[];
+  const games=(App.cache.games||[]).filter(function(g){return !cutoff||parseDate(g.date)>=cutoff;});
+  const totalGames=games.length;
+  const heroMap={};
+  const players=App.cache.players||[];
   games.forEach(function(g){
     if(!g.playerScores) return;
-    var isWin=g.result==='Win';
-    var teamHeroes=[];
+    const isWin=g.result==='Win';
+    const teamHeroes=[];
     players.forEach(function(p){
-      var s=g.playerScores[p.id];
+      const s=g.playerScores[p.id];
       if(s&&!s.skipped&&s.hero) teamHeroes.push({pid:p.id,hero:s.hero});
     });
     players.forEach(function(p){
-      var s=g.playerScores[p.id];
+      const s=g.playerScores[p.id];
       if(!s||s.skipped||!s.hero) return;
-      var hname=s.hero;
-      var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
-      var hobj=allH.find(function(h){return h.name===hname;})||{name:hname,cls:'Custom',roles:[]};
+      const hname=s.hero;
+      const allH=getLiveHeroes().concat(App.cache.customHeroes||[]);
+      const hobj=allH.find(function(h){return h.name===hname;})||{name:hname,cls:'Custom',roles:[]};
       if(!heroMap[hname]){
         heroMap[hname]={name:hname,cls:hobj.cls,roles:hobj.roles,picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
           rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
       }
-      var entry=heroMap[hname];
+      const entry=heroMap[hname];
       entry.picks++;
       if(isWin) entry.wins++; else entry.losses++;
-      var score=calcGameScore(s,p.role,g,p.id);
+      const score=calcGameScore(s,p.role,g,p.id);
       if(score>0) entry.scores.push(score);
       if(s.kills!=null) entry.rawKills.push(+s.kills);
       if(s.deaths!=null) entry.rawDeaths.push(+s.deaths);
@@ -454,7 +454,7 @@ function buildHeroStats(cutoff){
       if(!entry.players[p.id]){
         entry.players[p.id]={nick:p.nick,role:p.role,picks:0,wins:0,losses:0,scores:[]};
       }
-      var pe=entry.players[p.id];
+      const pe=entry.players[p.id];
       pe.picks++;
       if(isWin) pe.wins++; else pe.losses++;
       if(score>0) pe.scores.push(score);
@@ -467,41 +467,41 @@ function buildHeroStats(cutoff){
     });
   });
   // Include all DB heroes so the full roster is visible even before any games are logged
-  getLiveHeroes().concat(_cache.customHeroes||[]).forEach(function(hobj){
+  getLiveHeroes().concat(App.cache.customHeroes||[]).forEach(function(hobj){
     if(!heroMap[hobj.name]){
       heroMap[hobj.name]={name:hobj.name,cls:hobj.cls||'Unknown',roles:hobj.roles||[],picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
         rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
     }
   });
-  var result=Object.values(heroMap);
+  const result=Object.values(heroMap);
   result.totalGames=totalGames;
   return result;
 }
 
 function renderHeroes(){
-  var cutoff=getHeroCutoff();
-  var heroes=buildHeroStats(cutoff);
-  var totalGames=heroes.totalGames||0;
-  var role=_heroState.role||'All';
-  var sort=_heroState.sort||'picks';
-  var q=(document.getElementById('hero-search-inp')?.value||'').trim().toLowerCase();
+  const cutoff=getHeroCutoff();
+  const heroes=buildHeroStats(cutoff);
+  const totalGames=heroes.totalGames||0;
+  const role=_heroState.role||'All';
+  const sort=_heroState.sort||'picks';
+  const q=(document.getElementById('hero-search-inp')?.value||'').trim().toLowerCase();
   // Role tabs
-  var roles=['All'].concat(GAME_ROLES);
+  const roles=['All'].concat(GAME_ROLES);
   document.getElementById('heroes-role-tabs').innerHTML=roles.map(function(r){
     return '<button class="hero-role-tab '+(role===r?'active':'')+'" onclick="setHeroRole(\''+r+'\')">'+r+'</button>';
   }).join('');
   // Sort bar
-  var sorts=[{k:'picks',l:'Pick Rate'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'},{k:'name',l:'Name'}];
+  const sorts=[{k:'picks',l:'Pick Rate'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'},{k:'name',l:'Name'}];
   document.getElementById('heroes-sort-bar').innerHTML=sorts.map(function(s){
     return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" onclick="setHeroSort(\''+s.k+'\')">'+s.l+'</button>';
   }).join('');
   // Date window bar
-  var win=_heroState.window||'All';
+  const win=_heroState.window||'All';
   document.getElementById('heroes-window-bar').innerHTML=HERO_WINDOWS.map(function(w){
     return '<button class="hero-sort-btn '+(win===w.k?'active':'')+'" onclick="setHeroWindow(\''+w.k+'\')">'+w.l+'</button>';
   }).join('');
   // Filter
-  var filtered=heroes.filter(function(h){
+  const filtered=heroes.filter(function(h){
     if(q&&!h.name.toLowerCase().includes(q)) return false;
     if(role!=='All'&&!h.roles.includes(role)) return false;
     return true;
@@ -512,12 +512,12 @@ function renderHeroes(){
     if(sort==='wr'){
       if(!a.picks&&!b.picks) return a.name.localeCompare(b.name);
       if(!a.picks) return 1; if(!b.picks) return -1;
-      var wa=a.wins/a.picks,wb=b.wins/b.picks;
+      const wa=a.wins/a.picks,wb=b.wins/b.picks;
       return wb-wa||b.picks-a.picks;
     }
     if(sort==='score'){
-      var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
-      var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
+      const sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
+      const sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
       if(!sa&&!sb) return a.name.localeCompare(b.name);
       return sb-sa;
     }
@@ -530,12 +530,12 @@ function renderHeroes(){
     return;
   }
   document.getElementById('heroes-list').innerHTML=filtered.map(function(h){
-    var wr=h.picks?Math.round(h.wins/h.picks*100):null;
-    var pr=totalGames?Math.round(h.picks/totalGames*100):null;
-    var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
-    var grade=avgScore>0?scoreToGrade(avgScore):null;
-    var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
-    var lowConf=h.picks>0&&h.picks<3?'<span class="low-conf">·</span>':'';
+    const wr=h.picks?Math.round(h.wins/h.picks*100):null;
+    const pr=totalGames?Math.round(h.picks/totalGames*100):null;
+    const avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+    const grade=avgScore>0?scoreToGrade(avgScore):null;
+    const wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
+    const lowConf=h.picks>0&&h.picks<3?'<span class="low-conf">·</span>':'';
     return '<div class="hero-row" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))">'+
       heroPortraitHtml(h.name,44,false)+
       '<div style="flex:1;min-width:0;margin-left:10px;">'+
@@ -560,34 +560,34 @@ function renderHeroes(){
 }
 
 function openHeroDetail(heroName){
-  var cutoff=getHeroCutoff();
-  var heroes=buildHeroStats(cutoff);
-  var totalGames=heroes.totalGames||0;
-  var h=heroes.find(function(x){return x.name===heroName;});
+  const cutoff=getHeroCutoff();
+  const heroes=buildHeroStats(cutoff);
+  const totalGames=heroes.totalGames||0;
+  const h=heroes.find(function(x){return x.name===heroName;});
   if(!h){showToast('Hero not found');return;}
-  var wr=h.picks?Math.round(h.wins/h.picks*100):null;
-  var pr=totalGames?Math.round(h.picks/totalGames*100):null;
-  var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
-  var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
-  var grade=avgScore>0?scoreToGrade(avgScore):null;
-  var lowWarn=h.picks>0&&h.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);margin-bottom:12px;">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
-  var playerRows=Object.values(h.players).sort(function(a,b){return b.picks-a.picks;}).map(function(pe){
-    var pwr=pe.picks?Math.round(pe.wins/pe.picks*100):0;
-    var pavgScore=pe.scores.length?pe.scores.reduce(function(a,b){return a+b;},0)/pe.scores.length:0;
-    var pgr=pavgScore>0?scoreToGrade(pavgScore):null;
+  const wr=h.picks?Math.round(h.wins/h.picks*100):null;
+  const pr=totalGames?Math.round(h.picks/totalGames*100):null;
+  const wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
+  const avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+  const grade=avgScore>0?scoreToGrade(avgScore):null;
+  const lowWarn=h.picks>0&&h.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);margin-bottom:12px;">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
+  const playerRows=Object.values(h.players).sort(function(a,b){return b.picks-a.picks;}).map(function(pe){
+    const pwr=pe.picks?Math.round(pe.wins/pe.picks*100):0;
+    const pavgScore=pe.scores.length?pe.scores.reduce(function(a,b){return a+b;},0)/pe.scores.length:0;
+    const pgr=pavgScore>0?scoreToGrade(pavgScore):null;
     return '<div class="hd-player-row">'+
       '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+pe.nick+'</div><div class="hd-wl">'+pe.wins+'W / '+pe.losses+'L · '+pwr+'% WR · '+pe.picks+' game'+(pe.picks!==1?'s':'')+'</div></div>'+
       '<div class="grade '+(pgr?pgr.cls:'grade-am')+'" style="font-size:18px;">'+(pgr?pgr.grade:'--')+'</div>'+
     '</div>';
   }).join('');
   // Pair synergy
-  var pairs=Object.values(h.pairsWith||{}).filter(function(p){return p.picks>=2;}).sort(function(a,b){
-    var wa=a.picks?a.wins/a.picks:0,wb=b.picks?b.wins/b.picks:0;return wb-wa;
+  const pairs=Object.values(h.pairsWith||{}).filter(function(p){return p.picks>=2;}).sort(function(a,b){
+    const wa=a.picks?a.wins/a.picks:0,wb=b.picks?b.wins/b.picks:0;return wb-wa;
   });
-  var topPairs=pairs.slice(0,5);
-  var pairsHtml=topPairs.length?topPairs.map(function(p){
-    var pwr=p.picks?Math.round(p.wins/p.picks*100):0;
-    var pc=pwr>=60?'var(--success)':pwr>=50?'var(--warn)':'var(--danger)';
+  const topPairs=pairs.slice(0,5);
+  const pairsHtml=topPairs.length?topPairs.map(function(p){
+    const pwr=p.picks?Math.round(p.wins/p.picks*100):0;
+    const pc=pwr>=60?'var(--success)':pwr>=50?'var(--warn)':'var(--danger)';
     return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:var(--border);">'+
       '<div style="flex:1;font-size:12px;font-weight:600;">'+p.hero+'</div>'+
       '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.picks+'G</div>'+
@@ -598,32 +598,32 @@ function openHeroDetail(heroName){
   :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games together to show synergy</div>';
   // Raw stats section
   function _avg(arr){return arr.length?arr.reduce(function(a,b){return a+b;},0)/arr.length:null;}
-  var avgK=_avg(h.rawKills),avgD=_avg(h.rawDeaths),avgA=_avg(h.rawAssists);
-  var kdaVal=avgK!=null&&avgD!=null&&avgA!=null?((avgK+avgA)/(avgD||1)).toFixed(2):null;
-  var kdaLine=kdaVal?kdaVal+' ('+avgK.toFixed(1)+' / '+avgD.toFixed(1)+' / '+avgA.toFixed(1)+')':null;
-  var avgGpm=_avg(h.rawGpm),avgRating=_avg(h.rawRating),avgDmgDealt=_avg(h.rawDmgDealt),avgDmgTaken=_avg(h.rawDmgTaken);
+  const avgK=_avg(h.rawKills),avgD=_avg(h.rawDeaths),avgA=_avg(h.rawAssists);
+  const kdaVal=avgK!=null&&avgD!=null&&avgA!=null?((avgK+avgA)/(avgD||1)).toFixed(2):null;
+  const kdaLine=kdaVal?kdaVal+' ('+avgK.toFixed(1)+' / '+avgD.toFixed(1)+' / '+avgA.toFixed(1)+')':null;
+  const avgGpm=_avg(h.rawGpm),avgRating=_avg(h.rawRating),avgDmgDealt=_avg(h.rawDmgDealt),avgDmgTaken=_avg(h.rawDmgTaken);
   function rawStatRow(label,val,suffix,decimals){
-    var disp=val!=null?val.toFixed(decimals||0)+(suffix||''):'—';
+    const disp=val!=null?val.toFixed(decimals||0)+(suffix||''):'—';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:var(--border);font-family:\'DM Mono\',monospace;">'+
       '<div style="font-size:9px;color:var(--grey-5);">'+label+'</div>'+
       '<div style="font-size:12px;color:var(--text);">'+disp+'</div>'+
     '</div>';
   }
-  var rawStatsHtml=h.picks>0?
+  const rawStatsHtml=h.picks>0?
     rawStatRow('KDA',null,null,2).replace('—',kdaLine||'—')+
     rawStatRow('Avg Gold / Min',avgGpm,'',0)+
     rawStatRow('Avg In-Game Rating',avgRating,'',1)+
     rawStatRow('Avg DMG Dealt %',avgDmgDealt!=null?avgDmgDealt*100:null,'%',1)+
     rawStatRow('Avg DMG Taken %',avgDmgTaken!=null?avgDmgTaken*100:null,'%',1):
     '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No games logged with this hero yet</div>';
-  var winLabel=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{l:'All Time'}).l;
+  const winLabel=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{l:'All Time'}).l;
   document.getElementById('hd-title').textContent=heroName.toUpperCase();
   document.getElementById('hd-body').innerHTML=
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:8px 0 0;letter-spacing:1px;">'+winLabel.toUpperCase()+'</div>'+
     '<div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 8px;">'+
       heroPortraitHtml(heroName,160,false)+
       '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;margin-top:10px;">'+heroName+'</div>'+
-      (function(){var hdb=getLiveHeroes().find(function(x){return x.name===heroName;});return hdb?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+hdb.cls+(hdb.roles.length?' · '+hdb.roles.join(', '):'')+'</div>':'';})() +
+      (function(){const hdb=getLiveHeroes().find(function(x){return x.name===heroName;});return hdb?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+hdb.cls+(hdb.roles.length?' · '+hdb.roles.join(', '):'')+'</div>':'';})() +
     '</div>'+
     lowWarn+
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+
@@ -647,32 +647,32 @@ function openHeroDetail(heroName){
 // TOP 3 HEROES IN PLAYER PROFILE — V7
 // ══════════════════════════════════════════
 function buildTop3HeroesHtml(playerId,games){
-  var heroMap={};
-  var player=(_cache.players||[]).find(function(p){return p.id===playerId;});
+  const heroMap={};
+  const player=(App.cache.players||[]).find(function(p){return p.id===playerId;});
   if(!player) return '';
   games.forEach(function(g){
-    var s=g.playerScores&&g.playerScores[playerId];
+    const s=g.playerScores&&g.playerScores[playerId];
     if(!s||s.skipped||!s.hero) return;
-    var hname=s.hero;
+    const hname=s.hero;
     if(!heroMap[hname]) heroMap[hname]={name:hname,picks:0,wins:0,scores:[]};
     heroMap[hname].picks++;
     if(g.result==='Win') heroMap[hname].wins++;
-    var sc=calcGameScore(s,player.role,g,player.id);
+    const sc=calcGameScore(s,player.role,g,player.id);
     if(sc>0) heroMap[hname].scores.push(sc);
   });
   // Top 3 by avg score, but only from the top 10 most-played heroes
-  var byPlays=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){return b.picks-a.picks;}).slice(0,10);
-  var top3=byPlays.slice().sort(function(a,b){
-    var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
-    var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
+  const byPlays=Object.values(heroMap).filter(function(h){return h.picks>0;}).sort(function(a,b){return b.picks-a.picks;}).slice(0,10);
+  const top3=byPlays.slice().sort(function(a,b){
+    const sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
+    const sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
     return sb-sa;
   }).slice(0,3);
   if(!top3.length) return '<div style="padding:8px 20px 12px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No hero data yet</div>';
-  var medals=['🥇','🥈','🥉'];
-  var chips=top3.map(function(h,i){
-    var wr=h.picks?Math.round(h.wins/h.picks*100):0;
-    var avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
-    var gr=avgSc>0?scoreToGrade(avgSc):null;
+  const medals=['🥇','🥈','🥉'];
+  const chips=top3.map(function(h,i){
+    const wr=h.picks?Math.round(h.wins/h.picks*100):0;
+    const avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+    const gr=avgSc>0?scoreToGrade(avgSc):null;
     return '<div class="top3-chip" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
       '<div class="top3-medal" style="margin-bottom:5px;">'+medals[i]+'</div>'+
       heroPortraitHtml(h.name,56,false)+
@@ -743,8 +743,8 @@ Rules:
 - Return ONLY valid JSON, no markdown fences.`;
 
 function saveAnthropicKey(){
-  var val=(document.getElementById('anthropic-key-input')?.value||'').replace(/\s+/g,'');
-  var statusEl=document.getElementById('anthropic-key-status');
+  const val=(document.getElementById('anthropic-key-input')?.value||'').replace(/\s+/g,'');
+  const statusEl=document.getElementById('anthropic-key-status');
   if(!val){if(statusEl)statusEl.textContent='Key is empty — not saved.';return;}
   if(statusEl)statusEl.textContent='Verifying key…';
   fetch('https://api.anthropic.com/v1/messages',{
@@ -761,7 +761,7 @@ function saveAnthropicKey(){
       if(statusEl)statusEl.textContent='⚠ Key rejected by Anthropic — check it is correct and active.';
       return;
     }
-    _cache.anthropicKey=val;
+    App.cache.anthropicKey=val;
     sbSaveSetting('anthropic_key',val).then(function(){
       if(statusEl)statusEl.textContent='✓ Key verified and saved.';
       setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
@@ -769,7 +769,7 @@ function saveAnthropicKey(){
       if(statusEl)statusEl.textContent='⚠ Key valid but could not save to database.';
     });
   }).catch(function(){
-    _cache.anthropicKey=val;
+    App.cache.anthropicKey=val;
     sbSaveSetting('anthropic_key',val).then(function(){
       if(statusEl)statusEl.textContent='✓ Saved (could not verify — check network).';
       setTimeout(function(){if(statusEl)statusEl.textContent='';},3000);
@@ -780,7 +780,7 @@ function saveAnthropicKey(){
 // ── SCAN MODAL FUNCTIONS ─────────────────────────────────────────────────────
 
 function openScanModal(){
-  if(!_cache.anthropicKey){showToast('Set your Anthropic API key in Settings first');return;}
+  if(!App.cache.anthropicKey){showToast('Set your Anthropic API key in Settings first');return;}
   _scanState='upload';
   _scanFiles=[];
   _scanResult=null;
@@ -797,14 +797,14 @@ function closeScanModal(){
 }
 
 function renderScanModal(){
-  var body=document.getElementById('scan-modal-body');
-  var sec=document.getElementById('scan-btn-secondary');
-  var prim=document.getElementById('scan-btn-primary');
+  const body=document.getElementById('scan-modal-body');
+  const sec=document.getElementById('scan-btn-secondary');
+  const prim=document.getElementById('scan-btn-primary');
   if(!body)return;
   if(_scanState==='upload'){
     body.innerHTML=buildScanUploadHtml();
     sec.textContent='CANCEL'; sec.disabled=false;
-    var n=_scanFiles.length;
+    const n=_scanFiles.length;
     prim.textContent='SCAN '+(n||1)+' SHOT'+(n!==1?'S →':'→');
     prim.disabled=(n===0);
   } else if(_scanState==='scanning'){
@@ -814,15 +814,15 @@ function renderScanModal(){
   } else {
     body.innerHTML=buildScanReviewHtml();
     sec.textContent='DISCARD'; sec.disabled=false;
-    var cnt=countCheckedScanFields();
+    const cnt=countCheckedScanFields();
     prim.textContent='APPLY '+cnt+' FIELDS →'; prim.disabled=(cnt===0);
     // wire checkboxes
     document.querySelectorAll('[data-scan-field]').forEach(function(el){
       el.addEventListener('click',function(){
-        var fid=el.dataset.scanField;
+        const fid=el.dataset.scanField;
         _scanChecked[fid]=!_scanChecked[fid];
         renderCheckbox(el,!!_scanChecked[fid]);
-        var cnt=countCheckedScanFields();
+        const cnt=countCheckedScanFields();
         prim.textContent='APPLY '+cnt+' FIELDS →'; prim.disabled=(cnt===0);
       });
     });
@@ -846,7 +846,7 @@ function scanPrimaryAction(){
 }
 
 function buildScanUploadHtml(){
-  var html='<div style="background:rgba(255,204,68,0.06);border:1px solid rgba(255,204,68,0.2);border-radius:4px;padding:10px 12px;display:flex;gap:10px;margin-bottom:14px;font-size:11.5px;color:var(--grey-6);line-height:1.5;">'
+  let html='<div style="background:rgba(255,204,68,0.06);border:1px solid rgba(255,204,68,0.2);border-radius:4px;padding:10px 12px;display:flex;gap:10px;margin-bottom:14px;font-size:11.5px;color:var(--grey-6);line-height:1.5;">'
     +'<span style="font-size:14px;">ℹ</span><div>Drop up to <b style="color:var(--white)">3 screenshots</b> per game. Sucrose will extract player names, KDA, gold, in-game rating, MVP, and damage stats.</div></div>';
   // drop zone
   html+='<div style="border:1.5px dashed var(--grey-3);border-radius:4px;padding:18px;text-align:center;cursor:pointer;background:rgba(255,255,255,0.01);" onclick="document.getElementById(\'scan-file-input\').click()">'
@@ -886,7 +886,7 @@ function removeScanFile(idx){
 }
 
 function buildScanScanningHtml(){
-  var n=_scanFiles.length||1;
+  const n=_scanFiles.length||1;
   return '<div style="padding:32px 12px;text-align:center;">'
     +'<div style="width:56px;height:56px;border-radius:50%;border:3px solid var(--grey-3);border-top-color:var(--warn);animation:scanSpin 1s linear infinite;margin:0 auto 16px;"></div>'
     +'<div style="font-family:\'DM Mono\',monospace;font-size:12px;letter-spacing:2px;color:var(--grey-6);margin-bottom:6px;">ANALYZING '+n+' SCREENSHOT'+(n!==1?'S':'')+'</div>'
@@ -898,56 +898,56 @@ function buildScanScanningHtml(){
 }
 
 function updateScanProgress(lines){
-  var el=document.getElementById('scan-progress-list');
+  const el=document.getElementById('scan-progress-list');
   if(el)el.innerHTML=lines.join('');
 }
 
 function scanProgressLine(state,text){
-  var colors={done:'var(--success)',active:'var(--warn)',pending:'var(--grey-4)'};
-  var icons={done:'✓ ',active:'▸ ',pending:'· '};
+  const colors={done:'var(--success)',active:'var(--warn)',pending:'var(--grey-4)'};
+  const icons={done:'✓ ',active:'▸ ',pending:'· '};
   return '<div style="color:'+colors[state]+';">'+icons[state]+text+'</div>';
 }
 
 function buildScanReviewHtml(){
   if(!_scanResult)return '<div style="color:var(--grey-4);text-align:center;padding:20px;">No scan data</div>';
-  var raw=_scanResult.raw;
-  var ourTeam=_scanResult.ourTeam;
+  const raw=_scanResult.raw;
+  const ourTeam=_scanResult.ourTeam;
 
   // build match-level rows
-  var matchRows=[];
+  const matchRows=[];
   if(raw.endedAt)matchRows.push({id:'endedAt',label:'MATCH END · CLOCK ICON',val:''+raw.endedAt,badge:'NEW',badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)'});
   if(raw.duration)matchRows.push({id:'duration',label:'GAME DURATION',val:''+raw.duration,badge:'NEW',badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)'});
   if(raw.mvpIgn){
-    var mvpP=findPlayerByIgn(raw.mvpIgn);
+    const mvpP=findPlayerByIgn(raw.mvpIgn);
     matchRows.push({id:'mvp',label:'MVP (WIN SIDE)',val:(mvpP?mvpP.nick+' · ':'')+raw.mvpIgn,badge:'MVP',badgeColor:'var(--warn)',badgeBg:'rgba(255,204,68,0.1)',badgeBorder:'rgba(255,204,68,0.3)'});
   }
 
   // count fields & init checked
   // In edit mode, load existing game scores to detect already-filled fields
-  var editMode=!!(_scanResult&&_scanResult._editMode);
-  var editGameIdx=editMode?_cache.games.findIndex(function(g){return g.id===window._editGameId;}):-1;
-  var editScores=(editGameIdx>=0&&_cache.games[editGameIdx].playerScores)||{};
+  const editMode=!!(_scanResult&&_scanResult._editMode);
+  const editGameIdx=editMode?App.cache.games.findIndex(function(g){return g.id===App.ui.editGameId;}):-1;
+  const editScores=(editGameIdx>=0&&App.cache.games[editGameIdx].playerScores)||{};
 
-  var coexistCount=0;
+  let coexistCount=0;
   matchRows.forEach(function(r){
     if(!(r.id in _scanChecked)){
       // In edit mode, default OFF if the field already has a value on the game
-      if(editMode&&r.id==='endedAt'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].endedAt)_scanChecked[r.id]=false;
-      else if(editMode&&r.id==='duration'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].duration)_scanChecked[r.id]=false;
-      else if(editMode&&r.id==='mvp'&&_cache.games[editGameIdx]&&_cache.games[editGameIdx].mvpPlayerId)_scanChecked[r.id]=false;
+      if(editMode&&r.id==='endedAt'&&App.cache.games[editGameIdx]&&App.cache.games[editGameIdx].endedAt)_scanChecked[r.id]=false;
+      else if(editMode&&r.id==='duration'&&App.cache.games[editGameIdx]&&App.cache.games[editGameIdx].duration)_scanChecked[r.id]=false;
+      else if(editMode&&r.id==='mvp'&&App.cache.games[editGameIdx]&&App.cache.games[editGameIdx].mvpPlayerId)_scanChecked[r.id]=false;
       else _scanChecked[r.id]=true;
     }
   });
   ourTeam.forEach(function(e){
     if(!e.player)return;
-    var pid=e.player.id;
-    var ex=e.extracted;
-    var sc=editScores[pid]||{};
+    const pid=e.player.id;
+    const ex=e.extracted;
+    const sc=editScores[pid]||{};
     ['kda','gold','gameRating','dmgDealtPct','dmgTakenPct','dmgDealt','dmgTaken'].forEach(function(f){
-      var fid=pid+'_'+f;
+      const fid=pid+'_'+f;
       if(!(fid in _scanChecked)&&getScanFieldVal(ex,f)!==null){
         // In edit mode, default OFF for fields already present in the saved game
-        var alreadyFilled=editMode&&(
+        const alreadyFilled=editMode&&(
           (f==='kda'&&sc.kills!=null)||(f==='gold'&&sc.gold!=null)||
           (f==='gameRating'&&sc.gameRating!=null)||
           (f==='dmgDealtPct'&&sc.dmgDealtPct!=null)||(f==='dmgTakenPct'&&sc.dmgTakenPct!=null)||
@@ -956,14 +956,14 @@ function buildScanReviewHtml(){
         _scanChecked[fid]=!alreadyFilled;
       }
     });
-    // Coexist: in log mode use LS.scores; in edit mode use saved scores
-    var coachRating=editMode?(sc.coachRating!=null?sc.coachRating:null):(LS.scores&&LS.scores[pid]&&LS.scores[pid].coachRating!=null?LS.scores[pid].coachRating:null);
+    // Coexist: in log mode use App.log.scores; in edit mode use saved scores
+    const coachRating=editMode?(sc.coachRating!=null?sc.coachRating:null):(App.log.scores&&App.log.scores[pid]&&App.log.scores[pid].coachRating!=null?App.log.scores[pid].coachRating:null);
     if(coachRating!=null&&ex.gameRating!=null)coexistCount++;
   });
-  var totalFields=Object.keys(_scanChecked).length;
-  var shotCount=_scanFiles.length||1;
+  const totalFields=Object.keys(_scanChecked).length;
+  const shotCount=_scanFiles.length||1;
 
-  var html='';
+  let html='';
   // summary stats
   html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">';
   [{n:shotCount,l:'SHOTS'},{n:totalFields,l:'FIELDS'},{n:coexistCount,l:'COEXIST'}].forEach(function(s){
@@ -983,7 +983,7 @@ function buildScanReviewHtml(){
     html+=scanSectionLabel('MATCH-LEVEL');
     html+='<div style="background:var(--grey-1);border:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px;">';
     matchRows.forEach(function(r,i){
-      var ck=_scanChecked[r.id]!==false;
+      const ck=_scanChecked[r.id]!==false;
       html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<matchRows.length-1,null,null,null);
     });
     html+='</div>';
@@ -992,13 +992,13 @@ function buildScanReviewHtml(){
   // player-level section
   html+=scanSectionLabel('PLAYER-LEVEL · OUR SIDE');
   ourTeam.forEach(function(e){
-    var p=e.player;var ex=e.extracted;
-    var prows=buildPlayerScanRows(e,raw);
+    const p=e.player;const ex=e.extracted;
+    const prows=buildPlayerScanRows(e,raw);
     if(prows.length===0)return;
-    var init=p?(p.nick||p.ign||'?').substring(0,2).toUpperCase():'??';
-    var name=p?p.nick:(ex.ign||'Unknown');
-    var heroName=(e.hero&&e.hero.name)||(ex.hero||'');
-    var isMvp=raw.mvpIgn&&p&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
+    const init=p?(p.nick||p.ign||'?').substring(0,2).toUpperCase():'??';
+    const name=p?p.nick:(ex.ign||'Unknown');
+    const heroName=(e.hero&&e.hero.name)||(ex.hero||'');
+    const isMvp=raw.mvpIgn&&p&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
     html+='<div style="background:var(--grey-1);border:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden;">';
     html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--grey-2);border-bottom:var(--border);">'
       +'<div style="width:28px;height:28px;border-radius:4px;background:var(--grey-3);display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:var(--grey-6);">'+init+'</div>'
@@ -1006,7 +1006,7 @@ function buildScanReviewHtml(){
       +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:auto;">'+(p?p.role:(ex.ign||''))+' · '+(heroName.toUpperCase())+'</div>'
       +'</div>';
     prows.forEach(function(r,i){
-      var ck=_scanChecked[r.id]!==false;
+      const ck=_scanChecked[r.id]!==false;
       html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<prows.length-1,r.note,r.coachVal,r.gameVal);
     });
     html+='</div>';
@@ -1036,14 +1036,14 @@ function getScanFieldVal(ex,field){
 }
 
 function buildPlayerScanRows(entry,raw){
-  var ex=entry.extracted;var p=entry.player;
-  var pid=p?p.id:'nopl';var rows=[];
+  const ex=entry.extracted;const p=entry.player;
+  const pid=p?p.id:'nopl';const rows=[];
   if(ex.kills!=null){
     rows.push({id:pid+'_kda',label:'SCORE (K/D/A)',val:ex.kills+' / '+ex.deaths+' / '+ex.assists,badge:'NEW',
       badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)',note:null});
   }
   if(ex.gold!=null){
-    var warn=(ex.gold>14000||ex.gold<3500);
+    const warn=(ex.gold>14000||ex.gold<3500);
     rows.push({id:pid+'_gold',label:'GOLD',val:Number(ex.gold).toLocaleString(),
       badge:warn?'WARN':'NEW',badgeColor:warn?'var(--warn)':'var(--success)',
       badgeBg:warn?'rgba(255,204,68,0.08)':'rgba(68,255,136,0.08)',
@@ -1051,11 +1051,11 @@ function buildPlayerScanRows(entry,raw){
       note:warn?'check against role avg':null});
   }
   if(ex.gameRating!=null){
-    // Coach rating: in log mode from LS.scores; in edit mode from saved game
-    var editMode2=!!(_scanResult&&_scanResult._editMode);
-    var editGIdx2=editMode2?_cache.games.findIndex(function(g){return g.id===window._editGameId;}):-1;
-    var editSc2=editMode2&&editGIdx2>=0?(_cache.games[editGIdx2].playerScores&&_cache.games[editGIdx2].playerScores[pid])||{}:{};
-    var coachRating=editMode2?(editSc2.coachRating!=null?editSc2.coachRating:null):(p&&LS.scores&&LS.scores[p.id]&&LS.scores[p.id].coachRating!=null?LS.scores[p.id].coachRating:null);
+    // Coach rating: in log mode from App.log.scores; in edit mode from saved game
+    const editMode2=!!(_scanResult&&_scanResult._editMode);
+    const editGIdx2=editMode2?App.cache.games.findIndex(function(g){return g.id===App.ui.editGameId;}):-1;
+    const editSc2=editMode2&&editGIdx2>=0?(App.cache.games[editGIdx2].playerScores&&App.cache.games[editGIdx2].playerScores[pid])||{}:{};
+    const coachRating=editMode2?(editSc2.coachRating!=null?editSc2.coachRating:null):(p&&App.log.scores&&App.log.scores[p.id]&&App.log.scores[p.id].coachRating!=null?App.log.scores[p.id].coachRating:null);
     if(coachRating!=null){
       rows.push({id:pid+'_gameRating',label:'IN-GAME RATING',val:''+ex.gameRating,badge:'+ STORED',
         badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)',
@@ -1085,11 +1085,11 @@ function buildPlayerScanRows(entry,raw){
 }
 
 function scanDiffRow(id,checked,label,val,badge,badgeColor,badgeBg,badgeBorder,hasBorder,note,coachVal,gameVal){
-  var valsHtml;
+  let valsHtml;
   if(coachVal!=null&&gameVal!=null){
-    var delta=parseFloat(gameVal)-parseFloat(coachVal);
-    var dStr=(delta>=0?'+':'')+delta.toFixed(1);
-    var dColor=Math.abs(delta)>=1.5?'var(--warn)':'var(--grey-5)';
+    const delta=parseFloat(gameVal)-parseFloat(coachVal);
+    const dStr=(delta>=0?'+':'')+delta.toFixed(1);
+    const dColor=Math.abs(delta)>=1.5?'var(--warn)':'var(--grey-5)';
     valsHtml='<span style="display:inline-flex;align-items:center;gap:4px;">'
       +'<span style="font-size:9px;letter-spacing:1px;color:var(--grey-5);font-family:\'DM Mono\',monospace;">COACH</span>'
       +'<span style="font-weight:600;">'+coachVal+'</span></span>'
@@ -1119,21 +1119,21 @@ function countCheckedScanFields(){
 }
 
 function handleScanFileInput(input){
-  var files=Array.from(input.files||[]);
-  var toProcess=files.slice(0,3-_scanFiles.length);
-  var done=0;
+  const files=Array.from(input.files||[]);
+  const toProcess=files.slice(0,3-_scanFiles.length);
+  let done=0;
   if(toProcess.length===0){input.value='';return;}
   toProcess.forEach(function(file){
-    var reader=new FileReader();
+    const reader=new FileReader();
     reader.onload=function(e){
-      var img=new Image();
+      const img=new Image();
       img.onload=function(){
-        var maxW=1920,maxH=1920,w=img.width,h=img.height;
-        if(w>maxW||h>maxH){var sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
-        var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        let maxW=1920,maxH=1920,w=img.width,h=img.height;
+        if(w>maxW||h>maxH){const sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
         canvas.getContext('2d').drawImage(img,0,0,w,h);
-        var mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
-        var dataUrl=canvas.toDataURL(mimeType,0.92);
+        const mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
+        const dataUrl=canvas.toDataURL(mimeType,0.92);
         _scanFiles.push({file:file,dataUrl:dataUrl,base64:dataUrl.split(',')[1],mimeType:mimeType,label:SHOT_LABELS[_scanFiles.length]||SHOT_LABELS[0]});
         done++;
         if(done===toProcess.length)renderScanModal();
@@ -1150,10 +1150,10 @@ function startScan(){
   _scanCancelled=false;
   _scanState='scanning';
   renderScanModal();
-  var imageContents=_scanFiles.map(function(sf){
+  const imageContents=_scanFiles.map(function(sf){
     return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
   });
-  var steps=[
+  const steps=[
     'RESULT · player names · heroes · KDA',
     'RESULT · gold · in-game rating',
     'RESULT · clock icon timestamp · MVP',
@@ -1162,10 +1162,10 @@ function startScan(){
     'BUILD · final items',
     'cross-validating player matches…'
   ];
-  var tick=0;
+  let tick=0;
   function advance(){
     if(_scanCancelled)return;
-    var lines=steps.map(function(s,i){
+    const lines=steps.map(function(s,i){
       return scanProgressLine(i<tick?'done':i===tick?'active':'pending',s);
     });
     updateScanProgress(lines);
@@ -1174,7 +1174,7 @@ function startScan(){
   advance();
   callClaudeVision(imageContents).then(function(raw){
     if(_scanCancelled)return;
-    var matched=processScanResult(raw);
+    const matched=processScanResult(raw);
     _scanResult={ourTeam:matched.ourTeam,oppTeam:matched.oppTeam,raw:raw};
     _scanChecked={};
     _scanState='review';
@@ -1189,10 +1189,10 @@ function startScan(){
 
 async function callClaudeVision(imageContents){
   // imageContents: array of {type:'image',source:{type:'base64',media_type,data}}
-  var resp=await fetch('https://api.anthropic.com/v1/messages',{
+  const resp=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{
-      'x-api-key':_cache.anthropicKey,
+      'x-api-key':App.cache.anthropicKey,
       'anthropic-version':'2023-06-01',
       'anthropic-dangerous-direct-browser-access':'true',
       'content-type':'application/json'
@@ -1207,13 +1207,13 @@ async function callClaudeVision(imageContents){
     })
   });
   if(!resp.ok){
-    var errText=await resp.text();
+    const errText=await resp.text();
     if(resp.status===401)throw new Error('Invalid API key — go to Settings and re-enter your key from console.anthropic.com');
     if(resp.status===429)throw new Error('Rate limited or out of credits — check your Anthropic account');
     throw new Error('API error '+resp.status+': '+errText.slice(0,100));
   }
-  var json=await resp.json();
-  var text=(json.content&&json.content[0]&&json.content[0].text)||'';
+  const json=await resp.json();
+  let text=(json.content&&json.content[0]&&json.content[0].text)||'';
   text=text.replace(/^```[a-z]*\n?/i,'').replace(/```$/,'').trim();
   try{return JSON.parse(text);}
   catch(e){throw new Error('Could not parse scan response — try again');}
@@ -1221,8 +1221,8 @@ async function callClaudeVision(imageContents){
 
 function findHeroByName(name){
   if(!name) return null;
-  var all=[].concat(_cache.heroes,_cache.customHeroes);
-  var lo=name.toLowerCase();
+  const all=[].concat(App.cache.heroes,App.cache.customHeroes);
+  const lo=name.toLowerCase();
   return all.find(function(h){return h.name.toLowerCase()===lo;})||
          all.find(function(h){return h.name.toLowerCase().includes(lo)||lo.includes(h.name.toLowerCase());})||
          null;
@@ -1230,9 +1230,9 @@ function findHeroByName(name){
 
 function findPlayerByIgn(ign){
   if(!ign) return null;
-  var lo=ign.toLowerCase();
-  return _cache.players.find(function(p){return p.ign&&p.ign.toLowerCase()===lo;})||
-         _cache.players.find(function(p){
+  const lo=ign.toLowerCase();
+  return App.cache.players.find(function(p){return p.ign&&p.ign.toLowerCase()===lo;})||
+         App.cache.players.find(function(p){
            return p.ign&&(p.ign.toLowerCase().includes(lo)||lo.includes(p.ign.toLowerCase()));
          })||null;
 }
@@ -1249,78 +1249,78 @@ function processScanResult(raw){
 function applyScannedData(){
   if(!_scanResult)return;
   if(_scanResult._editMode){applyEditScannedData();return;}
-  var raw=_scanResult.raw;
-  var ourTeam=_scanResult.ourTeam;
-  var oppTeam=_scanResult.oppTeam;
-  if(!LS.matchInfo)LS.matchInfo={};
+  const raw=_scanResult.raw;
+  const ourTeam=_scanResult.ourTeam;
+  const oppTeam=_scanResult.oppTeam;
+  if(!App.log.matchInfo)App.log.matchInfo={};
 
   // Result → logDraft + toggle
   if(raw.result){
-    var _res=/loss|defeat/i.test(raw.result)?'Loss':'Win';
-    LS.matchInfo.result=_res;
+    const _res=/loss|defeat/i.test(raw.result)?'Loss':'Win';
+    App.log.matchInfo.result=_res;
     if(typeof setLogResult==='function')setLogResult(_res);
   }
 
   // Match-level: endedAt, duration
-  if(_scanChecked['endedAt']&&raw.endedAt){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.endedAt=raw.endedAt;}
-  if(_scanChecked['duration']&&raw.duration){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.duration=raw.duration;}
+  if(_scanChecked['endedAt']&&raw.endedAt){if(!App.log.matchInfo)App.log.matchInfo={};App.log.matchInfo.endedAt=raw.endedAt;}
+  if(_scanChecked['duration']&&raw.duration){if(!App.log.matchInfo)App.log.matchInfo={};App.log.matchInfo.duration=raw.duration;}
   // duration_seconds for pillar calculations
   if(raw.duration){
-    var dParts=raw.duration.split(':');
-    if(dParts.length===2)LS.matchInfo.duration_seconds=parseInt(dParts[0])*60+parseInt(dParts[1]);
+    const dParts=raw.duration.split(':');
+    if(dParts.length===2)App.log.matchInfo.duration_seconds=parseInt(dParts[0])*60+parseInt(dParts[1]);
   }
   // Total kills per side — prefer the scanned tally, else sum per-player kills
   function _sumKills(list){
-    var t=0,seen=false;
+    let t=0,seen=false;
     (list||[]).forEach(function(e){if(e.extracted&&e.extracted.kills!=null){t+=e.extracted.kills;seen=true;}});
     return seen?t:null;
   }
-  var ourK=(typeof raw.ourKills==='number')?raw.ourKills:_sumKills(_scanResult.ourTeam);
-  var enemyK=(typeof raw.enemyKills==='number')?raw.enemyKills:_sumKills(_scanResult.oppTeam);
-  if(ourK!=null)LS.matchInfo.team_total_kills=ourK;
-  if(enemyK!=null)LS.matchInfo.enemy_total_kills=enemyK;
+  const ourK=(typeof raw.ourKills==='number')?raw.ourKills:_sumKills(_scanResult.ourTeam);
+  const enemyK=(typeof raw.enemyKills==='number')?raw.enemyKills:_sumKills(_scanResult.oppTeam);
+  if(ourK!=null)App.log.matchInfo.team_total_kills=ourK;
+  if(enemyK!=null)App.log.matchInfo.enemy_total_kills=enemyK;
   // Pre-fill Step 0 kill inputs (only when empty) so logStep0Next preserves them
-  if(LS.matchInfo.team_total_kills!=null){var tkEl=document.getElementById('log-team-kills');if(tkEl&&!tkEl.value)tkEl.value=LS.matchInfo.team_total_kills;}
-  if(LS.matchInfo.enemy_total_kills!=null){var ekEl=document.getElementById('log-enemy-kills');if(ekEl&&!ekEl.value)ekEl.value=LS.matchInfo.enemy_total_kills;}
+  if(App.log.matchInfo.team_total_kills!=null){const tkEl=document.getElementById('log-team-kills');if(tkEl&&!tkEl.value)tkEl.value=App.log.matchInfo.team_total_kills;}
+  if(App.log.matchInfo.enemy_total_kills!=null){const ekEl=document.getElementById('log-enemy-kills');if(ekEl&&!ekEl.value)ekEl.value=App.log.matchInfo.enemy_total_kills;}
   // Store opp team for enemy role confirmation step
   if(_scanResult.oppTeam&&_scanResult.oppTeam.length){
-    LS._pendingOppTeam=_scanResult.oppTeam;
+    App.log._pendingOppTeam=_scanResult.oppTeam;
   }
 
   // MVP
   if(_scanChecked['mvp']&&raw.mvpIgn){
-    var mvpP=findPlayerByIgn(raw.mvpIgn);
-    if(mvpP){if(!LS.scores[mvpP.id])LS.scores[mvpP.id]={};LS.scores[mvpP.id].mvp=true;}
+    const mvpP=findPlayerByIgn(raw.mvpIgn);
+    if(mvpP){if(!App.log.scores[mvpP.id])App.log.scores[mvpP.id]={};App.log.scores[mvpP.id].mvp=true;}
   }
 
   // Player-level
   ourTeam.forEach(function(entry){
     if(!entry.player)return;
-    var pid=entry.player.id;var ex=entry.extracted;
-    if(!LS.scores[pid])LS.scores[pid]={};
+    const pid=entry.player.id;const ex=entry.extracted;
+    if(!App.log.scores[pid])App.log.scores[pid]={};
     // hero always applied if matched
-    if(entry.hero)LS.scores[pid].hero=entry.hero.name;
-    if(_scanChecked[pid+'_kda']&&ex.kills!=null){LS.scores[pid].kills=ex.kills;LS.scores[pid].deaths=ex.deaths;LS.scores[pid].assists=ex.assists;}
-    if(_scanChecked[pid+'_gold']&&ex.gold!=null)LS.scores[pid].gold=ex.gold;
-    if(_scanChecked[pid+'_gameRating']&&ex.gameRating!=null)LS.scores[pid].gameRating=ex.gameRating;
-    if(_scanChecked[pid+'_dmgDealtPct']&&ex.dmgDealtPct!=null)LS.scores[pid].dmgDealtPct=ex.dmgDealtPct;
-    if(_scanChecked[pid+'_dmgTakenPct']&&ex.dmgTakenPct!=null)LS.scores[pid].dmgTakenPct=ex.dmgTakenPct;
-    if(_scanChecked[pid+'_dmgDealt']&&ex.dmgDealt!=null)LS.scores[pid].dmgDealt=ex.dmgDealt;
-    if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)LS.scores[pid].dmgTaken=ex.dmgTaken;
+    if(entry.hero)App.log.scores[pid].hero=entry.hero.name;
+    if(_scanChecked[pid+'_kda']&&ex.kills!=null){App.log.scores[pid].kills=ex.kills;App.log.scores[pid].deaths=ex.deaths;App.log.scores[pid].assists=ex.assists;}
+    if(_scanChecked[pid+'_gold']&&ex.gold!=null)App.log.scores[pid].gold=ex.gold;
+    if(_scanChecked[pid+'_gameRating']&&ex.gameRating!=null)App.log.scores[pid].gameRating=ex.gameRating;
+    if(_scanChecked[pid+'_dmgDealtPct']&&ex.dmgDealtPct!=null)App.log.scores[pid].dmgDealtPct=ex.dmgDealtPct;
+    if(_scanChecked[pid+'_dmgTakenPct']&&ex.dmgTakenPct!=null)App.log.scores[pid].dmgTakenPct=ex.dmgTakenPct;
+    if(_scanChecked[pid+'_dmgDealt']&&ex.dmgDealt!=null)App.log.scores[pid].dmgDealt=ex.dmgDealt;
+    if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)App.log.scores[pid].dmgTaken=ex.dmgTaken;
   });
 
   // Hero → default role for all 10 players (Flowborn → unassigned, unknown → manual picker)
   ourTeam.forEach(function(entry){
     if(!entry.player)return;
-    var pid=entry.player.id;
-    var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
-    var hObj=entry.hero||findHeroByName(hName);
-    if(!LS.scores[pid])LS.scores[pid]={};
-    LS.scores[pid].role=_defaultHeroRole(hObj,hName);
+    const pid=entry.player.id;
+    const hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
+    const hObj=entry.hero||findHeroByName(hName);
+    if(!App.log.scores[pid])App.log.scores[pid]={};
+    App.log.scores[pid].role=_defaultHeroRole(hObj,hName);
   });
-  LS.scanEnemy=oppTeam.map(function(entry){
-    var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
-    var hObj=entry.hero||findHeroByName(hName);
+  App.log.scanEnemy=oppTeam.map(function(entry){
+    const hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
+    const hObj=entry.hero||findHeroByName(hName);
     entry._inferredRole=_inferEnemyRole(hObj,hName);
     return {
       hero: hName,
@@ -1330,34 +1330,34 @@ function applyScannedData(){
   });
 
   // Match date → logDraft (scanner has no date; default to the form's date)
-  if(!LS.matchInfo.date){
-    var dEl=document.getElementById('log-date');
-    if(dEl&&dEl.value)LS.matchInfo.date=dEl.value;
+  if(!App.log.matchInfo.date){
+    const dEl=document.getElementById('log-date');
+    if(dEl&&dEl.value)App.log.matchInfo.date=dEl.value;
   }
 
   // Populate duration input in the log form if visible
-  if(LS.matchInfo.duration){var durInp=document.getElementById('log-duration');if(durInp&&!durInp.value)durInp.value=LS.matchInfo.duration;}
+  if(App.log.matchInfo.duration){const durInp=document.getElementById('log-duration');if(durInp&&!durInp.value)durInp.value=App.log.matchInfo.duration;}
 
   // Draft
-  if(!LS.draft)LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
+  if(!App.log.draft)App.log.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
   ourTeam.forEach(function(entry){
-    if(entry.player&&entry.hero){var idx=GAME_ROLES.indexOf(entry.player.role);if(idx>=0)LS.draft.ourPicks[idx]=entry.hero.name;}
+    if(entry.player&&entry.hero){const idx=GAME_ROLES.indexOf(entry.player.role);if(idx>=0)App.log.draft.ourPicks[idx]=entry.hero.name;}
   });
-  var oppIdx=0;
+  let oppIdx=0;
   oppTeam.forEach(function(entry){
     if(entry.hero&&oppIdx<5){
-      if(entry.player){var idx=GAME_ROLES.indexOf(entry.player.role);if(idx>=0&&!LS.draft.oppPicks[idx]){LS.draft.oppPicks[idx]=entry.hero.name;return;}}
-      while(oppIdx<5&&LS.draft.oppPicks[oppIdx])oppIdx++;
-      if(oppIdx<5){LS.draft.oppPicks[oppIdx]=entry.hero.name;oppIdx++;}
+      if(entry.player){const idx=GAME_ROLES.indexOf(entry.player.role);if(idx>=0&&!App.log.draft.oppPicks[idx]){App.log.draft.oppPicks[idx]=entry.hero.name;return;}}
+      while(oppIdx<5&&App.log.draft.oppPicks[oppIdx])oppIdx++;
+      if(oppIdx<5){App.log.draft.oppPicks[oppIdx]=entry.hero.name;oppIdx++;}
     }
   });
 
-  LS.scanData=_scanResult;
+  App.log.scanData=_scanResult;
   _scanResult=null;
   closeScanModal();
   showToast('✓ Scan applied');
   // If opp team available, prompt for enemy role confirmation
-  if(LS._pendingOppTeam&&LS._pendingOppTeam.length){
+  if(App.log._pendingOppTeam&&App.log._pendingOppTeam.length){
     setTimeout(openEnemyRoleConfirm, 300);
   }
 }
@@ -1368,7 +1368,7 @@ function applyScannedData(){
 
 function _inferEnemyRole(heroObj, heroName) {
   // Multi-role heroes — always require manual selection
-  var MULTI_ROLE = ['Flowborn'];
+  const MULTI_ROLE = ['Flowborn'];
   if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
   if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
   if (heroObj.roles.length === 1) return heroObj.roles[0];
@@ -1378,26 +1378,26 @@ function _inferEnemyRole(heroObj, heroName) {
 // Default role for our-side players: first DB role.
 // Flowborn → unassigned; unknown hero → null (manual picker).
 function _defaultHeroRole(heroObj, heroName) {
-  var MULTI_ROLE = ['Flowborn'];
+  const MULTI_ROLE = ['Flowborn'];
   if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
   if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
   return heroObj.roles[0];
 }
 
 function openEnemyRoleConfirm() {
-  var opp = LS._pendingOppTeam;
+  const opp = App.log._pendingOppTeam;
   if (!opp || !opp.length) return;
-  var roleOptions = GAME_ROLES.map(function(r) {
+  const roleOptions = GAME_ROLES.map(function(r) {
     return '<option value="'+r+'">'+r+'</option>';
   }).join('');
-  var rows = opp.map(function(entry, i) {
-    var heroName = (entry.extracted && entry.extracted.hero) || '';
-    var heroObj  = entry.hero || findHeroByName(heroName);
-    var gold     = (entry.extracted && entry.extracted.gold) || null;
-    var inferred = _inferEnemyRole(heroObj, heroName);
-    var isMulti  = heroObj && heroObj.roles && heroObj.roles.length > 1;
-    var isUnknown = !heroObj;
-    var badgeHtml;
+  const rows = opp.map(function(entry, i) {
+    const heroName = (entry.extracted && entry.extracted.hero) || '';
+    const heroObj  = entry.hero || findHeroByName(heroName);
+    const gold     = (entry.extracted && entry.extracted.gold) || null;
+    const inferred = _inferEnemyRole(heroObj, heroName);
+    const isMulti  = heroObj && heroObj.roles && heroObj.roles.length > 1;
+    const isUnknown = !heroObj;
+    let badgeHtml;
     if (inferred) {
       badgeHtml = '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;">'+inferred.toUpperCase()+' · PRE-FILLED</span>';
     } else if (isMulti) {
@@ -1405,15 +1405,15 @@ function openEnemyRoleConfirm() {
     } else {
       badgeHtml = '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;">NOT IN DB — SELECT BELOW</span>';
     }
-    var selectedRole = inferred || '';
-    var selectHtml =
+    const selectedRole = inferred || '';
+    const selectHtml =
       '<select class="input" id="er-role-'+i+'" style="font-size:11px;padding:6px 10px;width:130px;flex-shrink:0;">' +
         '<option value="" disabled'+(selectedRole?'':' selected')+'>— role —</option>' +
         GAME_ROLES.map(function(r) {
           return '<option value="'+r+'"'+(r===selectedRole?' selected':'')+'>'+r+'</option>';
         }).join('') +
       '</select>';
-    var goldHtml = gold != null
+    const goldHtml = gold != null
       ? '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:8px;">'+Number(gold).toLocaleString()+' g</span>'
       : '';
     return '<div id="er-row-'+i+'" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:var(--border);">'+
@@ -1438,20 +1438,20 @@ function openEnemyRoleConfirm() {
 }
 
 function closeEnemyRoleConfirm() {
-  LS._pendingOppTeam = null;
+  App.log._pendingOppTeam = null;
   document.getElementById('enemy-role-modal').classList.remove('open');
   showToast('Enemy roles skipped — scanned lineup kept, confirm in Step 1');
 }
 
 function confirmEnemyRoles() {
-  var opp = LS._pendingOppTeam;
+  const opp = App.log._pendingOppTeam;
   if (!opp) return;
-  var result = [];
-  var missing = false;
+  const result = [];
+  let missing = false;
   opp.forEach(function(entry, i) {
-    var sel = document.getElementById('er-role-'+i);
-    var role = sel ? sel.value : '';
-    var row  = document.getElementById('er-row-'+i);
+    const sel = document.getElementById('er-role-'+i);
+    const role = sel ? sel.value : '';
+    const row  = document.getElementById('er-row-'+i);
     if (!role) {
       missing = true;
       if (row) row.style.outline = '1px solid var(--danger)';
@@ -1465,36 +1465,36 @@ function confirmEnemyRoles() {
     }
   });
   if (missing) { showToast('Assign a role to every hero first'); return; }
-  LS.enemyRoles = result;
-  LS._pendingOppTeam = null;
+  App.log.enemyRoles = result;
+  App.log._pendingOppTeam = null;
   document.getElementById('enemy-role-modal').classList.remove('open');
   showToast('Enemy roles confirmed');
 }
 
 function triggerEditScan(){
-  if(!_cache.anthropicKey){showToast('Set your Anthropic API key in Settings first');return;}
-  var inp=document.getElementById('edit-scan-input');
+  if(!App.cache.anthropicKey){showToast('Set your Anthropic API key in Settings first');return;}
+  const inp=document.getElementById('edit-scan-input');
   if(inp){inp.value='';inp.click();}
 }
 
 function handleEditScanUpload(input){
-  var files=Array.from(input.files||[]);
+  const files=Array.from(input.files||[]);
   if(!files.length)return;
-  var toProcess=files.slice(0,3);
-  var processed=[];
-  var done=0;
+  const toProcess=files.slice(0,3);
+  const processed=[];
+  let done=0;
   function onAllReady(){
     _scanState='scanning';
     _scanFiles=processed;
     _scanCancelled=false;_scanResult=null;_scanChecked={};
     document.getElementById('scan-modal').classList.add('open');
     renderScanModal();
-    var imageContents=processed.map(function(sf){
+    const imageContents=processed.map(function(sf){
       return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
     });
     callClaudeVision(imageContents).then(function(raw){
       if(_scanCancelled)return;
-      var matched=processScanResult(raw);
+      const matched=processScanResult(raw);
       _scanResult={ourTeam:matched.ourTeam,oppTeam:matched.oppTeam,raw:raw,_editMode:true};
       _scanChecked={};_scanState='review';
       renderScanModal();
@@ -1505,16 +1505,16 @@ function handleEditScanUpload(input){
     });
   }
   toProcess.forEach(function(file,i){
-    var reader=new FileReader();
+    const reader=new FileReader();
     reader.onload=function(e){
-      var img=new Image();
+      const img=new Image();
       img.onload=function(){
-        var maxW=1920,maxH=1920,w=img.width,h=img.height;
-        if(w>maxW||h>maxH){var sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
-        var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        let maxW=1920,maxH=1920,w=img.width,h=img.height;
+        if(w>maxW||h>maxH){const sc=Math.min(maxW/w,maxH/h);w=Math.round(w*sc);h=Math.round(h*sc);}
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
         canvas.getContext('2d').drawImage(img,0,0,w,h);
-        var mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
-        var dataUrl=canvas.toDataURL(mimeType,0.92);
+        const mimeType=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg';
+        const dataUrl=canvas.toDataURL(mimeType,0.92);
         processed[i]={file:file,dataUrl:dataUrl,base64:dataUrl.split(',')[1],mimeType:mimeType,label:SHOT_LABELS[i]||SHOT_LABELS[0]};
         done++;
         if(done===toProcess.length)onAllReady();
@@ -1528,26 +1528,26 @@ function handleEditScanUpload(input){
 
 function applyEditScannedData(){
   if(!_scanResult)return;
-  var raw=_scanResult.raw,our=_scanResult.ourTeam,opp=_scanResult.oppTeam;
-  var gameIdx=_cache.games.findIndex(function(g){return g.id===window._editGameId;});
+  const raw=_scanResult.raw,our=_scanResult.ourTeam,opp=_scanResult.oppTeam;
+  const gameIdx=App.cache.games.findIndex(function(g){return g.id===App.ui.editGameId;});
 
   // Result
-  if(raw.result){var resEl=document.getElementById('edit-result');if(resEl)resEl.value=raw.result;}
+  if(raw.result){const resEl=document.getElementById('edit-result');if(resEl)resEl.value=raw.result;}
 
   // Match-level: endedAt, duration stored on the game object
   if(gameIdx>=0){
-    if(_scanChecked['endedAt']&&raw.endedAt)_cache.games[gameIdx].endedAt=raw.endedAt;
-    if(_scanChecked['duration']&&raw.duration)_cache.games[gameIdx].duration=raw.duration;
+    if(_scanChecked['endedAt']&&raw.endedAt)App.cache.games[gameIdx].endedAt=raw.endedAt;
+    if(_scanChecked['duration']&&raw.duration)App.cache.games[gameIdx].duration=raw.duration;
     // MVP
     if(_scanChecked['mvp']&&raw.mvpIgn){
-      var mvpP=findPlayerByIgn(raw.mvpIgn);
+      const mvpP=findPlayerByIgn(raw.mvpIgn);
       if(mvpP){
-        _cache.games[gameIdx].mvpPlayerId=mvpP.id;
-        window._editMvpId=mvpP.id;
-        PLAYERS.forEach(function(p){
-          var btn=document.getElementById('emvp-'+p.id);
+        App.cache.games[gameIdx].mvpPlayerId=mvpP.id;
+        App.ui.editMvpId=mvpP.id;
+        App.players.forEach(function(p){
+          const btn=document.getElementById('emvp-'+p.id);
           if(!btn)return;
-          var isNow=p.id===mvpP.id;
+          const isNow=p.id===mvpP.id;
           btn.className='btn btn-sm '+(isNow?'btn-primary':'btn-muted');
           btn.textContent=isNow?'⭐ MVP':'MVP?';
         });
@@ -1556,22 +1556,22 @@ function applyEditScannedData(){
   }
 
   // Heroes in edit form and draft
-  var side=window._editDraftSide||'Blue';
-  var ourColor=side==='Blue'?'blue':'red';
-  var oppColor=side==='Blue'?'red':'blue';
+  const side=App.ui.editDraftSide||'Blue';
+  const ourColor=side==='Blue'?'blue':'red';
+  const oppColor=side==='Blue'?'red':'blue';
   our.forEach(function(entry){
     if(entry.player&&entry.hero){
-      var inp=document.getElementById('ehero-'+entry.player.id);
+      const inp=document.getElementById('ehero-'+entry.player.id);
       if(inp)inp.value=entry.hero.name;
-      var di=GAME_ROLES.indexOf(entry.player.role);
-      if(di>=0){var dinp=document.getElementById('ed-'+ourColor+'-inp-'+di);if(dinp)dinp.value=entry.hero.name;}
+      const di=GAME_ROLES.indexOf(entry.player.role);
+      if(di>=0){const dinp=document.getElementById('ed-'+ourColor+'-inp-'+di);if(dinp)dinp.value=entry.hero.name;}
     }
   });
-  var oppIdx=0;
+  let oppIdx=0;
   opp.forEach(function(entry){
     if(entry.hero&&oppIdx<5){
       if(entry.player){
-        var di=GAME_ROLES.indexOf(entry.player.role);
+        const di=GAME_ROLES.indexOf(entry.player.role);
         if(di>=0){var dinp=document.getElementById('ed-'+oppColor+'-inp-'+di);if(dinp&&!dinp.value){dinp.value=entry.hero.name;return;}}
       }
       while(oppIdx<5){var dinp=document.getElementById('ed-'+oppColor+'-inp-'+oppIdx);if(dinp&&!dinp.value){dinp.value=entry.hero.name;oppIdx++;return;}oppIdx++;}
@@ -1580,12 +1580,12 @@ function applyEditScannedData(){
 
   // Player-level objective stats → applied directly to cache (fill only empty fields)
   if(gameIdx>=0){
-    if(!_cache.games[gameIdx].playerScores)_cache.games[gameIdx].playerScores={};
+    if(!App.cache.games[gameIdx].playerScores)App.cache.games[gameIdx].playerScores={};
     our.forEach(function(entry){
       if(!entry.player)return;
-      var pid=entry.player.id;var ex=entry.extracted;
-      var sc=_cache.games[gameIdx].playerScores[pid]||{};
-      _cache.games[gameIdx].playerScores[pid]=sc;
+      const pid=entry.player.id;const ex=entry.extracted;
+      const sc=App.cache.games[gameIdx].playerScores[pid]||{};
+      App.cache.games[gameIdx].playerScores[pid]=sc;
       if(_scanChecked[pid+'_kda']&&ex.kills!=null){sc.kills=ex.kills;sc.deaths=ex.deaths;sc.assists=ex.assists;}
       if(_scanChecked[pid+'_gold']&&ex.gold!=null)sc.gold=ex.gold;
       if(_scanChecked[pid+'_gameRating']&&ex.gameRating!=null)sc.gameRating=ex.gameRating;
@@ -1595,10 +1595,10 @@ function applyEditScannedData(){
       if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)sc.dmgTaken=ex.dmgTaken;
     });
     // Refresh the stats display in the edit modal
-    PLAYERS.forEach(function(p){
-      var wrap=document.getElementById('escan-stats-'+p.id);
+    App.players.forEach(function(p){
+      const wrap=document.getElementById('escan-stats-'+p.id);
       if(!wrap)return;
-      var sc=_cache.games[gameIdx].playerScores[p.id]||{};
+      const sc=App.cache.games[gameIdx].playerScores[p.id]||{};
       wrap.innerHTML=buildEditScanStatsHtml(sc);
     });
   }
@@ -1609,7 +1609,7 @@ function applyEditScannedData(){
 }
 
 function buildEditScanStatsHtml(sc){
-  var parts=[];
+  const parts=[];
   if(sc.kills!=null)parts.push('<span>'+sc.kills+'/'+sc.deaths+'/'+sc.assists+'</span>');
   if(sc.gold!=null)parts.push('<span>'+Number(sc.gold).toLocaleString()+' g</span>');
   if(sc.gameRating!=null)parts.push('<span>'+sc.gameRating+' <span style="color:var(--grey-5);">rating</span></span>');
@@ -1622,15 +1622,15 @@ function buildEditScanStatsHtml(sc){
 }
 
 function editAutoAssignDraftPicks(){
-  var side=window._editDraftSide||'Blue';
-  var ourColor=side==='Blue'?'blue':'red';
+  const side=App.ui.editDraftSide||'Blue';
+  const ourColor=side==='Blue'?'blue':'red';
   GAME_ROLES.forEach(function(role,i){
-    var player=PLAYERS.find(function(p){return p.role===role;});
+    const player=App.players.find(function(p){return p.role===role;});
     if(!player)return;
-    var heroInp=document.getElementById('ehero-'+player.id);
-    var heroVal=heroInp?(heroInp.value||'').trim():'';
+    const heroInp=document.getElementById('ehero-'+player.id);
+    const heroVal=heroInp?(heroInp.value||'').trim():'';
     if(!heroVal)return;
-    var draftInp=document.getElementById('ed-'+ourColor+'-inp-'+i);
+    const draftInp=document.getElementById('ed-'+ourColor+'-inp-'+i);
     if(draftInp)draftInp.value=heroVal;
   });
   showToast('↺ Draft picks assigned from player scores');
@@ -1650,42 +1650,42 @@ var PILLAR_MAP = {
 var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
 
 function initLog(){
-  var prevDuration = LS.matchInfo && LS.matchInfo.duration;
-  LS.matchInfo = {};
-  LS.scores    = {};
-  LS.enemyRoles = null;
-  LS.scanEnemy = null;
-  LS._pendingOppTeam = null;
-  LS._matchId = null;
-  LS._step = 0;
+  const prevDuration = App.log.matchInfo && App.log.matchInfo.duration;
+  App.log.matchInfo = {};
+  App.log.scores    = {};
+  App.log.enemyRoles = null;
+  App.log.scanEnemy = null;
+  App.log._pendingOppTeam = null;
+  App.log._matchId = null;
+  App.log._step = 0;
 
   // Default result to Win
-  var winBtn  = document.getElementById('log-result-win');
-  var lossBtn = document.getElementById('log-result-loss');
+  const winBtn  = document.getElementById('log-result-win');
+  const lossBtn = document.getElementById('log-result-loss');
   if(winBtn)  { winBtn.className  = 'log-toggle-btn active-win'; }
   if(lossBtn) { lossBtn.className = 'log-toggle-btn'; }
-  LS.matchInfo.result = 'Win';
+  App.log.matchInfo.result = 'Win';
 
   // Default type to Scrim
-  var scrimBtn  = document.getElementById('log-type-scrim');
-  var tournBtn  = document.getElementById('log-type-tournament');
+  const scrimBtn  = document.getElementById('log-type-scrim');
+  const tournBtn  = document.getElementById('log-type-tournament');
   if(scrimBtn)  { scrimBtn.className  = 'log-toggle-btn active'; }
   if(tournBtn)  { tournBtn.className  = 'log-toggle-btn'; }
-  LS.matchInfo.type = 'Scrim';
+  App.log.matchInfo.type = 'Scrim';
 
   // Set today's date
-  var dateEl = document.getElementById('log-date');
+  const dateEl = document.getElementById('log-date');
   if(dateEl){
-    var today = new Date();
-    var yyyy  = today.getFullYear();
-    var mm    = String(today.getMonth()+1).padStart(2,'0');
-    var dd    = String(today.getDate()).padStart(2,'0');
+    const today = new Date();
+    const yyyy  = today.getFullYear();
+    const mm    = String(today.getMonth()+1).padStart(2,'0');
+    const dd    = String(today.getDate()).padStart(2,'0');
     dateEl.value = yyyy+'-'+mm+'-'+dd;
   }
 
   // Pre-fill duration from scan if available
   if(prevDuration){
-    var durEl = document.getElementById('log-duration');
+    const durEl = document.getElementById('log-duration');
     if(durEl) durEl.value = prevDuration;
   }
 
@@ -1693,16 +1693,16 @@ function initLog(){
 }
 
 function logGoToStep(n){
-  var steps = ['log-step-0','log-step-enemy','log-step-players'];
+  const steps = ['log-step-0','log-step-enemy','log-step-players'];
   steps.forEach(function(id){
-    var el = document.getElementById(id);
+    const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
-  var showId = ['log-step-0','log-step-enemy','log-step-players'][n];
-  var showEl = document.getElementById(showId);
+  const showId = ['log-step-0','log-step-enemy','log-step-players'][n];
+  const showEl = document.getElementById(showId);
   if(showEl) showEl.style.display = 'block';
 
-  LS._step = n;
+  App.log._step = n;
   renderLogStepIndicator();
   window.scrollTo(0, 0);
 
@@ -1711,12 +1711,12 @@ function logGoToStep(n){
 }
 
 function renderLogStepIndicator(){
-  var el = document.getElementById('step-indicator');
+  const el = document.getElementById('step-indicator');
   if(!el) return;
-  var s = LS._step || 0;
-  var labels = ['Details','Enemy','Players'];
-  var html = '';
-  for(var i = 0; i < 3; i++){
+  const s = App.log._step || 0;
+  const labels = ['Details','Enemy','Players'];
+  let html = '';
+  for(let i = 0; i < 3; i++){
     var cls, col;
     if(i === s){
       cls = 'active'; col = 'var(--white)';
@@ -1735,9 +1735,9 @@ function renderLogStepIndicator(){
 }
 
 function setLogResult(r){
-  LS.matchInfo.result = r;
-  var winBtn  = document.getElementById('log-result-win');
-  var lossBtn = document.getElementById('log-result-loss');
+  App.log.matchInfo.result = r;
+  const winBtn  = document.getElementById('log-result-win');
+  const lossBtn = document.getElementById('log-result-loss');
   if(r === 'Win'){
     if(winBtn)  winBtn.className  = 'log-toggle-btn active-win';
     if(lossBtn) lossBtn.className = 'log-toggle-btn';
@@ -1748,9 +1748,9 @@ function setLogResult(r){
 }
 
 function setLogType(t){
-  LS.matchInfo.type = t;
-  var scrimBtn = document.getElementById('log-type-scrim');
-  var tournBtn = document.getElementById('log-type-tournament');
+  App.log.matchInfo.type = t;
+  const scrimBtn = document.getElementById('log-type-scrim');
+  const tournBtn = document.getElementById('log-type-tournament');
   if(t === 'Scrim'){
     if(scrimBtn) scrimBtn.className = 'log-toggle-btn active';
     if(tournBtn) tournBtn.className = 'log-toggle-btn';
@@ -1761,54 +1761,54 @@ function setLogType(t){
 }
 
 function logStep0Next(){
-  var result   = LS.matchInfo.result || 'Win';
-  var date     = (document.getElementById('log-date')?.value || '').trim();
-  var type     = LS.matchInfo.type || 'Scrim';
-  var opponent = (document.getElementById('log-opponent')?.value || '').trim();
-  var durStr   = (document.getElementById('log-duration')?.value || '').trim();
-  var teamK    = (document.getElementById('log-team-kills')?.value || '').trim();
-  var enemyK   = (document.getElementById('log-enemy-kills')?.value || '').trim();
-  var vod      = (document.getElementById('log-vod')?.value || '').trim();
-  var notes    = (document.getElementById('log-notes')?.value || '').trim();
+  const result   = App.log.matchInfo.result || 'Win';
+  const date     = (document.getElementById('log-date')?.value || '').trim();
+  const type     = App.log.matchInfo.type || 'Scrim';
+  const opponent = (document.getElementById('log-opponent')?.value || '').trim();
+  const durStr   = (document.getElementById('log-duration')?.value || '').trim();
+  const teamK    = (document.getElementById('log-team-kills')?.value || '').trim();
+  const enemyK   = (document.getElementById('log-enemy-kills')?.value || '').trim();
+  const vod      = (document.getElementById('log-vod')?.value || '').trim();
+  const notes    = (document.getElementById('log-notes')?.value || '').trim();
 
   if(!date){ showToast('Match date is required'); return; }
 
-  LS.matchInfo.result   = result;
-  LS.matchInfo.date     = date;
-  LS.matchInfo.type     = type;
-  LS.matchInfo.opponent = opponent || null;
-  LS.matchInfo.vod_url  = vod      || null;
-  LS.matchInfo.notes    = notes    || null;
-  LS.matchInfo.team_total_kills  = teamK  ? parseInt(teamK,10)  : null;
-  LS.matchInfo.enemy_total_kills = enemyK ? parseInt(enemyK,10) : null;
+  App.log.matchInfo.result   = result;
+  App.log.matchInfo.date     = date;
+  App.log.matchInfo.type     = type;
+  App.log.matchInfo.opponent = opponent || null;
+  App.log.matchInfo.vod_url  = vod      || null;
+  App.log.matchInfo.notes    = notes    || null;
+  App.log.matchInfo.team_total_kills  = teamK  ? parseInt(teamK,10)  : null;
+  App.log.matchInfo.enemy_total_kills = enemyK ? parseInt(enemyK,10) : null;
 
   if(durStr){
-    LS.matchInfo.duration = durStr;
-    var parts = durStr.split(':');
+    App.log.matchInfo.duration = durStr;
+    const parts = durStr.split(':');
     if(parts.length === 2){
-      LS.matchInfo.duration_seconds = parseInt(parts[0],10)*60 + parseInt(parts[1],10);
+      App.log.matchInfo.duration_seconds = parseInt(parts[0],10)*60 + parseInt(parts[1],10);
     }
   } else {
-    LS.matchInfo.duration = null;
-    LS.matchInfo.duration_seconds = null;
+    App.log.matchInfo.duration = null;
+    App.log.matchInfo.duration_seconds = null;
   }
 
   logGoToStep(1);
 }
 
 function renderEnemyStep(){
-  var container = document.getElementById('log-enemy-rows');
+  const container = document.getElementById('log-enemy-rows');
   if(!container) return;
 
-  var roleOptions = '<option value="" disabled selected>— role —</option>' +
+  const roleOptions = '<option value="" disabled selected>— role —</option>' +
     GAME_ROLES.map(function(r){ return '<option value="'+r+'">'+r+'</option>'; }).join('');
 
-  var opp = LS._pendingOppTeam;
+  const opp = App.log._pendingOppTeam;
   // Source priority: modal-confirmed roles → durable scanned enemy → raw pending
-  var confirmed = (LS.enemyRoles && LS.enemyRoles.length) ? LS.enemyRoles : null;
-  var scanEnemy = (LS.scanEnemy && LS.scanEnemy.length) ? LS.scanEnemy : null;
-  var html = '';
-  for(var i = 0; i < 5; i++){
+  const confirmed = (App.log.enemyRoles && App.log.enemyRoles.length) ? App.log.enemyRoles : null;
+  const scanEnemy = (App.log.scanEnemy && App.log.scanEnemy.length) ? App.log.scanEnemy : null;
+  let html = '';
+  for(let i = 0; i < 5; i++){
     var heroVal = '', goldVal = '', inferredRole = '';
     if(confirmed && confirmed[i]){
       heroVal      = confirmed[i].hero || '';
@@ -1819,14 +1819,14 @@ function renderEnemyStep(){
       goldVal      = (scanEnemy[i].gold != null) ? scanEnemy[i].gold : '';
       inferredRole = scanEnemy[i].role || '';
     } else if(opp && opp[i]){
-      var entry    = opp[i];
-      var heroName = (entry.extracted && entry.extracted.hero) || '';
-      var heroObj  = entry.hero || findHeroByName(heroName);
+      const entry    = opp[i];
+      const heroName = (entry.extracted && entry.extracted.hero) || '';
+      const heroObj  = entry.hero || findHeroByName(heroName);
       goldVal      = (entry.extracted && entry.extracted.gold != null) ? entry.extracted.gold : '';
       heroVal      = heroName;
       inferredRole = _inferEnemyRole(heroObj, heroName) || '';
     }
-    var selOpts = GAME_ROLES.map(function(r){
+    const selOpts = GAME_ROLES.map(function(r){
       return '<option value="'+r+'"'+(r===inferredRole?' selected':'')+'>'+r+'</option>';
     }).join('');
     html += '<div class="enemy-lineup-row">';
@@ -1842,30 +1842,30 @@ function renderEnemyStep(){
   container.innerHTML = html;
 
   // Update badges from whatever hero ended up in each row (any source)
-  for(var j = 0; j < 5; j++){
-    var hn2 = (document.getElementById('el-hero-'+j) || {}).value || '';
+  for(let j = 0; j < 5; j++){
+    const hn2 = (document.getElementById('el-hero-'+j) || {}).value || '';
     if(!hn2) continue;
-    var ho2 = findHeroByName(hn2);
+    const ho2 = findHeroByName(hn2);
     _updateEnemyBadge(j, ho2, _inferEnemyRole(ho2, hn2));
   }
 
   // Consume the pending data
-  LS._pendingOppTeam = null;
+  App.log._pendingOppTeam = null;
 }
 
 function onEnemyHeroInput(i){
-  var val     = (document.getElementById('el-hero-'+i)?.value || '').trim();
-  var heroObj = val ? findHeroByName(val) : null;
-  var inferred = _inferEnemyRole(heroObj, val);
+  const val     = (document.getElementById('el-hero-'+i)?.value || '').trim();
+  const heroObj = val ? findHeroByName(val) : null;
+  const inferred = _inferEnemyRole(heroObj, val);
   if(inferred){
-    var sel = document.getElementById('el-role-'+i);
+    const sel = document.getElementById('el-role-'+i);
     if(sel) sel.value = inferred;
   }
   _updateEnemyBadge(i, heroObj, inferred);
 }
 
 function _updateEnemyBadge(i, heroObj, inferredRole){
-  var badge = document.getElementById('el-badge-'+i);
+  const badge = document.getElementById('el-badge-'+i);
   if(!badge) return;
   if(inferredRole){
     badge.style.color = 'var(--grey-5)';
@@ -1879,13 +1879,13 @@ function _updateEnemyBadge(i, heroObj, inferredRole){
 }
 
 function logStep1Next(){
-  var rows = [];
-  var valid = true;
-  for(var i = 0; i < 5; i++){
-    var hero = (document.getElementById('el-hero-'+i)?.value || '').trim();
-    var role = document.getElementById('el-role-'+i)?.value || '';
-    var gold = document.getElementById('el-gold-'+i)?.value;
-    var roleEl = document.getElementById('el-role-'+i);
+  const rows = [];
+  let valid = true;
+  for(let i = 0; i < 5; i++){
+    const hero = (document.getElementById('el-hero-'+i)?.value || '').trim();
+    const role = document.getElementById('el-role-'+i)?.value || '';
+    const gold = document.getElementById('el-gold-'+i)?.value;
+    const roleEl = document.getElementById('el-role-'+i);
     // Only require a role if the coach entered a hero name
     if(hero && !role){
       if(roleEl) roleEl.style.outline = '2px solid var(--danger)';
@@ -1901,31 +1901,31 @@ function logStep1Next(){
   }
   if(!valid){ showToast('Select a role for every hero you entered'); return; }
   // Store only if at least one row has data; otherwise null (no enemy info this game)
-  LS.enemyRoles = rows.some(function(r){ return r.hero || r.role; }) ? rows : null;
+  App.log.enemyRoles = rows.some(function(r){ return r.hero || r.role; }) ? rows : null;
   logGoToStep(2);
 }
 
 function renderPlayerStep(){
-  PLAYERS = getPlayers();
-  var container = document.getElementById('log-player-sections');
+  App.players = getPlayers();
+  const container = document.getElementById('log-player-sections');
   if(!container) return;
 
-  var roleOpts = GAME_ROLES.map(function(r){
+  const roleOpts = GAME_ROLES.map(function(r){
     return '<option value="'+r+'">'+r+'</option>';
   }).join('');
 
-  var playerOpts = function(defaultRole){
-    var active   = PLAYERS.filter(function(p){ return p.status !== 'Inactive'; });
-    var inactive = PLAYERS.filter(function(p){ return p.status === 'Inactive'; });
-    var all = active.concat(inactive);
-    var defaultP = PLAYERS.find(function(p){ return p.role === defaultRole && p.status !== 'Inactive'; }) ||
-                   PLAYERS.find(function(p){ return p.role === defaultRole; });
+  const playerOpts = function(defaultRole){
+    const active   = App.players.filter(function(p){ return p.status !== 'Inactive'; });
+    const inactive = App.players.filter(function(p){ return p.status === 'Inactive'; });
+    const all = active.concat(inactive);
+    const defaultP = App.players.find(function(p){ return p.role === defaultRole && p.status !== 'Inactive'; }) ||
+                   App.players.find(function(p){ return p.role === defaultRole; });
     return all.map(function(p){
       return '<option value="'+p.id+'"'+(defaultP&&p.id===defaultP.id?' selected':'')+'>'+p.nick+' ('+p.role+')</option>';
     }).join('');
   };
 
-  var statsFields = [
+  const statsFields = [
     {id:'kills',      label:'Kills'},
     {id:'deaths',     label:'Deaths'},
     {id:'assists',    label:'Assists'},
@@ -1937,22 +1937,22 @@ function renderPlayerStep(){
     {id:'dmg_taken_raw',  label:'Dmg Taken'},
   ];
 
-  var html = '';
+  let html = '';
   for(var i = 0; i < 5; i++){
     var role = GAME_ROLES[i];
-    var roleLower = role.toLowerCase();
-    var defaultP  = PLAYERS.find(function(p){ return p.role === role && p.status !== 'Inactive'; }) ||
-                    PLAYERS.find(function(p){ return p.role === role; });
-    var preScore = (defaultP && LS.scores[defaultP.id]) ? LS.scores[defaultP.id] : null;
-    var preHero  = (preScore && preScore.hero) ? preScore.hero : '';
+    const roleLower = role.toLowerCase();
+    const defaultP  = App.players.find(function(p){ return p.role === role && p.status !== 'Inactive'; }) ||
+                    App.players.find(function(p){ return p.role === role; });
+    const preScore = (defaultP && App.log.scores[defaultP.id]) ? App.log.scores[defaultP.id] : null;
+    const preHero  = (preScore && preScore.hero) ? preScore.hero : '';
     // Inferred hero role pre-selects the picker; null (Flowborn/unknown) falls back to slot role
     var prefRole = (preScore && preScore.role) ? preScore.role : role;
 
-    var roleSelOpts = GAME_ROLES.map(function(r){
+    const roleSelOpts = GAME_ROLES.map(function(r){
       return '<option value="'+r+'"'+(r===prefRole?' selected':'')+'>'+r+'</option>';
     }).join('');
 
-    var statsHtml = statsFields.map(function(f){
+    const statsHtml = statsFields.map(function(f){
       return '<div class="raw-stat-cell">'+
         '<div class="raw-stat-label">'+f.label+'</div>'+
         '<input class="input" type="number" id="lp-'+f.id+'-'+i+'" placeholder="0" style="padding:6px 8px;font-size:12px;font-family:\'DM Mono\',monospace;" oninput="updateComputedStats('+i+')"/>'+
@@ -1990,11 +1990,11 @@ function renderPlayerStep(){
 
   // Pre-fill raw stats + render pillar sliders + suggestions for each slot
   for(var j = 0; j < 5; j++){
-    var dp = PLAYERS.find(function(p){ return p.role === GAME_ROLES[j] && p.status !== 'Inactive'; }) ||
-             PLAYERS.find(function(p){ return p.role === GAME_ROLES[j]; });
-    var sc = (dp && LS.scores[dp.id]) ? LS.scores[dp.id] : null;
-    var rEl = document.getElementById('lp-role-'+j);
-    var rl  = (rEl ? rEl.value : GAME_ROLES[j]).toLowerCase();
+    const dp = App.players.find(function(p){ return p.role === GAME_ROLES[j] && p.status !== 'Inactive'; }) ||
+             App.players.find(function(p){ return p.role === GAME_ROLES[j]; });
+    const sc = (dp && App.log.scores[dp.id]) ? App.log.scores[dp.id] : null;
+    const rEl = document.getElementById('lp-role-'+j);
+    const rl  = (rEl ? rEl.value : GAME_ROLES[j]).toLowerCase();
     if(sc){ if(dp) sc._playerId = dp.id; _prefillRawStats(j, sc); }
     renderPillarSliders(rl, j);
     if(sc) _prefillPillarSuggestions(j, rl, sc);
@@ -2004,7 +2004,7 @@ function renderPlayerStep(){
 
 function _prefillRawStats(i, sc){
   function setv(id, v){
-    var el = document.getElementById(id);
+    const el = document.getElementById(id);
     if(el && v != null && v !== '') el.value = v;
   }
   setv('lp-kills-'+i,          sc.kills);
@@ -2019,53 +2019,53 @@ function _prefillRawStats(i, sc){
 }
 
 function _prefillPillarSuggestions(i, role, sc){
-  var pillars = PILLAR_MAP[role] || [];
-  for(var n = 0; n < pillars.length; n++){
-    var sug = calculateSuggestion(role, n, sc);
+  const pillars = PILLAR_MAP[role] || [];
+  for(let n = 0; n < pillars.length; n++){
+    const sug = calculateSuggestion(role, n, sc);
     if(sug == null) continue;
-    var inp  = document.getElementById('lp-p'+n+'-'+i);
-    var disp = document.getElementById('lp-pv'+n+'-'+i);
+    const inp  = document.getElementById('lp-p'+n+'-'+i);
+    const disp = document.getElementById('lp-pv'+n+'-'+i);
     if(inp)  inp.value = sug;
     if(disp) disp.textContent = parseFloat(sug).toFixed(0);
   }
 }
 
 function onLogRoleChange(i){
-  var roleEl = document.getElementById('lp-role-'+i);
-  var role   = roleEl ? roleEl.value.toLowerCase() : '';
+  const roleEl = document.getElementById('lp-role-'+i);
+  const role   = roleEl ? roleEl.value.toLowerCase() : '';
   renderPillarSliders(role, i);
   updateComputedStats(i);
 }
 
 function updateComputedStats(slotIdx){
-  var container = document.getElementById('lp-computed-'+slotIdx);
+  const container = document.getElementById('lp-computed-'+slotIdx);
   if(!container) return;
 
-  var kills    = parseFloat(document.getElementById('lp-kills-'+slotIdx)?.value)         || 0;
-  var deaths   = parseFloat(document.getElementById('lp-deaths-'+slotIdx)?.value)        || 0;
-  var assists  = parseFloat(document.getElementById('lp-assists-'+slotIdx)?.value)       || 0;
-  var gold     = parseFloat(document.getElementById('lp-gold-'+slotIdx)?.value)          || 0;
-  var dmgDealt = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+slotIdx)?.value) || 0;
-  var dmgTaken = parseFloat(document.getElementById('lp-dmg_taken_raw-'+slotIdx)?.value) || 0;
-  var role     = (document.getElementById('lp-role-'+slotIdx)?.value || '').toLowerCase();
+  const kills    = parseFloat(document.getElementById('lp-kills-'+slotIdx)?.value)         || 0;
+  const deaths   = parseFloat(document.getElementById('lp-deaths-'+slotIdx)?.value)        || 0;
+  const assists  = parseFloat(document.getElementById('lp-assists-'+slotIdx)?.value)       || 0;
+  const gold     = parseFloat(document.getElementById('lp-gold-'+slotIdx)?.value)          || 0;
+  const dmgDealt = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+slotIdx)?.value) || 0;
+  const dmgTaken = parseFloat(document.getElementById('lp-dmg_taken_raw-'+slotIdx)?.value) || 0;
+  const role     = (document.getElementById('lp-role-'+slotIdx)?.value || '').toLowerCase();
 
-  var durSec   = LS.matchInfo && LS.matchInfo.duration_seconds;
-  var durMin   = durSec ? durSec / 60 : 0;
-  var durLabel = (LS.matchInfo && LS.matchInfo.duration) || null;
-  var teamK    = (LS.matchInfo && LS.matchInfo.team_total_kills) || 0;
+  const durSec   = App.log.matchInfo && App.log.matchInfo.duration_seconds;
+  const durMin   = durSec ? durSec / 60 : 0;
+  const durLabel = (App.log.matchInfo && App.log.matchInfo.duration) || null;
+  const teamK    = (App.log.matchInfo && App.log.matchInfo.team_total_kills) || 0;
 
-  var oppRow  = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
-  var oppGold = oppRow ? (oppRow.gold || 0) : 0;
+  const oppRow  = App.log.enemyRoles ? App.log.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  const oppGold = oppRow ? (oppRow.gold || 0) : 0;
 
-  var kda         = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
-  var goldPerMin  = (durMin > 0 && gold > 0)       ? Math.round(gold / durMin)            : null;
-  var killContrib = teamK > 0                       ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
-  var minPerDeath = (durMin > 0 && deaths > 0)      ? (durMin / deaths).toFixed(1)         : null;
-  var dmgRatio    = (dmgDealt > 0 && dmgTaken > 0)  ? (dmgDealt / dmgTaken).toFixed(2)    : null;
-  var oppGoldDisp = oppGold > 0                     ? oppGold                               : null;
-  var oppGPerMin  = (oppGold > 0 && durMin > 0)     ? Math.round(oppGold / durMin)          : null;
+  const kda         = ((kills + assists) / Math.max(deaths, 1)).toFixed(2);
+  const goldPerMin  = (durMin > 0 && gold > 0)       ? Math.round(gold / durMin)            : null;
+  const killContrib = teamK > 0                       ? ((kills + assists) / teamK * 100).toFixed(1) + '%' : null;
+  const minPerDeath = (durMin > 0 && deaths > 0)      ? (durMin / deaths).toFixed(1)         : null;
+  const dmgRatio    = (dmgDealt > 0 && dmgTaken > 0)  ? (dmgDealt / dmgTaken).toFixed(2)    : null;
+  const oppGoldDisp = oppGold > 0                     ? oppGold                               : null;
+  const oppGPerMin  = (oppGold > 0 && durMin > 0)     ? Math.round(oppGold / durMin)          : null;
 
-  var rows = [
+  const rows = [
     {label:'Duration',     val:durLabel,    warn:!durLabel},
     {label:'KDA',          val:kda},
     {label:'Gold / Min',   val:goldPerMin},
@@ -2076,11 +2076,11 @@ function updateComputedStats(slotIdx){
     {label:'Opp G / Min',  val:oppGPerMin},
   ];
 
-  var html = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--grey-2);">';
+  let html = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--grey-2);">';
   html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">COMPUTED</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 6px;">';
   rows.forEach(function(s){
-    var color = s.val != null ? (s.warn ? 'var(--warn)' : 'var(--white)') : 'var(--grey-3)';
+    const color = s.val != null ? (s.warn ? 'var(--warn)' : 'var(--white)') : 'var(--grey-3)';
     html += '<div>';
     html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;margin-bottom:2px;">'+s.label+'</div>';
     html += '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+color+';">'+(s.val!=null?s.val:'—')+'</div>';
@@ -2091,16 +2091,16 @@ function updateComputedStats(slotIdx){
 }
 
 function renderPillarSliders(role, slotIdx){
-  var container = document.getElementById('lp-pillars-'+slotIdx);
+  const container = document.getElementById('lp-pillars-'+slotIdx);
   if(!container) return;
-  var pillars = PILLAR_MAP[role] || [];
+  const pillars = PILLAR_MAP[role] || [];
   if(!pillars.length){ container.innerHTML = ''; return; }
-  var html = '';
-  for(var n = 0; n < pillars.length; n++){
-    var pName    = pillars[n];
-    var isManual = MANUAL_PILLARS.has(pName);
-    var dispId   = 'lp-pv'+n+'-'+slotIdx;
-    var inpId    = 'lp-p'+n+'-'+slotIdx;
+  let html = '';
+  for(let n = 0; n < pillars.length; n++){
+    const pName    = pillars[n];
+    const isManual = MANUAL_PILLARS.has(pName);
+    const dispId   = 'lp-pv'+n+'-'+slotIdx;
+    const inpId    = 'lp-p'+n+'-'+slotIdx;
     html += '<div class="pillar-row">';
     html += '<div class="pillar-label-row">';
     html += '<span class="pillar-label">'+pName+'</span>';
@@ -2116,7 +2116,7 @@ function renderPillarSliders(role, slotIdx){
 }
 
 function updatePillarDisplay(input, displayId){
-  var el = document.getElementById(displayId);
+  const el = document.getElementById(displayId);
   if(el) el.textContent = parseFloat(input.value).toFixed(0);
 }
 
@@ -2141,7 +2141,7 @@ var BENCHMARK_FIELDS = {
 var BENCHMARK_LS_KEY = 'sucrose_benchmarks';
 
 function _benchEmptyConfig(){
-  var cur={};
+  const cur={};
   BENCHMARK_ROLES.forEach(function(role){
     cur[role]={};
     BENCHMARK_FIELDS[role].forEach(function(f){ cur[role][f.k]={value:'',auto:false}; });
@@ -2150,11 +2150,11 @@ function _benchEmptyConfig(){
 }
 // Normalise any stored config so every role/field exists.
 function _benchMergeShape(cfg){
-  var out=_benchEmptyConfig();
+  const out=_benchEmptyConfig();
   if(cfg&&typeof cfg==='object'){
     BENCHMARK_ROLES.forEach(function(role){
       BENCHMARK_FIELDS[role].forEach(function(f){
-        var src=cfg[role]&&cfg[role][f.k];
+        const src=cfg[role]&&cfg[role][f.k];
         if(src&&typeof src==='object'){
           out[role][f.k]={value:(src.value==null?'':src.value),auto:!!src.auto};
         }
@@ -2164,7 +2164,7 @@ function _benchMergeShape(cfg){
   return out;
 }
 function _benchLoadStore(){
-  var raw=null;
+  let raw=null;
   try{ raw=JSON.parse(localStorage.getItem(BENCHMARK_LS_KEY)||'null'); }catch(e){}
   if(!raw||typeof raw!=='object') raw={};
   raw.current=_benchMergeShape(raw.current);
@@ -2196,12 +2196,12 @@ function _benchMetricFromScore(fieldKey, s, g){
   }
   return null;
 }
-// Compute a metric from a not-yet-saved log entry (LS.scores row + LS.matchInfo).
+// Compute a metric from a not-yet-saved log entry (App.log.scores row + App.log.matchInfo).
 function _benchMetricFromRaw(fieldKey, raw){
   if(!raw) return null;
-  var mi=(typeof LS!=='undefined'&&LS.matchInfo)?LS.matchInfo:{};
-  var durMin=mi.duration_seconds?mi.duration_seconds/60:0;
-  var teamK=mi.team_total_kills||0;
+  const mi=(typeof App.log!=='undefined'&&App.log.matchInfo)?App.log.matchInfo:{};
+  const durMin=mi.duration_seconds?mi.duration_seconds/60:0;
+  const teamK=mi.team_total_kills||0;
   switch(fieldKey){
     case 'kda':           return ((raw.kills||0)+(raw.assists||0))/Math.max(raw.deaths||0,1);
     case 'gpm':           return (durMin>0&&raw.gold) ? raw.gold/durMin : null;
@@ -2217,12 +2217,12 @@ function _benchMetricFromRaw(fieldKey, raw){
 // Player's own average for a metric across logged games in that role (needs 3+).
 function _benchPlayerAvg(role, fieldKey, playerId){
   if(!playerId) return null;
-  var vals=[];
-  (_cache.games||[]).forEach(function(g){
-    var s=g.playerScores&&g.playerScores[playerId];
+  const vals=[];
+  (App.cache.games||[]).forEach(function(g){
+    const s=g.playerScores&&g.playerScores[playerId];
     if(!s) return;
     if((s.role||'').toLowerCase()!==role) return;
-    var v=_benchMetricFromScore(fieldKey,s,g);
+    const v=_benchMetricFromScore(fieldKey,s,g);
     if(v!=null&&!isNaN(v)) vals.push(v);
   });
   if(vals.length<3) return null;
@@ -2231,11 +2231,11 @@ function _benchPlayerAvg(role, fieldKey, playerId){
 // ── THE single source for benchmark values — swap this out later. ──
 // Returns the resolved benchmark number, or null for a "Not set" metric.
 function getBenchmark(role, fieldKey, playerId){
-  var cell=_benchStore().current[role] && _benchStore().current[role][fieldKey];
+  const cell=_benchStore().current[role] && _benchStore().current[role][fieldKey];
   if(!cell) return null;
-  var fixed=(cell.value!==''&&cell.value!=null&&!isNaN(parseFloat(cell.value))) ? parseFloat(cell.value) : null;
+  const fixed=(cell.value!==''&&cell.value!=null&&!isNaN(parseFloat(cell.value))) ? parseFloat(cell.value) : null;
   if(cell.auto){
-    var avg=_benchPlayerAvg(role,fieldKey,playerId);
+    const avg=_benchPlayerAvg(role,fieldKey,playerId);
     if(avg!=null) return avg;
     return fixed; // <3 games — fall back to fixed (null => Not set)
   }
@@ -2245,13 +2245,13 @@ function getBenchmark(role, fieldKey, playerId){
 function calculateSuggestion(role, pillarIndex, rawStats){
   if(!role||!rawStats) return null;
   role=String(role).toLowerCase();
-  var fields=BENCHMARK_FIELDS[role];
+  const fields=BENCHMARK_FIELDS[role];
   if(!fields||pillarIndex<0||pillarIndex>=fields.length) return null;
-  var fieldKey=fields[pillarIndex].k;
-  var playerId=rawStats._playerId||rawStats.playerId||rawStats.id||null;
-  var benchmark=getBenchmark(role,fieldKey,playerId);
+  const fieldKey=fields[pillarIndex].k;
+  const playerId=rawStats._playerId||rawStats.playerId||rawStats.id||null;
+  const benchmark=getBenchmark(role,fieldKey,playerId);
   if(benchmark==null||benchmark<=0) return null; // Not set — skip this metric
-  var actual=_benchMetricFromRaw(fieldKey,rawStats);
+  const actual=_benchMetricFromRaw(fieldKey,rawStats);
   if(actual==null||isNaN(actual)) return null;
   return _benchScale(actual,benchmark);
 }
@@ -2259,7 +2259,7 @@ function calculateSuggestion(role, pillarIndex, rawStats){
 // Shared scaler: 5 = at benchmark, linear, clamped + rounded to 1-10.
 function _benchScale(actual,benchmark){
   if(actual==null||isNaN(actual)||benchmark==null||benchmark<=0) return null;
-  var score=5*(actual/benchmark);
+  let score=5*(actual/benchmark);
   if(score<1) score=1;
   if(score>10) score=10;
   return Math.round(score);
@@ -2269,16 +2269,16 @@ function _benchScale(actual,benchmark){
 function calculateSuggestionFromScore(role, pillarIndex, score, game, playerId){
   if(!role||!score) return null;
   role=String(role).toLowerCase();
-  var fields=BENCHMARK_FIELDS[role];
+  const fields=BENCHMARK_FIELDS[role];
   if(!fields||pillarIndex<0||pillarIndex>=fields.length) return null;
-  var fieldKey=fields[pillarIndex].k;
-  var benchmark=getBenchmark(role,fieldKey,playerId||score._playerId||null);
+  const fieldKey=fields[pillarIndex].k;
+  const benchmark=getBenchmark(role,fieldKey,playerId||score._playerId||null);
   if(benchmark==null||benchmark<=0) return null;
   return _benchScale(_benchMetricFromScore(fieldKey,score,game),benchmark);
 }
 
 function _dbErr(err, table){
-  var msg = (err && err.message) || String(err);
+  const msg = (err && err.message) || String(err);
   if(msg.toLowerCase().indexOf('row-level security') !== -1 || (err && (err.code === '42501' || err.status === 401 || err.status === 403))){
     showToast('Permission denied on '+table+' — run supabase-setup.sql in Supabase dashboard');
   } else {
@@ -2287,81 +2287,81 @@ function _dbErr(err, table){
 }
 
 async function saveGame(){
-  var btn = document.getElementById('save-game-btn');
+  const btn = document.getElementById('save-game-btn');
   if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
 
-  var _restoreBtn = function(){
+  const _restoreBtn = function(){
     if(btn){ btn.disabled = false; btn.textContent = 'Save Game'; }
   };
 
   try{
-    var result = LS.matchInfo.result;
-    var date   = LS.matchInfo.date;
+    const result = App.log.matchInfo.result;
+    const date   = App.log.matchInfo.date;
     if(!result){ showToast('Result is required'); _restoreBtn(); return; }
     if(!date){   showToast('Match date is required'); _restoreBtn(); return; }
 
     // Soft warning — no block
-    if(!LS.matchInfo.duration_seconds && !LS.matchInfo.team_total_kills){
+    if(!App.log.matchInfo.duration_seconds && !App.log.matchInfo.team_total_kills){
       showToast('Tip: duration or kills not set — saving anyway');
     }
 
     // Build games_v2 row
-    var gameRow = {
-      match_date:        LS.matchInfo.date,
-      result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
-      game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
-      opponent_name:     LS.matchInfo.opponent  || null,
-      duration_seconds:  LS.matchInfo.duration_seconds || null,
-      team_total_kills:  LS.matchInfo.team_total_kills  || null,
-      enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
-      vod_url:           LS.matchInfo.vod_url  || null,
-      notes:             LS.matchInfo.notes    || null,
-      enemy_roles: LS.enemyRoles
-        ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
+    const gameRow = {
+      match_date:        App.log.matchInfo.date,
+      result:            App.log.matchInfo.result === 'Win' ? 'win' : 'loss',
+      game_type:         (App.log.matchInfo.type || 'Scrim').toLowerCase(),
+      opponent_name:     App.log.matchInfo.opponent  || null,
+      duration_seconds:  App.log.matchInfo.duration_seconds || null,
+      team_total_kills:  App.log.matchInfo.team_total_kills  || null,
+      enemy_total_kills: App.log.matchInfo.enemy_total_kills || null,
+      vod_url:           App.log.matchInfo.vod_url  || null,
+      notes:             App.log.matchInfo.notes    || null,
+      enemy_roles: App.log.enemyRoles
+        ? Object.fromEntries(App.log.enemyRoles.filter(function(e){ return e.role; }).map(function(e){ return [e.role.toLowerCase(), e.hero]; }))
         : null,
-      enemy_gold: LS.enemyRoles
-        ? Object.fromEntries(LS.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
+      enemy_gold: App.log.enemyRoles
+        ? Object.fromEntries(App.log.enemyRoles.filter(function(e){ return e.role && e.gold != null; }).map(function(e){ return [e.role.toLowerCase(), e.gold]; }))
         : null,
       team_total_gold:  null,
-      enemy_total_gold: LS.enemyRoles
-        ? LS.enemyRoles.reduce(function(s,e){ return s+(e.gold||0); }, 0) || null
+      enemy_total_gold: App.log.enemyRoles
+        ? App.log.enemyRoles.reduce(function(s,e){ return s+(e.gold||0); }, 0) || null
         : null,
     };
 
     // Per-player data
-    var playerRows = [];
-    var teamTotalGold = 0;
-    var durMin = (LS.matchInfo.duration_seconds || 0) / 60;
+    const playerRows = [];
+    let teamTotalGold = 0;
+    const durMin = (App.log.matchInfo.duration_seconds || 0) / 60;
 
-    for(var i = 0; i < 5; i++){
-      var pid          = document.getElementById('lp-player-'+i)?.value || null;
-      var hero         = (document.getElementById('lp-hero-'+i)?.value||'').trim() || null;
+    for(let i = 0; i < 5; i++){
+      const pid          = document.getElementById('lp-player-'+i)?.value || null;
+      const hero         = (document.getElementById('lp-hero-'+i)?.value||'').trim() || null;
       var role         = (document.getElementById('lp-role-'+i)?.value||'').toLowerCase();
-      var kills        = parseFloat(document.getElementById('lp-kills-'+i)?.value)        || 0;
-      var deaths       = parseFloat(document.getElementById('lp-deaths-'+i)?.value)       || 0;
-      var assists      = parseFloat(document.getElementById('lp-assists-'+i)?.value)      || 0;
-      var gold         = parseFloat(document.getElementById('lp-gold-'+i)?.value)         || 0;
-      var rating       = parseFloat(document.getElementById('lp-in_game_rating-'+i)?.value) || null;
-      var dmgDealtPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-'+i)?.value)  || null;
-      var dmgTakenPct  = parseFloat(document.getElementById('lp-dmg_taken_pct-'+i)?.value)  || null;
-      var dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
-      var dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
-      var note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
-      var p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
-      var p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
-      var p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
-      var p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
+      const kills        = parseFloat(document.getElementById('lp-kills-'+i)?.value)        || 0;
+      const deaths       = parseFloat(document.getElementById('lp-deaths-'+i)?.value)       || 0;
+      const assists      = parseFloat(document.getElementById('lp-assists-'+i)?.value)      || 0;
+      const gold         = parseFloat(document.getElementById('lp-gold-'+i)?.value)         || 0;
+      const rating       = parseFloat(document.getElementById('lp-in_game_rating-'+i)?.value) || null;
+      const dmgDealtPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-'+i)?.value)  || null;
+      const dmgTakenPct  = parseFloat(document.getElementById('lp-dmg_taken_pct-'+i)?.value)  || null;
+      const dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
+      const dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
+      const note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
+      const p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
+      const p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
+      const p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
+      const p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
 
       teamTotalGold += gold || 0;
 
-      var kda            = (kills + assists) / Math.max(deaths, 1);
-      var goldPerMin     = durMin > 0 ? gold / durMin : null;
-      var minPerDeath    = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
-      var killContribPct = (kills + assists) / Math.max(LS.matchInfo.team_total_kills || 1, 1) * 100;
-      var dmgRatio       = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
-      var oppRole        = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
-      var oppGold        = oppRole ? (oppRole.gold || null) : null;
-      var oppGoldPerMin  = (oppGold && durMin > 0) ? oppGold / durMin : null;
+      const kda            = (kills + assists) / Math.max(deaths, 1);
+      const goldPerMin     = durMin > 0 ? gold / durMin : null;
+      const minPerDeath    = durMin > 0 ? durMin / Math.max(deaths, 1) : null;
+      const killContribPct = (kills + assists) / Math.max(App.log.matchInfo.team_total_kills || 1, 1) * 100;
+      const dmgRatio       = (dmgDealtRaw && dmgTakenRaw) ? dmgDealtRaw / Math.max(dmgTakenRaw, 1) : null;
+      const oppRole        = App.log.enemyRoles ? App.log.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+      const oppGold        = oppRole ? (oppRole.gold || null) : null;
+      const oppGoldPerMin  = (oppGold && durMin > 0) ? oppGold / durMin : null;
 
       playerRows.push({
         game_id:               null,
@@ -2399,9 +2399,9 @@ async function saveGame(){
     gameRow.team_total_gold = teamTotalGold || null;
 
     // Build enemy_picks rows
-    var enemyRows = [];
-    if(LS.enemyRoles && LS.enemyRoles.length){
-      LS.enemyRoles.forEach(function(e){
+    const enemyRows = [];
+    if(App.log.enemyRoles && App.log.enemyRoles.length){
+      App.log.enemyRoles.forEach(function(e){
         enemyRows.push({
           game_id:   null,
           hero_name: e.hero || null,
@@ -2412,27 +2412,27 @@ async function saveGame(){
     }
 
     // 1. Insert game row
-    var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
+    const gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
     if(gRes.error){ _dbErr(gRes.error, 'games_v2'); _restoreBtn(); return; }
-    var gameId = gRes.data.id;
+    const gameId = gRes.data.id;
 
     // Attach game_id to child rows
     playerRows.forEach(function(r){ r.game_id = gameId; });
     enemyRows.forEach(function(r){  r.game_id = gameId; });
 
     // 2. Parallel child inserts — check both for errors
-    var results = await Promise.all([
+    const results = await Promise.all([
       sb.from('player_scores_v2').insert(playerRows),
       enemyRows.length ? sb.from('enemy_picks').insert(enemyRows) : Promise.resolve({error:null}),
     ]);
-    var pErr = results[0] && results[0].error;
-    var eErr = results[1] && results[1].error;
+    const pErr = results[0] && results[0].error;
+    const eErr = results[1] && results[1].error;
     if(pErr){ _dbErr(pErr, 'player_scores_v2'); _restoreBtn(); return; }
     if(eErr){ _dbErr(eErr, 'enemy_picks'); }
 
     // Update local cache so hero page reflects the save immediately
     (function(){
-      var newPS={};
+      const newPS={};
       playerRows.forEach(function(r){
         if(!r.player_id)return;
         newPS[r.player_id]={
@@ -2448,21 +2448,21 @@ async function saveGame(){
           comment:r.coach_note||null,
         };
       });
-      _cache.games.unshift({
-        id:gameId,date:LS.matchInfo.date,
-        type:LS.matchInfo.type||'Scrim',gameNum:1,gameName:'',
-        result:LS.matchInfo.result,opponent:LS.matchInfo.opponent||'',
-        oppTier:'',notes:LS.matchInfo.notes||'',playerScores:newPS,
-        duration_seconds:LS.matchInfo.duration_seconds||null,
-        team_total_kills:LS.matchInfo.team_total_kills||null,
-        enemy_total_kills:LS.matchInfo.enemy_total_kills||null,
+      App.cache.games.unshift({
+        id:gameId,date:App.log.matchInfo.date,
+        type:App.log.matchInfo.type||'Scrim',gameNum:1,gameName:'',
+        result:App.log.matchInfo.result,opponent:App.log.matchInfo.opponent||'',
+        oppTier:'',notes:App.log.matchInfo.notes||'',playerScores:newPS,
+        duration_seconds:App.log.matchInfo.duration_seconds||null,
+        team_total_kills:App.log.matchInfo.team_total_kills||null,
+        enemy_total_kills:App.log.matchInfo.enemy_total_kills||null,
         enemyPicks:enemyRows.map(function(e){return {hero:e.hero_name,role:e.role,gold:e.gold};}),
-        matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:null,savedAt:new Date().toISOString(),
+        matchMentality:{},matchId:App.log._matchId||null,mvpPlayerId:null,savedAt:new Date().toISOString(),
       });
     })();
 
     // If launched from a match, link the game now
-    var _returnMatchId = LS._matchId||null;
+    const _returnMatchId = App.log._matchId||null;
     if(_returnMatchId){
       try{ await sbAssignGameToMatch(gameId, _returnMatchId); }catch(e){ console.warn('match link failed',e); }
     }
@@ -2479,12 +2479,12 @@ async function saveGame(){
 }
 
 function resetLog(){
-  LS.matchInfo = {};
-  LS.scores    = {};
-  LS.enemyRoles = null;
-  LS.scanEnemy = null;
-  LS._pendingOppTeam = null;
-  LS._step = 0;
+  App.log.matchInfo = {};
+  App.log.scores    = {};
+  App.log.enemyRoles = null;
+  App.log.scanEnemy = null;
+  App.log._pendingOppTeam = null;
+  App.log._step = 0;
   showPage('page-home');
 }
 
@@ -2492,22 +2492,22 @@ function resetLog(){
 // STUB FUNCTIONS (placeholders for pages not yet rebuilt)
 // ══════════════════════════════════════════
 function initTiers(){
-  var meta=document.getElementById('tier-meta-section');
-  var mastery=document.getElementById('tier-mastery-section');
-  var history=document.getElementById('tier-history-section');
-  var tMeta=document.getElementById('tmode-meta');
-  var tMastery=document.getElementById('tmode-mastery');
-  var tHistory=document.getElementById('tmode-history');
+  const meta=document.getElementById('tier-meta-section');
+  const mastery=document.getElementById('tier-mastery-section');
+  const history=document.getElementById('tier-history-section');
+  const tMeta=document.getElementById('tmode-meta');
+  const tMastery=document.getElementById('tmode-mastery');
+  const tHistory=document.getElementById('tmode-history');
   if(!meta)return;
   // Default to meta mode if nothing active
-  var active=document.querySelector('.tier-mode-btn.active[id^="tmode-"]');
+  const active=document.querySelector('.tier-mode-btn.active[id^="tmode-"]');
   if(!active){if(tMeta)tMeta.classList.add('active');meta.style.display='';if(mastery)mastery.style.display='none';if(history)history.style.display='none';}
   renderMetaTiers();
 }
 function setTierMode(mode){
   ['meta','mastery','history'].forEach(function(m){
-    var btn=document.getElementById('tmode-'+m);
-    var sec=document.getElementById('tier-'+m+'-section');
+    const btn=document.getElementById('tmode-'+m);
+    const sec=document.getElementById('tier-'+m+'-section');
     if(btn)btn.classList.toggle('active',m===mode);
     if(sec)sec.style.display=m===mode?'':'none';
   });
@@ -2516,25 +2516,25 @@ function setTierMode(mode){
   else renderPatchHistory();
 }
 function renderMetaTiers(){
-  var data=loadData();
-  var metaTiers=data.metaTiers||{};
-  var role=window._metaRole||GAME_ROLES[0];
-  var roles=GAME_ROLES;
+  const data=loadData();
+  const metaTiers=data.metaTiers||{};
+  const role=App.ui.metaRole||GAME_ROLES[0];
+  const roles=GAME_ROLES;
   document.getElementById('meta-role-tabs').innerHTML=roles.map(function(r){
     return '<button class="tier-role-tab'+(r===role?' active':'')+'" onclick="setMetaRole(\''+r+'\')">'+r+'</button>';
   }).join('');
-  var byTier={};
+  const byTier={};
   META_LEVELS.forEach(function(l){byTier[l.key]=[];});
-  var unplaced=[];
-  var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
+  const unplaced=[];
+  const allH=getLiveHeroes().concat(App.cache.customHeroes||[]);
   allH.filter(function(h){return h.roles.includes(role);}).forEach(function(h){
-    var t=metaTiers[h.name]&&metaTiers[h.name][role];
+    const t=metaTiers[h.name]&&metaTiers[h.name][role];
     if(t&&byTier[t])byTier[t].push(h.name);
     else unplaced.push(h.name);
   });
-  var bandsEl=document.getElementById('meta-tier-bands');
+  const bandsEl=document.getElementById('meta-tier-bands');
   if(bandsEl)bandsEl.innerHTML=META_LEVELS.map(function(l){
-    var chips=(byTier[l.key]||[]).map(function(name){
+    const chips=(byTier[l.key]||[]).map(function(name){
       return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+
         heroPortraitHtml(name,22,false)+
         '<span>'+name+'</span>'+
@@ -2543,39 +2543,39 @@ function renderMetaTiers(){
     }).join('');
     return '<div class="tier-band"><div class="tier-band-header"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span class="tier-band-desc">'+l.desc+'</span></div><div class="tier-hero-grid">'+chips+'</div></div>';
   }).join('');
-  var upEl=document.getElementById('meta-unplaced');
+  const upEl=document.getElementById('meta-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
     return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
-  var pn=document.getElementById('patch-name-display');
-  if(pn)pn.textContent=(_cache.patches&&_cache.patches.length?_cache.patches[_cache.patches.length-1].name:'Current');
+  const pn=document.getElementById('patch-name-display');
+  if(pn)pn.textContent=(App.cache.patches&&App.cache.patches.length?App.cache.patches[App.cache.patches.length-1].name:'Current');
 }
-function setMetaRole(r){window._metaRole=r;renderMetaTiers();}
+function setMetaRole(r){App.ui.metaRole=r;renderMetaTiers();}
 function renderMasteryTiers(){
-  PLAYERS=getPlayers();
-  var pid=window._masteryPlayer||(PLAYERS[0]&&PLAYERS[0].id)||null;
-  window._masteryPlayer=pid;
-  var masteryRole=window._masteryRole||GAME_ROLES[0];
-  var selEl=document.getElementById('mastery-player-selector');
-  if(selEl)selEl.innerHTML=PLAYERS.filter(function(p){return p.active;}).map(function(p){
+  App.players=getPlayers();
+  const pid=App.ui.masteryPlayer||(App.players[0]&&App.players[0].id)||null;
+  App.ui.masteryPlayer=pid;
+  const masteryRole=App.ui.masteryRole||GAME_ROLES[0];
+  const selEl=document.getElementById('mastery-player-selector');
+  if(selEl)selEl.innerHTML=App.players.filter(function(p){return p.active;}).map(function(p){
     return '<button class="player-chip'+(p.id===pid?' active':'')+'" onclick="setMasteryPlayer(\''+p.id+'\')">'+p.nick+'</button>';
   }).join('');
   document.getElementById('mastery-role-tabs').innerHTML=GAME_ROLES.map(function(r){
     return '<button class="tier-role-tab'+(r===masteryRole?' active':'')+'" onclick="setMasteryRole(\''+r+'\')">'+r+'</button>';
   }).join('');
-  var data=loadData();
-  var masteryTiers=(data.masteryTiers||{})[pid]||{};
-  var metaTiers=data.metaTiers||{};
-  var allH=getLiveHeroes().concat(_cache.customHeroes||[]);
-  var roleH=allH.filter(function(h){return h.roles.includes(masteryRole);});
-  var byTier={};MASTERY_LEVELS.forEach(function(l){byTier[l.key]=[];});var unplaced=[];
-  roleH.forEach(function(h){var t=masteryTiers[h.name];if(t&&byTier[t])byTier[t].push(h.name);else unplaced.push(h.name);});
-  var sa=document.getElementById('mastery-score-area');
-  if(sa&&pid){var hp=calcHeroPoolScore(pid);sa.innerHTML='<div class="hp-score-card"><div class="hp-score-big">'+hp.pct+'%</div><div class="hp-score-sub">HERO POOL SCORE — '+masteryRole.toUpperCase()+'</div></div>';}
-  var bandsEl=document.getElementById('mastery-tier-bands');
+  const data=loadData();
+  const masteryTiers=(data.masteryTiers||{})[pid]||{};
+  const metaTiers=data.metaTiers||{};
+  const allH=getLiveHeroes().concat(App.cache.customHeroes||[]);
+  const roleH=allH.filter(function(h){return h.roles.includes(masteryRole);});
+  const byTier={};MASTERY_LEVELS.forEach(function(l){byTier[l.key]=[];});const unplaced=[];
+  roleH.forEach(function(h){const t=masteryTiers[h.name];if(t&&byTier[t])byTier[t].push(h.name);else unplaced.push(h.name);});
+  const sa=document.getElementById('mastery-score-area');
+  if(sa&&pid){const hp=calcHeroPoolScore(pid);sa.innerHTML='<div class="hp-score-card"><div class="hp-score-big">'+hp.pct+'%</div><div class="hp-score-sub">HERO POOL SCORE — '+masteryRole.toUpperCase()+'</div></div>';}
+  const bandsEl=document.getElementById('mastery-tier-bands');
   if(bandsEl)bandsEl.innerHTML=MASTERY_LEVELS.map(function(l){
-    var chips=(byTier[l.key]||[]).map(function(name){
-      var mt=metaTiers[name]&&metaTiers[name][masteryRole];
+    const chips=(byTier[l.key]||[]).map(function(name){
+      const mt=metaTiers[name]&&metaTiers[name][masteryRole];
       return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+
         heroPortraitHtml(name,22,false)+
         (mt?'<span class="chip-class">'+mt+'</span>':'')+
@@ -2584,16 +2584,16 @@ function renderMasteryTiers(){
     }).join('');
     return '<div class="tier-band"><div class="tier-band-header"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span class="tier-band-desc">'+l.desc+'</span></div><div class="tier-hero-grid">'+chips+'</div></div>';
   }).join('');
-  var upEl=document.getElementById('mastery-unplaced');
+  const upEl=document.getElementById('mastery-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
     return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
 }
-function setMasteryPlayer(pid){window._masteryPlayer=pid;renderMasteryTiers();}
-function setMasteryRole(r){window._masteryRole=r;renderMasteryTiers();}
+function setMasteryPlayer(pid){App.ui.masteryPlayer=pid;renderMasteryTiers();}
+function setMasteryRole(r){App.ui.masteryRole=r;renderMasteryTiers();}
 function renderPatchHistory(){
-  var patches=(_cache.patches||[]).slice().reverse();
-  var el=document.getElementById('patch-history-list');
+  const patches=(App.cache.patches||[]).slice().reverse();
+  const el=document.getElementById('patch-history-list');
   if(!el)return;
   if(!patches.length){el.innerHTML='<div class="empty"><div class="empty-text">No patches saved yet</div></div>';return;}
   el.innerHTML=patches.map(function(p){
@@ -2601,10 +2601,10 @@ function renderPatchHistory(){
   }).join('');
 }
 function openTierAssign(encodedName,role,mode){
-  var heroName=decodeURIComponent(encodedName);
-  var data=loadData();
-  var levels=mode==='meta'?META_LEVELS:MASTERY_LEVELS;
-  var current=mode==='meta'?(data.metaTiers[heroName]&&data.metaTiers[heroName][role]):((data.masteryTiers[window._masteryPlayer]||{})[heroName]);
+  const heroName=decodeURIComponent(encodedName);
+  const data=loadData();
+  const levels=mode==='meta'?META_LEVELS:MASTERY_LEVELS;
+  const current=mode==='meta'?(data.metaTiers[heroName]&&data.metaTiers[heroName][role]):((data.masteryTiers[App.ui.masteryPlayer]||{})[heroName]);
   document.getElementById('tier-assign-title').textContent=(mode==='meta'?'META TIER':'MASTERY TIER')+' · '+heroName;
   document.getElementById('tier-assign-body').innerHTML=
     '<div style="margin-bottom:16px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+role.toUpperCase()+'</div>'+
@@ -2613,20 +2613,20 @@ function openTierAssign(encodedName,role,mode){
   document.getElementById('tier-assign-modal').classList.add('open');
 }
 async function assignTier(encodedName,role,tier,mode){
-  var heroName=decodeURIComponent(encodedName);
-  var data=loadData();
+  const heroName=decodeURIComponent(encodedName);
+  const data=loadData();
   if(mode==='meta'){
     if(!data.metaTiers[heroName])data.metaTiers[heroName]={};
     if(tier)data.metaTiers[heroName][role]=tier;
     else delete data.metaTiers[heroName][role];
-    _cache.metaTiers=data.metaTiers;
+    App.cache.metaTiers=data.metaTiers;
     await sbSaveMetaTier(heroName,role,tier);
   } else {
-    var pid=window._masteryPlayer;
+    const pid=App.ui.masteryPlayer;
     if(!data.masteryTiers[pid])data.masteryTiers[pid]={};
     if(tier)data.masteryTiers[pid][heroName]=tier;
     else delete data.masteryTiers[pid][heroName];
-    _cache.masteryTiers=data.masteryTiers;
+    App.cache.masteryTiers=data.masteryTiers;
     await sbSaveMasteryTier(pid,heroName,tier);
   }
   closeModal('tier-assign-modal');
@@ -2634,58 +2634,58 @@ async function assignTier(encodedName,role,tier,mode){
 }
 function openPatchModal(){document.getElementById('patch-modal').classList.add('open');}
 async function savePatch(){
-  var name=(document.getElementById('patch-input')?.value||'').trim();
+  const name=(document.getElementById('patch-input')?.value||'').trim();
   if(!name){showToast('Enter a patch name');return;}
-  var data=loadData();
-  var p={name:name,savedAt:new Date().toISOString(),metaTiers:JSON.parse(JSON.stringify(data.metaTiers))};
-  _cache.patches.push(p);
+  const data=loadData();
+  const p={name:name,savedAt:new Date().toISOString(),metaTiers:JSON.parse(JSON.stringify(data.metaTiers))};
+  App.cache.patches.push(p);
   await sbSavePatch(p);
   closeModal('patch-modal');
   showToast('Patch "'+name+'" saved');
 }
 function renderCompare(){
-  PLAYERS=getPlayers();
-  var aEl=document.getElementById('cmp-a');var bEl=document.getElementById('cmp-b');
+  App.players=getPlayers();
+  const aEl=document.getElementById('cmp-a');const bEl=document.getElementById('cmp-b');
   if(!aEl||!bEl)return;
-  var opts=PLAYERS.map(function(p){return '<option value="'+p.id+'">'+p.nick+' ('+p.role+')</option>';}).join('');
+  const opts=App.players.map(function(p){return '<option value="'+p.id+'">'+p.nick+' ('+p.role+')</option>';}).join('');
   if(!aEl.innerHTML)aEl.innerHTML=opts;
-  if(!bEl.innerHTML){bEl.innerHTML=opts;if(PLAYERS.length>1)bEl.selectedIndex=1;}
-  var aId=aEl.value,bId=bEl.value;
-  var pA=PLAYERS.find(function(p){return p.id===aId;}),pB=PLAYERS.find(function(p){return p.id===bId;});
-  var data=loadData();
-  var cc=document.getElementById('compare-content');if(!cc)return;
+  if(!bEl.innerHTML){bEl.innerHTML=opts;if(App.players.length>1)bEl.selectedIndex=1;}
+  const aId=aEl.value,bId=bEl.value;
+  const pA=App.players.find(function(p){return p.id===aId;}),pB=App.players.find(function(p){return p.id===bId;});
+  const data=loadData();
+  const cc=document.getElementById('compare-content');if(!cc)return;
   if(!pA||!pB){cc.innerHTML='<div class="empty"><div class="empty-icon">⚖️</div><div class="empty-text">Select two players</div></div>';return;}
 
-  var COL_A='rgba(100,180,255,1)',COL_B='rgba(80,220,140,1)';
-  var roleA=(pA.role||'').toLowerCase(),roleB=(pB.role||'').toLowerCase();
-  var pillarsA=PILLAR_MAP[roleA]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
-  var pillarsB=PILLAR_MAP[roleB]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  const COL_A='rgba(100,180,255,1)',COL_B='rgba(80,220,140,1)';
+  const roleA=(pA.role||'').toLowerCase(),roleB=(pB.role||'').toLowerCase();
+  const pillarsA=PILLAR_MAP[roleA]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  const pillarsB=PILLAR_MAP[roleB]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
 
   // Game lists backed by player_scores_v2 (skip un-scored / skipped entries)
-  function pGames(pid){return (data.games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[pid];return s&&!s.skipped;});}
-  var gamesA=pGames(aId),gamesB=pGames(bId);
+  function pGames(pid){return (data.games||[]).filter(function(g){const s=g.playerScores&&g.playerScores[pid];return s&&!s.skipped;});}
+  const gamesA=pGames(aId),gamesB=pGames(bId);
   function avgPillar(pid,gs,idx){
-    var vals=gs.map(function(g){var ps=g.playerScores[pid].pillar_scores;return ps?ps['p'+idx]:null;}).filter(function(v){return v!=null&&v>0;});
+    const vals=gs.map(function(g){const ps=g.playerScores[pid].pillar_scores;return ps?ps['p'+idx]:null;}).filter(function(v){return v!=null&&v>0;});
     return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
   }
-  var stA=getPlayerStats(aId,data.games),stB=getPlayerStats(bId,data.games);
+  const stA=getPlayerStats(aId,data.games),stB=getPlayerStats(bId,data.games);
 
   // ── Player header (compare UI shell from old site) ──
   function avHtml(p,pfp,bc){
     if(pfp)return '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid '+bc+';flex-shrink:0;"><img src="'+pfp+'" style="width:100%;height:100%;object-fit:cover;"/></div>';
     return '<div style="width:36px;height:36px;border-radius:50%;background:var(--grey-3);display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:15px;color:var(--grey-6);border:1px solid '+bc+';">'+p.nick[0]+'</div>';
   }
-  var pfpA=data.pfp&&data.pfp[aId],pfpB=data.pfp&&data.pfp[bId];
-  var header='<div style="display:flex;gap:16px;justify-content:center;align-items:center;padding:14px 20px 4px;">'+
+  const pfpA=data.pfp&&data.pfp[aId],pfpB=data.pfp&&data.pfp[bId];
+  const header='<div style="display:flex;gap:16px;justify-content:center;align-items:center;padding:14px 20px 4px;">'+
     '<div style="display:flex;align-items:center;gap:8px;">'+avHtml(pA,pfpA,COL_A)+'<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:'+COL_A+';">'+pA.nick+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+(pA.role||'')+'</div></div></div>'+
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">VS</div>'+
     '<div style="display:flex;align-items:center;gap:8px;">'+avHtml(pB,pfpB,COL_B)+'<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:'+COL_B+';">'+pB.nick+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+(pB.role||'')+'</div></div></div>'+
   '</div>';
 
   // ── GRADED STATS — horizontal bar chart, each player keeps their own role labels ──
-  function gradeTxt(v){var g=v>0?scoreToGrade(v):null;return g?g.grade:'';}
+  function gradeTxt(v){const g=v>0?scoreToGrade(v):null;return g?g.grade:'';}
   function barRow(lbl,val,col){
-    var pct=val>0?Math.max(val/10*100,3):0;
+    const pct=val>0?Math.max(val/10*100,3):0;
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
       '<div style="width:96px;flex-shrink:0;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+lbl+'</div>'+
       '<div class="cmp-bar-track"><div class="cmp-bar-fill" style="width:'+pct+'%;background:'+col+';"></div></div>'+
@@ -2699,7 +2699,7 @@ function renderCompare(){
       barRow(lb,vb,COL_B)+
     '</div>';
   }
-  var graded='<div class="section-label" style="padding:16px 20px 8px;">Graded Performance <span style="color:var(--grey-4);">· avg of logged games</span></div>';
+  let graded='<div class="section-label" style="padding:16px 20px 8px;">Graded Performance <span style="color:var(--grey-4);">· avg of logged games</span></div>';
   graded+=aspectBlock('30-Day Overall', pA.nick, stA.monthAvg, pB.nick, stB.monthAvg);
   [0,1,2,3].forEach(function(i){
     graded+=aspectBlock('Aspect '+(i+1),
@@ -2709,8 +2709,8 @@ function renderCompare(){
 
   // ── RAW STATS — separate window at the bottom ──
   function rawAgg(pid,gs){
-    var r={g:gs.length,k:0,d:0,a:0,gpmS:0,gpmN:0,rS:0,rN:0,ddS:0,ddN:0,dtS:0,dtN:0};
-    gs.forEach(function(g){var s=g.playerScores[pid];
+    const r={g:gs.length,k:0,d:0,a:0,gpmS:0,gpmN:0,rS:0,rN:0,ddS:0,ddN:0,dtS:0,dtN:0};
+    gs.forEach(function(g){const s=g.playerScores[pid];
       r.k+=s.kills||0;r.d+=s.deaths||0;r.a+=s.assists||0;
       if(s.gold_per_min!=null){r.gpmS+=s.gold_per_min;r.gpmN++;}
       if(s.in_game_rating!=null){r.rS+=s.in_game_rating;r.rN++;}
@@ -2724,10 +2724,10 @@ function renderCompare(){
     r.dt=r.dtN?r.dtS/r.dtN:null;
     return r;
   }
-  var rA=rawAgg(aId,gamesA),rB=rawAgg(bId,gamesB);
+  const rA=rawAgg(aId,gamesA),rB=rawAgg(bId,gamesB);
   function rawRow(lbl,a,b,aN,bN){
-    var hi=aN!=null&&bN!=null;
-    var aWin=hi&&aN>bN,bWin=hi&&bN>aN;
+    const hi=aN!=null&&bN!=null;
+    const aWin=hi&&aN>bN,bWin=hi&&bN>aN;
     return '<div class="compare-table-row">'+
       '<div class="compare-table-cell">'+lbl+'</div>'+
       '<div class="compare-table-cell mono '+(aWin?'compare-winner':bWin?'compare-loser':'')+'">'+a+'</div>'+
@@ -2735,7 +2735,7 @@ function renderCompare(){
     '</div>';
   }
   function f1(v){return v!=null?v.toFixed(1):'--';}
-  var rawWin='<div class="section-label" style="padding:18px 20px 8px;">Raw Stats <span style="color:var(--grey-4);">· informational · not scored</span></div>'+
+  const rawWin='<div class="section-label" style="padding:18px 20px 8px;">Raw Stats <span style="color:var(--grey-4);">· informational · not scored</span></div>'+
     '<div class="compare-table">'+
       '<div class="compare-table-row compare-table-header"><div class="compare-table-cell header-cell">Metric</div><div class="compare-table-cell header-cell" style="color:'+COL_A+';">'+pA.nick+'</div><div class="compare-table-cell header-cell" style="color:'+COL_B+';">'+pB.nick+'</div></div>'+
       rawRow('Games', rA.g, rB.g, rA.g, rB.g)+
@@ -2749,49 +2749,49 @@ function renderCompare(){
   cc.innerHTML=header+graded+rawWin+'<div style="height:24px;"></div>';
 }
 function openCreateMatchModal(){
-  var d=new Date();
-  var inp=document.getElementById('cm-date');
+  const d=new Date();
+  const inp=document.getElementById('cm-date');
   if(inp)inp.value=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
   document.getElementById('cm-name').value='';
   document.getElementById('cm-notes').value='';
   document.getElementById('create-match-modal').classList.add('open');
 }
 async function saveCreateMatch(){
-  var name=(document.getElementById('cm-name')?.value||'').trim();
-  var date=(document.getElementById('cm-date')?.value||'').trim();
-  var type=document.getElementById('cm-type')?.value||'Scrim';
-  var oppTier=document.getElementById('cm-opp-tier')?.value||'';
-  var notes=(document.getElementById('cm-notes')?.value||'').trim();
+  const name=(document.getElementById('cm-name')?.value||'').trim();
+  const date=(document.getElementById('cm-date')?.value||'').trim();
+  const type=document.getElementById('cm-type')?.value||'Scrim';
+  const oppTier=document.getElementById('cm-opp-tier')?.value||'';
+  const notes=(document.getElementById('cm-notes')?.value||'').trim();
   if(!name){showToast('Match name is required');return;}
-  var id=crypto.randomUUID();
-  var matchObj={id,name,date,type,oppTier,notes,mentality:{},tournamentId:null};
+  const id=crypto.randomUUID();
+  const matchObj={id,name,date,type,oppTier,notes,mentality:{},tournamentId:null};
   try{
-    var newId=await sbSaveMatch(matchObj);
+    const newId=await sbSaveMatch(matchObj);
     matchObj.id=newId||id;
-    _cache.matches.unshift({...matchObj,createdAt:new Date().toISOString()});
+    App.cache.matches.unshift({...matchObj,createdAt:new Date().toISOString()});
     closeModal('create-match-modal');
     showToast('Match created');
     renderHistory();
   }catch(e){showToast('Save failed: '+(e.message||e));}
 }
 function exportCSV(){
-  var games=(_cache.games||[]).slice().sort(function(a,b){return new Date(b.savedAt)-new Date(a.savedAt);});
-  var players=_cache.players||[];
-  var lines=['Date\tResult\tType\tOpponent\tDuration\tPlayer\tRole\tHero\tKills\tDeaths\tAssists\tGold/Min\tRating\tP1\tP2\tP3\tP4'];
+  const games=(App.cache.games||[]).slice().sort(function(a,b){return new Date(b.savedAt)-new Date(a.savedAt);});
+  const players=App.cache.players||[];
+  const lines=['Date\tResult\tType\tOpponent\tDuration\tPlayer\tRole\tHero\tKills\tDeaths\tAssists\tGold/Min\tRating\tP1\tP2\tP3\tP4'];
   games.forEach(function(g){
-    var dur=g.duration_seconds?Math.floor(g.duration_seconds/60)+':'+(''+(g.duration_seconds%60)).padStart(2,'0'):'';
+    const dur=g.duration_seconds?Math.floor(g.duration_seconds/60)+':'+(''+(g.duration_seconds%60)).padStart(2,'0'):'';
     players.forEach(function(p){
-      var s=g.playerScores&&g.playerScores[p.id];
+      const s=g.playerScores&&g.playerScores[p.id];
       if(!s)return;
-      var ps=s.pillar_scores||{};
+      const ps=s.pillar_scores||{};
       lines.push([g.date,g.result,g.type,g.opponent||'',dur,p.nick,s.role||'',s.hero||'',s.kills||0,s.deaths||0,s.assists||0,s.gold_per_min!=null?s.gold_per_min.toFixed(1):'',s.in_game_rating!=null?s.in_game_rating:'',ps.p0||'',ps.p1||'',ps.p2||'',ps.p3||''].join('\t'));
     });
   });
-  var text=lines.join('\n');
+  const text=lines.join('\n');
   document.getElementById('export-text').value=text;
   document.getElementById('export-modal').classList.add('open');
 }
-function selectExportText(){var el=document.getElementById('export-text');if(el){el.select();try{document.execCommand('copy');showToast('Copied to clipboard');}catch(e){}}}
+function selectExportText(){const el=document.getElementById('export-text');if(el){el.select();try{document.execCommand('copy');showToast('Copied to clipboard');}catch(e){}}}
 var _benchTab='carry';
 function _benchEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
@@ -2803,10 +2803,10 @@ function openBenchmarkPanel(){
 function setBenchTab(role){ _benchTab=role; renderBenchmarkModal(); }
 
 function renderBenchmarkModal(){
-  var el=document.getElementById('benchmark-body');if(!el)return;
-  var store=_benchStore();
-  var role=_benchTab;
-  var html='';
+  const el=document.getElementById('benchmark-body');if(!el)return;
+  const store=_benchStore();
+  const role=_benchTab;
+  let html='';
   // role tabs
   html+='<div class="bench-tabs">';
   BENCHMARK_ROLES.forEach(function(r){
@@ -2820,8 +2820,8 @@ function renderBenchmarkModal(){
     if(fi===4){
       html+='<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);text-transform:uppercase;margin:14px 0 6px;padding-top:10px;border-top:1px solid var(--grey-2);">Reference metrics</div>';
     }
-    var cell=store.current[role][f.k]||{value:'',auto:false};
-    var notSet=(cell.value===''||cell.value==null)&&!cell.auto;
+    const cell=store.current[role][f.k]||{value:'',auto:false};
+    const notSet=(cell.value===''||cell.value==null)&&!cell.auto;
     html+='<div class="bench-field">';
     html+='<div class="bench-field-label">'+f.label+(notSet?' <span style="color:var(--grey-4);font-size:8px;letter-spacing:0;">&middot; not set</span>':'')+'</div>';
     html+='<input type="number" step="0.1" class="bench-field-input" placeholder="&mdash;" value="'+(cell.value==null?'':_benchEsc(cell.value))+'" oninput="benchSetField(\''+role+'\',\''+f.k+'\',\'value\',this.value)"/>';
@@ -2832,7 +2832,7 @@ function renderBenchmarkModal(){
   });
   html+='</div>';
   // presets
-  var presetNames=Object.keys(store.presets||{}).sort();
+  const presetNames=Object.keys(store.presets||{}).sort();
   html+='<div class="bench-preset">';
   html+='<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);text-transform:uppercase;margin-bottom:8px;">Presets</div>';
   html+='<div class="bench-preset-row">';
@@ -2852,7 +2852,7 @@ function renderBenchmarkModal(){
 }
 
 function benchSetField(role,key,prop,val){
-  var store=_benchStore();
+  const store=_benchStore();
   if(!store.current[role]) store.current[role]={};
   if(!store.current[role][key]) store.current[role][key]={value:'',auto:false};
   if(prop==='value') store.current[role][key].value=(val===''?'':val);
@@ -2862,10 +2862,10 @@ function benchSetField(role,key,prop,val){
 }
 
 function benchSavePreset(){
-  var inp=document.getElementById('bench-preset-name');
-  var name=((inp&&inp.value)||'').trim();
+  const inp=document.getElementById('bench-preset-name');
+  const name=((inp&&inp.value)||'').trim();
   if(!name){ showToast('Enter a preset name'); return; }
-  var store=_benchStore();
+  const store=_benchStore();
   store.presets[name]=JSON.parse(JSON.stringify(store.current));
   _benchSaveStore(store);
   showToast('Preset "'+name+'" saved');
@@ -2873,10 +2873,10 @@ function benchSavePreset(){
 }
 
 function benchLoadPreset(){
-  var sel=document.getElementById('bench-preset-select');
-  var name=sel&&sel.value;
+  const sel=document.getElementById('bench-preset-select');
+  const name=sel&&sel.value;
   if(!name){ showToast('No preset selected'); return; }
-  var store=_benchStore();
+  const store=_benchStore();
   if(!store.presets[name]){ showToast('Preset not found'); return; }
   store.current=_benchMergeShape(store.presets[name]);
   _benchSaveStore(store);
@@ -2885,11 +2885,11 @@ function benchLoadPreset(){
 }
 
 function benchDeletePreset(){
-  var sel=document.getElementById('bench-preset-select');
-  var name=sel&&sel.value;
+  const sel=document.getElementById('bench-preset-select');
+  const name=sel&&sel.value;
   if(!name){ showToast('No preset selected'); return; }
   if(!confirm('Delete preset "'+name+'"? This cannot be undone.')) return;
-  var store=_benchStore();
+  const store=_benchStore();
   delete store.presets[name];
   _benchSaveStore(store);
   showToast('Preset "'+name+'" deleted');
@@ -2910,7 +2910,7 @@ function setHistoryMode(mode){
 }
 
 function renderHistory(){
-  var el = document.getElementById('history-list');
+  const el = document.getElementById('history-list');
   if(!el) return;
   if(_histMode === 'matches'){
     _renderMatchList(el);
@@ -2922,11 +2922,11 @@ function renderHistory(){
 function _fmtDate(dateStr){
   if(!dateStr) return '—';
   // dateStr may be ISO 'YYYY-MM-DD' or 'DD/MM/YYYY'
-  var d;
+  let d;
   if(dateStr.includes('-') && dateStr.length >= 10){
     d = new Date(dateStr+'T00:00:00');
   } else {
-    var p = dateStr.split('/');
+    const p = dateStr.split('/');
     d = new Date(+p[2], +p[1]-1, +p[0]);
   }
   if(isNaN(d.getTime())) return dateStr;
@@ -2935,13 +2935,13 @@ function _fmtDate(dateStr){
 
 function _fmtDuration(secs){
   if(!secs) return null;
-  var m = Math.floor(secs/60);
-  var s = secs % 60;
+  const m = Math.floor(secs/60);
+  const s = secs % 60;
   return m + ':' + (''+s).padStart(2,'0');
 }
 
 function _renderGameList(el){
-  var games = (_cache.games||[]).slice().sort(function(a,b){
+  const games = (App.cache.games||[]).slice().sort(function(a,b){
     return new Date(b.savedAt||0) - new Date(a.savedAt||0);
   });
   if(!games.length){
@@ -2949,17 +2949,17 @@ function _renderGameList(el){
     return;
   }
   el.innerHTML = '<div style="padding:10px 0 2px;">' + games.map(function(g){
-    var incomplete = Object.keys(g.playerScores||{}).length === 0;
-    var isWin = g.result === 'Win';
-    var badge = incomplete ?
+    const incomplete = Object.keys(g.playerScores||{}).length === 0;
+    const isWin = g.result === 'Win';
+    const badge = incomplete ?
       '<span class="tag tag-dnp" style="font-size:9px;letter-spacing:1px;padding:4px 8px;">INCOMPLETE</span>' :
       '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>';
-    var opp = g.opponent || 'Unknown Opponent';
-    var dur = _fmtDuration(g.duration_seconds);
-    var typeTag = g.type === 'Tournament' ?
+    const opp = g.opponent || 'Unknown Opponent';
+    const dur = _fmtDuration(g.duration_seconds);
+    const typeTag = g.type === 'Tournament' ?
       '<span class="tag tag-tourney" style="font-size:8px;padding:2px 6px;">TOURNAMENT</span>' :
       '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">Scrim</span>';
-    var trashBtn = '<button title="Delete game" onclick="event.stopPropagation();deleteGame(\''+g.id+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;padding:6px;flex-shrink:0;" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--grey-5)\'">'+
+    const trashBtn = '<button title="Delete game" onclick="event.stopPropagation();deleteGame(\''+g.id+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;padding:6px;flex-shrink:0;" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--grey-5)\'">'+
       '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:15px;height:15px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>'+
     '</button>';
     return '<div class="game-card" id="game-card-'+g.id+'">'+
@@ -2985,14 +2985,14 @@ function _renderGameList(el){
 
 // Delete game: opens inline confirm on the card (or deletes directly if no card present)
 function deleteGame(gameId){
-  var c = document.getElementById('del-game-confirm-'+gameId);
+  const c = document.getElementById('del-game-confirm-'+gameId);
   if(c){ c.classList.add('open'); return; }
   confirmDeleteGame(gameId);
 }
 async function confirmDeleteGame(gameId){
   try{
     await sbDeleteGame(gameId);
-    _cache.games = (_cache.games||[]).filter(function(g){return g.id!==gameId;});
+    App.cache.games = (App.cache.games||[]).filter(function(g){return g.id!==gameId;});
     closeModal('game-detail-modal');
     renderHistory();
     showToast('✓ Game deleted');
@@ -3002,7 +3002,7 @@ async function confirmDeleteGame(gameId){
 }
 
 function _renderMatchList(el){
-  var matches = (_cache.matches||[]).slice().sort(function(a,b){
+  const matches = (App.cache.matches||[]).slice().sort(function(a,b){
     return new Date(b.createdAt||0) - new Date(a.createdAt||0);
   });
   if(!matches.length){
@@ -3010,10 +3010,10 @@ function _renderMatchList(el){
     return;
   }
   el.innerHTML = '<div style="padding:10px 0 2px;">' + matches.map(function(m){
-    var mGames = (_cache.games||[]).filter(function(g){return g.matchId===m.id;});
-    var wins = mGames.filter(function(g){return g.result==='Win';}).length;
-    var total = mGames.length;
-    var scoreTxt = total ? wins+'–'+(total-wins) : 'No games';
+    const mGames = (App.cache.games||[]).filter(function(g){return g.matchId===m.id;});
+    const wins = mGames.filter(function(g){return g.result==='Win';}).length;
+    const total = mGames.length;
+    const scoreTxt = total ? wins+'–'+(total-wins) : 'No games';
     return '<div class="game-card" onclick="showMatchDetail(\''+m.id+'\')">'+
       '<div class="game-card-row">'+
         '<div class="game-card-info">'+
@@ -3033,35 +3033,35 @@ function _renderMatchList(el){
 // GAME DETAIL VIEW (Task 2)
 // ──────────────────────────────────────────
 function openGameDetail(gameId){
-  var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+  const game = (App.cache.games||[]).find(function(g){return g.id===gameId;});
   if(!game){showToast('Game not found');return;}
-  var players = _cache.players||[];
-  var isWin = game.result==='Win';
+  const players = App.cache.players||[];
+  const isWin = game.result==='Win';
 
   // Header
   document.getElementById('gdm-title').textContent = (isWin?'WIN':'LOSS') + (game.opponent?' vs '+game.opponent:'');
-  var dur = _fmtDuration(game.duration_seconds);
+  const dur = _fmtDuration(game.duration_seconds);
   document.getElementById('gdm-sub').textContent = _fmtDate(game.date) + ' · ' + (game.type||'Scrim') + (dur?' · '+dur:'');
   document.getElementById('gdm-edit-btn').onclick = function(){ closeModal('game-detail-modal'); openEditGame(gameId); };
-  var assignBtn = document.getElementById('gdm-assign-btn');
+  const assignBtn = document.getElementById('gdm-assign-btn');
   assignBtn.textContent = game.matchId ? '✓ Match' : '+ Match';
   assignBtn.onclick = function(){ openAssignGameModal(null, gameId); };
-  var delConfirm=document.getElementById('gdm-del-confirm');
+  const delConfirm=document.getElementById('gdm-del-confirm');
   delConfirm.classList.remove('open');
   document.getElementById('gdm-delete-btn').onclick = function(){ delConfirm.classList.add('open'); };
   document.getElementById('gdm-del-confirm-yes').onclick = function(){ confirmDeleteGame(gameId); };
 
   // Body
-  var body = document.getElementById('gdm-body');
+  const body = document.getElementById('gdm-body');
 
   // Pillar label helper
   function pillarLabels(role){return PILLAR_MAP[(role||'').toLowerCase()]||['P1','P2','P3','P4'];}
 
   // Player rows
-  var playerHtml = '<div class="section-label" style="padding:14px 20px 8px;">OUR TEAM</div>';
-  var playersWithScores = [];
+  let playerHtml = '<div class="section-label" style="padding:14px 20px 8px;">OUR TEAM</div>';
+  const playersWithScores = [];
   players.forEach(function(p){
-    var s = game.playerScores&&game.playerScores[p.id];
+    const s = game.playerScores&&game.playerScores[p.id];
     if(s) playersWithScores.push({player:p,score:s});
   });
   // Also handle any player IDs in scores that aren't in roster
@@ -3075,36 +3075,36 @@ function openGameDetail(gameId){
     playerHtml += '<div class="empty"><div class="empty-text">No player data</div></div>';
   } else {
     playerHtml += playersWithScores.map(function(item){
-      var p = item.player, s = item.score;
-      var role = (s.role||p.role||'').toLowerCase();
-      var lbls = pillarLabels(role);
-      var ps = s.pillar_scores||{};
-      var pillarsHtml = ['p0','p1','p2','p3'].map(function(k,i){
-        var v = ps[k];
-        var pct = v ? Math.round(v/10*100) : 0;
-        var col = v>=8?'var(--success)':v>=6?'var(--warn)':'var(--white)';
+      const p = item.player, s = item.score;
+      const role = (s.role||p.role||'').toLowerCase();
+      const lbls = pillarLabels(role);
+      const ps = s.pillar_scores||{};
+      const pillarsHtml = ['p0','p1','p2','p3'].map(function(k,i){
+        const v = ps[k];
+        const pct = v ? Math.round(v/10*100) : 0;
+        const col = v>=8?'var(--success)':v>=6?'var(--warn)':'var(--white)';
         return '<div style="min-width:60px;"><div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:64px;">'+lbls[i]+'</div>'+
           '<div class="gd-pillar-bar"><div class="gd-pillar-fill" style="width:'+pct+'%;background:'+col+'"></div></div>'+
           '<div style="font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;color:'+col+';">'+(v!=null?v.toFixed(0):'—')+'</div>'+
         '</div>';
       }).join('');
-      var kdaTxt = (s.kills||0)+'/'+(s.deaths||0)+'/'+(s.assists||0);
-      var gpm = s.gold_per_min!=null ? Math.round(s.gold_per_min) : null;
-      var rating = s.in_game_rating!=null ? s.in_game_rating.toFixed(1) : null;
+      const kdaTxt = (s.kills||0)+'/'+(s.deaths||0)+'/'+(s.assists||0);
+      const gpm = s.gold_per_min!=null ? Math.round(s.gold_per_min) : null;
+      const rating = s.in_game_rating!=null ? s.in_game_rating.toFixed(1) : null;
       // Computed metrics — prefer the stored column, fall back to recomputing.
-      var durMinD = game.duration_seconds ? game.duration_seconds/60 : 0;
-      var kdaVal  = s.kda!=null ? s.kda : ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
-      var killCt  = s.kill_contribution_pct!=null ? s.kill_contribution_pct
+      const durMinD = game.duration_seconds ? game.duration_seconds/60 : 0;
+      const kdaVal  = s.kda!=null ? s.kda : ((s.kills||0)+(s.assists||0))/Math.max(s.deaths||0,1);
+      const killCt  = s.kill_contribution_pct!=null ? s.kill_contribution_pct
                       : (game.team_total_kills ? ((s.kills||0)+(s.assists||0))/game.team_total_kills*100 : null);
-      var minDth  = s.min_per_death!=null ? s.min_per_death
+      const minDth  = s.min_per_death!=null ? s.min_per_death
                       : (durMinD>0 ? durMinD/Math.max(s.deaths||0,1) : null);
-      var dmgRt   = s.dmg_per_dmg_taken!=null ? s.dmg_per_dmg_taken
+      const dmgRt   = s.dmg_per_dmg_taken!=null ? s.dmg_per_dmg_taken
                       : ((s.dmg_dealt_raw&&s.dmg_taken_raw) ? s.dmg_dealt_raw/Math.max(s.dmg_taken_raw,1) : null);
-      var oppG    = s.opp_gold!=null ? s.opp_gold : null;
-      var oppGpm  = s.opp_gold_per_min!=null ? s.opp_gold_per_min
+      const oppG    = s.opp_gold!=null ? s.opp_gold : null;
+      const oppGpm  = s.opp_gold_per_min!=null ? s.opp_gold_per_min
                       : ((oppG&&durMinD>0) ? oppG/durMinD : null);
       function _gdStat(val,lbl){ return val==null?'':'<div><div class="gd-stat-val">'+val+'</div><div class="gd-stat-lbl">'+lbl+'</div></div>'; }
-      var extraStats = ''+
+      const extraStats = ''+
         _gdStat(kdaVal!=null?kdaVal.toFixed(2):null,'KDA RATIO')+
         _gdStat(killCt!=null?killCt.toFixed(1)+'%':null,'KILL%')+
         _gdStat(minDth!=null?minDth.toFixed(1):null,'MIN/DTH')+
@@ -3113,12 +3113,12 @@ function openGameDetail(gameId){
         _gdStat(s.dmg_taken_raw!=null?Number(s.dmg_taken_raw).toLocaleString():null,'DMG TAKEN')+
         _gdStat(oppG!=null?Number(oppG).toLocaleString():null,'OPP GOLD')+
         _gdStat(oppGpm!=null?Math.round(oppGpm):null,'OPP G/MIN');
-      var overallScore = calcGameScore(s, role, game, p.id);
-      var grade = overallScore>0 ? scoreToGrade(overallScore) : null;
+      const overallScore = calcGameScore(s, role, game, p.id);
+      const grade = overallScore>0 ? scoreToGrade(overallScore) : null;
       return '<div class="gd-player-row">'+
         '<div style="flex-shrink:0;">'+
-          ((_cache.pfp&&_cache.pfp[p.id]) ?
-            '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid var(--grey-3);flex-shrink:0;"><img src="'+_cache.pfp[p.id]+'" style="width:100%;height:100%;object-fit:cover;"/></div>' :
+          ((App.cache.pfp&&App.cache.pfp[p.id]) ?
+            '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid var(--grey-3);flex-shrink:0;"><img src="'+App.cache.pfp[p.id]+'" style="width:100%;height:100%;object-fit:cover;"/></div>' :
             '<div style="width:36px;height:36px;border-radius:50%;background:var(--grey-3);display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:14px;color:var(--grey-6);">'+p.nick[0]+'</div>')+
         '</div>'+
         '<div class="gd-player-info">'+
@@ -3143,8 +3143,8 @@ function openGameDetail(gameId){
   }
 
   // Enemy team
-  var enemyHtml = '';
-  var ep = game.enemyPicks||[];
+  let enemyHtml = '';
+  const ep = game.enemyPicks||[];
   if(ep.length){
     enemyHtml = '<div class="section-label" style="padding:14px 20px 8px;">ENEMY TEAM</div>'+
       ep.map(function(e){
@@ -3158,7 +3158,7 @@ function openGameDetail(gameId){
   }
 
   // Game notes
-  var notesHtml = game.notes ?
+  const notesHtml = game.notes ?
     '<div class="section-label" style="padding:14px 20px 8px;">NOTES</div>'+
     '<div style="padding:0 20px 16px;font-size:12px;color:var(--grey-6);line-height:1.6;">'+game.notes+'</div>' : '';
 
@@ -3170,31 +3170,31 @@ function openGameDetail(gameId){
 // EDIT GAME (Task 3)
 // ──────────────────────────────────────────
 function openEditGame(gameId){
-  var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+  const game = (App.cache.games||[]).find(function(g){return g.id===gameId;});
   if(!game){showToast('Game not found');return;}
-  window._editingGameId = gameId;
-  var players = _cache.players||[];
-  var activePlayers = players.filter(function(p){return p.active!==false;});
+  App.ui.editingGameId = gameId;
+  const players = App.cache.players||[];
+  const activePlayers = players.filter(function(p){return p.active!==false;});
 
   // Determine which players have scores
-  var scoredPlayers = activePlayers.filter(function(p){return game.playerScores&&game.playerScores[p.id];});
+  let scoredPlayers = activePlayers.filter(function(p){return game.playerScores&&game.playerScores[p.id];});
   if(!scoredPlayers.length) scoredPlayers = activePlayers.slice(0,5);
 
-  window._editGamePlayers = scoredPlayers;
-  window._editGameActiveTab = 0;
+  App.ui.editGamePlayers = scoredPlayers;
+  App.ui.editGameActiveTab = 0;
 
   _renderEditGameModal(game, scoredPlayers);
   document.getElementById('edit-game-modal').classList.add('open');
 }
 
 function _renderEditGameModal(game, scoredPlayers){
-  var body = document.getElementById('egm-body');
+  const body = document.getElementById('egm-body');
   if(!body) return;
-  var isWin = game.result==='Win';
-  var dur = game.duration_seconds ? (Math.floor(game.duration_seconds/60)+':'+(''+(game.duration_seconds%60)).padStart(2,'0')) : '';
+  const isWin = game.result==='Win';
+  const dur = game.duration_seconds ? (Math.floor(game.duration_seconds/60)+':'+(''+(game.duration_seconds%60)).padStart(2,'0')) : '';
 
   // Game info header
-  var headerHtml = '<div style="padding:14px 16px;background:var(--grey-1);border-bottom:var(--border);flex-shrink:0;">'+
+  const headerHtml = '<div style="padding:14px 16px;background:var(--grey-1);border-bottom:var(--border);flex-shrink:0;">'+
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
       '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>'+
       '<span style="font-size:13px;font-weight:600;">'+(game.opponent||'Unknown Opponent')+'</span>'+
@@ -3204,21 +3204,21 @@ function _renderEditGameModal(game, scoredPlayers){
   '</div>';
 
   // Player tabs
-  var tabHtml = '<div class="edit-game-player-tabs" style="flex-shrink:0;">' +
+  const tabHtml = '<div class="edit-game-player-tabs" style="flex-shrink:0;">' +
     scoredPlayers.map(function(p,i){
-      return '<button class="edit-player-chip'+(i===window._editGameActiveTab?' active':'')+'" onclick="switchEditGameTab('+i+')">'+p.nick+'</button>';
+      return '<button class="edit-player-chip'+(i===App.ui.editGameActiveTab?' active':'')+'" onclick="switchEditGameTab('+i+')">'+p.nick+'</button>';
     }).join('') +
   '</div>';
 
   // Player panels
-  var panelsHtml = scoredPlayers.map(function(p,i){
-    return '<div id="egm-panel-'+i+'" style="'+(i===window._editGameActiveTab?'':'display:none;')+'">' +
+  const panelsHtml = scoredPlayers.map(function(p,i){
+    return '<div id="egm-panel-'+i+'" style="'+(i===App.ui.editGameActiveTab?'':'display:none;')+'">' +
       _buildEditPlayerPanel(game, p, i) +
     '</div>';
   }).join('');
 
   // Footer
-  var footerHtml = '<div style="padding:14px 16px;border-top:var(--border);background:var(--grey-1);flex-shrink:0;display:flex;gap:10px;">'+
+  const footerHtml = '<div style="padding:14px 16px;border-top:var(--border);background:var(--grey-1);flex-shrink:0;display:flex;gap:10px;">'+
     '<button class="btn" style="flex:1;" onclick="closeModal(\'edit-game-modal\')">Cancel</button>'+
     '<button class="btn btn-primary" style="flex:2;" id="egm-save-btn" onclick="saveEditGame(\''+game.id+'\')">Save Changes</button>'+
   '</div>';
@@ -3229,14 +3229,14 @@ function _renderEditGameModal(game, scoredPlayers){
 }
 
 function _buildEditPlayerPanel(game, player, idx){
-  var s = (game.playerScores&&game.playerScores[player.id]) || {};
-  var role = (s.role||player.role||'support').toLowerCase();
-  var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
-  var ps = s.pillar_scores || {};
+  const s = (game.playerScores&&game.playerScores[player.id]) || {};
+  const role = (s.role||player.role||'support').toLowerCase();
+  const pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  const ps = s.pillar_scores || {};
 
   function sliderRow(label, key, val, sug){
-    var v = Math.round(val!=null ? val : (sug!=null ? sug : 5));
-    var hint = (sug!=null)
+    const v = Math.round(val!=null ? val : (sug!=null ? sug : 5));
+    const hint = (sug!=null)
       ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
       : '';
     return '<div class="pillar-row">'+
@@ -3249,7 +3249,7 @@ function _buildEditPlayerPanel(game, player, idx){
     '</div>';
   }
 
-  var html = '<div style="padding:14px 16px;">';
+  let html = '<div style="padding:14px 16px;">';
 
   // Hero + role
   html += '<div class="row" style="gap:8px;margin-bottom:14px;">'+
@@ -3304,23 +3304,23 @@ function _buildEditPlayerPanel(game, player, idx){
 }
 
 function refreshEditPillars(idx){
-  var game = (_cache.games||[]).find(function(g){return g.id===window._editingGameId;});
+  const game = (App.cache.games||[]).find(function(g){return g.id===App.ui.editingGameId;});
   if(!game) return;
-  var players = window._editGamePlayers||[];
-  var player = players[idx];
+  const players = App.ui.editGamePlayers||[];
+  const player = players[idx];
   if(!player) return;
-  var roleEl = document.getElementById('egm-'+idx+'-role');
-  var role = roleEl ? roleEl.value : (player.role||'support').toLowerCase();
-  var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
-  var s = (game.playerScores&&game.playerScores[player.id])||{};
-  var ps = s.pillar_scores||{};
-  var container = document.getElementById('egm-'+idx+'-pillars');
+  const roleEl = document.getElementById('egm-'+idx+'-role');
+  const role = roleEl ? roleEl.value : (player.role||'support').toLowerCase();
+  const pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  const s = (game.playerScores&&game.playerScores[player.id])||{};
+  const ps = s.pillar_scores||{};
+  const container = document.getElementById('egm-'+idx+'-pillars');
   if(!container) return;
   container.innerHTML = '';
   pillars.forEach(function(lbl, i){
-    var sug = calculateSuggestionFromScore(role, i, s, game, player.id);
-    var v = Math.round(ps['p'+i]!=null ? ps['p'+i] : (sug!=null ? sug : 5));
-    var hint = (sug!=null)
+    const sug = calculateSuggestionFromScore(role, i, s, game, player.id);
+    const v = Math.round(ps['p'+i]!=null ? ps['p'+i] : (sug!=null ? sug : 5));
+    const hint = (sug!=null)
       ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
       : '';
     container.innerHTML += '<div class="pillar-row">'+
@@ -3335,57 +3335,57 @@ function refreshEditPillars(idx){
 }
 
 function switchEditGameTab(idx){
-  var players = window._editGamePlayers||[];
+  const players = App.ui.editGamePlayers||[];
   players.forEach(function(p,i){
-    var panel = document.getElementById('egm-panel-'+i);
-    var chip = document.querySelectorAll('.edit-player-chip')[i];
+    const panel = document.getElementById('egm-panel-'+i);
+    const chip = document.querySelectorAll('.edit-player-chip')[i];
     if(panel) panel.style.display = i===idx?'':'none';
     if(chip) chip.classList.toggle('active', i===idx);
   });
-  window._editGameActiveTab = idx;
+  App.ui.editGameActiveTab = idx;
 }
 
 async function saveEditGame(gameId){
-  var btn = document.getElementById('egm-save-btn');
+  const btn = document.getElementById('egm-save-btn');
   if(btn){btn.disabled=true;btn.textContent='Saving…';}
   try{
-    var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
+    const game = (App.cache.games||[]).find(function(g){return g.id===gameId;});
     if(!game) throw new Error('Game not found');
-    var players = window._editGamePlayers||[];
-    var durMin = game.duration_seconds ? game.duration_seconds/60 : 0;
-    var teamK  = game.team_total_kills || 0;
-    var enemyPicks = game.enemyPicks || [];
+    const players = App.ui.editGamePlayers||[];
+    const durMin = game.duration_seconds ? game.duration_seconds/60 : 0;
+    const teamK  = game.team_total_kills || 0;
+    const enemyPicks = game.enemyPicks || [];
 
-    var updateRows = [];
+    const updateRows = [];
     players.forEach(function(p, i){
-      var heroEl   = document.getElementById('egm-'+i+'-hero');
-      var roleEl   = document.getElementById('egm-'+i+'-role');
-      var noteEl   = document.getElementById('egm-'+i+'-note');
-      var hero     = heroEl  ? heroEl.value.trim()  : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].hero)||'';
-      var role     = roleEl  ? roleEl.value         : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].role)||(p.role||'').toLowerCase();
-      var note     = noteEl  ? noteEl.value.trim()  : null;
-      var kills    = parseFloat(document.getElementById('egm-'+i+'-kills')?.value)||0;
-      var deaths   = parseFloat(document.getElementById('egm-'+i+'-deaths')?.value)||0;
-      var assists  = parseFloat(document.getElementById('egm-'+i+'-assists')?.value)||0;
-      var gold     = parseFloat(document.getElementById('egm-'+i+'-gold')?.value)||null;
-      var rating   = parseFloat(document.getElementById('egm-'+i+'-in_game_rating')?.value)||null;
-      var ddPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_pct')?.value)||null;
-      var dtPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_pct')?.value)||null;
-      var ddRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_raw')?.value)||null;
-      var dtRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_raw')?.value)||null;
-      var p0 = parseFloat(document.getElementById('egm-'+i+'-p0')?.value)||null;
-      var p1 = parseFloat(document.getElementById('egm-'+i+'-p1')?.value)||null;
-      var p2 = parseFloat(document.getElementById('egm-'+i+'-p2')?.value)||null;
-      var p3 = parseFloat(document.getElementById('egm-'+i+'-p3')?.value)||null;
+      const heroEl   = document.getElementById('egm-'+i+'-hero');
+      const roleEl   = document.getElementById('egm-'+i+'-role');
+      const noteEl   = document.getElementById('egm-'+i+'-note');
+      const hero     = heroEl  ? heroEl.value.trim()  : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].hero)||'';
+      const role     = roleEl  ? roleEl.value         : (game.playerScores&&game.playerScores[p.id]&&game.playerScores[p.id].role)||(p.role||'').toLowerCase();
+      const note     = noteEl  ? noteEl.value.trim()  : null;
+      const kills    = parseFloat(document.getElementById('egm-'+i+'-kills')?.value)||0;
+      const deaths   = parseFloat(document.getElementById('egm-'+i+'-deaths')?.value)||0;
+      const assists  = parseFloat(document.getElementById('egm-'+i+'-assists')?.value)||0;
+      const gold     = parseFloat(document.getElementById('egm-'+i+'-gold')?.value)||null;
+      const rating   = parseFloat(document.getElementById('egm-'+i+'-in_game_rating')?.value)||null;
+      const ddPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_pct')?.value)||null;
+      const dtPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_pct')?.value)||null;
+      const ddRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_raw')?.value)||null;
+      const dtRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_raw')?.value)||null;
+      const p0 = parseFloat(document.getElementById('egm-'+i+'-p0')?.value)||null;
+      const p1 = parseFloat(document.getElementById('egm-'+i+'-p1')?.value)||null;
+      const p2 = parseFloat(document.getElementById('egm-'+i+'-p2')?.value)||null;
+      const p3 = parseFloat(document.getElementById('egm-'+i+'-p3')?.value)||null;
       // Derived metrics — kept in sync with the new-game save path.
-      var kda            = (kills+assists)/Math.max(deaths,1);
-      var gpm            = (gold&&durMin>0) ? gold/durMin : null;
-      var minPerDeath    = durMin>0 ? durMin/Math.max(deaths,1) : null;
-      var killContribPct = teamK>0 ? (kills+assists)/teamK*100 : null;
-      var dmgRatio       = (ddRaw&&dtRaw) ? ddRaw/Math.max(dtRaw,1) : null;
-      var oppPick        = enemyPicks.find(function(e){ return e.role && e.role.toLowerCase()===String(role).toLowerCase(); });
-      var oppGold        = oppPick ? (oppPick.gold||null) : null;
-      var oppGoldPerMin  = (oppGold&&durMin>0) ? oppGold/durMin : null;
+      const kda            = (kills+assists)/Math.max(deaths,1);
+      const gpm            = (gold&&durMin>0) ? gold/durMin : null;
+      const minPerDeath    = durMin>0 ? durMin/Math.max(deaths,1) : null;
+      const killContribPct = teamK>0 ? (kills+assists)/teamK*100 : null;
+      const dmgRatio       = (ddRaw&&dtRaw) ? ddRaw/Math.max(dtRaw,1) : null;
+      const oppPick        = enemyPicks.find(function(e){ return e.role && e.role.toLowerCase()===String(role).toLowerCase(); });
+      const oppGold        = oppPick ? (oppPick.gold||null) : null;
+      const oppGoldPerMin  = (oppGold&&durMin>0) ? oppGold/durMin : null;
       updateRows.push({
         player_id: p.id,
         game_id: gameId,
@@ -3413,14 +3413,14 @@ async function saveEditGame(gameId){
 
     // Replace this game's player_scores_v2 rows.
     // (Avoids the ON CONFLICT spec, which needs a (game_id,player_id) unique constraint.)
-    var {error: delErr} = await sb.from('player_scores_v2').delete().eq('game_id', gameId);
+    const {error: delErr} = await sb.from('player_scores_v2').delete().eq('game_id', gameId);
     if(delErr) throw delErr;
-    var {error: uErr} = await sb.from('player_scores_v2').insert(updateRows);
+    const {error: uErr} = await sb.from('player_scores_v2').insert(updateRows);
     if(uErr) throw uErr;
 
     // Update local cache
     players.forEach(function(p, i){
-      var row = updateRows[i];
+      const row = updateRows[i];
       if(!game.playerScores) game.playerScores={};
       game.playerScores[p.id] = {
         hero: row.hero_name, role: row.role_played,
@@ -3455,7 +3455,7 @@ async function saveEditGame(gameId){
 function closeSummaryAndReturn(){ closeModal('summary-modal'); }
 
 function _matchGames(matchId){
-  return (_cache.games||[]).filter(function(g){return g.matchId===matchId;})
+  return (App.cache.games||[]).filter(function(g){return g.matchId===matchId;})
     .sort(function(a,b){return new Date(a.savedAt||0)-new Date(b.savedAt||0);});
 }
 
@@ -3466,23 +3466,23 @@ function showMatchDetail(matchId){
 }
 
 function renderMatchDetail(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
-  var el = document.getElementById('match-content');
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
+  const el = document.getElementById('match-content');
   if(!m){ if(el) el.innerHTML='<div class="empty"><div class="empty-text">Match not found</div></div>'; return; }
-  window._currentMatchId = matchId;
-  var games = _matchGames(matchId);
-  var wins = games.filter(function(g){return g.result==='Win';}).length;
-  var losses = games.length - wins;
-  var players = _cache.players||[];
-  var activePlayers = players.filter(function(p){return p.status!=='Inactive';});
+  App.ui.currentMatchId = matchId;
+  const games = _matchGames(matchId);
+  const wins = games.filter(function(g){return g.result==='Win';}).length;
+  const losses = games.length - wins;
+  const players = App.cache.players||[];
+  const activePlayers = players.filter(function(p){return p.status!=='Inactive';});
 
   // ── Series trend bar (W/L dots in order) ──
-  var trendHtml = '';
+  let trendHtml = '';
   if(games.length){
     trendHtml = '<div style="display:flex;gap:6px;align-items:center;margin-top:12px;flex-wrap:wrap;">'+
       games.map(function(g,idx){
-        var isWin = g.result==='Win';
-        var num = idx+1;
+        const isWin = g.result==='Win';
+        const num = idx+1;
         return '<div title="Game '+num+' · '+g.result+'" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:\'DM Mono\',monospace;font-size:9px;font-weight:700;'+
           (isWin?'background:rgba(68,255,136,0.15);border:1px solid rgba(68,255,136,0.5);color:var(--success);':'background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.35);color:var(--danger);')+
           '">'+num+'</div>';
@@ -3491,15 +3491,15 @@ function renderMatchDetail(matchId){
   }
 
   // ── Player summary (avg score + mentality per player) ──
-  var playerSummaryHtml;
+  let playerSummaryHtml;
   if(games.length && activePlayers.length){
-    var rows = activePlayers.map(function(p){
-      var played = games.filter(function(g){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+    const rows = activePlayers.map(function(p){
+      const played = games.filter(function(g){const s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
       if(!played.length) return null;
-      var avgScore = played.map(function(g){return calcGameScore(g.playerScores[p.id],p.role,g,p.id);}).reduce(function(a,b){return a+b;},0)/played.length;
-      var mentObj = m.mentality&&m.mentality[p.id]?m.mentality[p.id]:null;
-      var avgMent = mentObj?calcMentality(null,mentObj):null;
-      var grd = scoreToGrade(avgScore);
+      const avgScore = played.map(function(g){return calcGameScore(g.playerScores[p.id],p.role,g,p.id);}).reduce(function(a,b){return a+b;},0)/played.length;
+      const mentObj = m.mentality&&m.mentality[p.id]?m.mentality[p.id]:null;
+      const avgMent = mentObj?calcMentality(null,mentObj):null;
+      const grd = scoreToGrade(avgScore);
       return '<div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:var(--border);">'+
         '<div style="font-size:13px;font-weight:600;width:48px;flex-shrink:0;">'+p.nick+'</div>'+
         '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);width:38px;flex-shrink:0;">'+(p.role||'').substring(0,3).toUpperCase()+'</div>'+
@@ -3522,12 +3522,12 @@ function renderMatchDetail(matchId){
   }
 
   // ── Mentality detail (if rated) ──
-  var rated = activePlayers.filter(function(p){return m.mentality&&m.mentality[p.id];});
-  var mentDetailHtml = rated.length ?
+  const rated = activePlayers.filter(function(p){return m.mentality&&m.mentality[p.id];});
+  const mentDetailHtml = rated.length ?
     '<div class="match-mentality-panel">'+rated.map(function(p){
-      var mo = m.mentality[p.id];
-      var sc = calcMentality(null,mo);
-      var grd = sc>0?scoreToGrade(sc):null;
+      const mo = m.mentality[p.id];
+      const sc = calcMentality(null,mo);
+      const grd = sc>0?scoreToGrade(sc):null;
       return '<div class="match-mentality-player">'+
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
           '<div style="font-size:12px;font-weight:600;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</span></div>'+
@@ -3541,12 +3541,12 @@ function renderMatchDetail(matchId){
     '<div style="padding:0 20px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);">No mentality ratings yet.</div>';
 
   // ── Game rows ──
-  var gameRowsHtml = games.length ? games.map(function(g,idx){
-    var isWin = g.result==='Win';
-    var num = idx+1;
-    var mvpP = g.mvpPlayerId?players.find(function(p){return p.id===g.mvpPlayerId;}):null;
-    var played = players.filter(function(p){var s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
-    var heroList = played.map(function(p){var s=g.playerScores[p.id];return s.hero||'?';}).join(', ');
+  const gameRowsHtml = games.length ? games.map(function(g,idx){
+    const isWin = g.result==='Win';
+    const num = idx+1;
+    const mvpP = g.mvpPlayerId?players.find(function(p){return p.id===g.mvpPlayerId;}):null;
+    const played = players.filter(function(p){const s=g.playerScores&&g.playerScores[p.id];return s&&!s.skipped;});
+    const heroList = played.map(function(p){const s=g.playerScores[p.id];return s.hero||'?';}).join(', ');
     return '<div class="match-game-row" style="cursor:pointer;" onclick="openGameDetail(\''+g.id+'\')">'+
       '<div style="flex:1;">'+
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'+
@@ -3613,10 +3613,10 @@ function renderMatchDetail(matchId){
 }
 
 function saveMatchNotes(matchId){
-  var idx = _cache.matches.findIndex(function(m){return m.id===matchId;});
+  const idx = App.cache.matches.findIndex(function(m){return m.id===matchId;});
   if(idx===-1) return;
-  _cache.matches[idx].notes = document.getElementById('match-notes-area')?.value||'';
-  sbSaveMatch(_cache.matches[idx]).then(function(){showToast('Notes saved');}).catch(function(e){showToast('Failed: '+e.message);});
+  App.cache.matches[idx].notes = document.getElementById('match-notes-area')?.value||'';
+  sbSaveMatch(App.cache.matches[idx]).then(function(){showToast('Notes saved');}).catch(function(e){showToast('Failed: '+e.message);});
 }
 
 async function removeGameFromMatch(gameId, matchId){
@@ -3628,17 +3628,17 @@ async function removeGameFromMatch(gameId, matchId){
 }
 
 function addGameToMatch(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
   if(!m) return;
-  var nextNum = _matchGames(matchId).length+1;
-  showPage('page-log'); // triggers initLog(), which resets LS.*
-  LS._matchId = matchId; // set after initLog so it isn't cleared
+  const nextNum = _matchGames(matchId).length+1;
+  showPage('page-log'); // triggers initLog(), which resets App.log.*
+  App.log._matchId = matchId; // set after initLog so it isn't cleared
   setTimeout(function(){
-    var oppEl = document.getElementById('log-opponent');
+    const oppEl = document.getElementById('log-opponent');
     if(oppEl) oppEl.value = m.name;
-    if(m.date){ var dateEl=document.getElementById('log-date'); if(dateEl) dateEl.value=m.date; }
+    if(m.date){ const dateEl=document.getElementById('log-date'); if(dateEl) dateEl.value=m.date; }
     if(m.type==='Tournament') setLogType('Tournament'); else setLogType('Scrim');
-    var notesEl = document.getElementById('log-notes');
+    const notesEl = document.getElementById('log-notes');
     if(notesEl) notesEl.value = m.name+' – Game '+nextNum;
   },50);
 }
@@ -3646,9 +3646,9 @@ function addGameToMatch(matchId){
 // Dual-mode: openAssignGameModal(matchId,null) → pick games for a match
 //            openAssignGameModal(null,gameId)  → pick a match for a game
 function openAssignGameModal(matchId, gameId){
-  var body = document.getElementById('assign-game-body');
+  const body = document.getElementById('assign-game-body');
   if(matchId && !gameId){
-    var candidates = (_cache.games||[]).filter(function(g){
+    const candidates = (App.cache.games||[]).filter(function(g){
       return Object.keys(g.playerScores||{}).length>0 && (!g.matchId || g.matchId===matchId);
     }).sort(function(a,b){return new Date(b.savedAt||0)-new Date(a.savedAt||0);});
     if(!candidates.length){
@@ -3657,8 +3657,8 @@ function openAssignGameModal(matchId, gameId){
       body.innerHTML =
         '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:12px;">Select games to include in this match.</div>'+
         candidates.map(function(g){
-          var checked = g.matchId===matchId ? 'checked' : '';
-          var dur=_fmtDuration(g.duration_seconds);
+          const checked = g.matchId===matchId ? 'checked' : '';
+          const dur=_fmtDuration(g.duration_seconds);
           return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:var(--border);cursor:pointer;">'+
             '<input type="checkbox" value="'+g.id+'" class="ag-game-cb" '+checked+' style="width:16px;height:16px;flex-shrink:0;"/>'+
             '<span class="game-card-badge '+(g.result==='Win'?'game-card-badge-win':'game-card-badge-loss')+'">'+(g.result==='Win'?'W':'L')+'</span>'+
@@ -3668,9 +3668,9 @@ function openAssignGameModal(matchId, gameId){
         '<button class="btn btn-primary btn-full mt-16" onclick="saveAssignGames(\''+matchId+'\')">Save</button>';
     }
   } else {
-    var matches = (_cache.matches||[]).slice().sort(function(a,b){return new Date(b.createdAt||0)-new Date(a.createdAt||0);});
-    var g = (_cache.games||[]).find(function(x){return x.id===gameId;});
-    var cur = g ? g.matchId : null;
+    const matches = (App.cache.matches||[]).slice().sort(function(a,b){return new Date(b.createdAt||0)-new Date(a.createdAt||0);});
+    const g = (App.cache.games||[]).find(function(x){return x.id===gameId;});
+    const cur = g ? g.matchId : null;
     if(!matches.length){
       body.innerHTML='<div class="empty"><div class="empty-text">No matches yet</div><button class="btn btn-sm mt-8" onclick="closeModal(\'assign-game-modal\');openCreateMatchModal()">Create Match</button></div>';
     } else {
@@ -3692,11 +3692,11 @@ function openAssignGameModal(matchId, gameId){
 }
 
 async function saveAssignGames(matchId){
-  var cbs = Array.prototype.slice.call(document.querySelectorAll('.ag-game-cb'));
+  const cbs = Array.prototype.slice.call(document.querySelectorAll('.ag-game-cb'));
   try{
-    for(var i=0;i<cbs.length;i++){
+    for(let i=0;i<cbs.length;i++){
       var gid = cbs[i].value;
-      var g = (_cache.games||[]).find(function(x){return x.id===gid;});
+      const g = (App.cache.games||[]).find(function(x){return x.id===gid;});
       if(!g) continue;
       if(cbs[i].checked && g.matchId!==matchId) await sbAssignGameToMatch(gid, matchId);
       else if(!cbs[i].checked && g.matchId===matchId) await sbUnassignGameFromMatch(gid);
@@ -3708,8 +3708,8 @@ async function saveAssignGames(matchId){
 }
 
 async function saveAssignGameToMatch(gameId){
-  var sel = document.querySelector('input[name="ag-match"]:checked');
-  var matchId = sel ? sel.value : '';
+  const sel = document.querySelector('input[name="ag-match"]:checked');
+  const matchId = sel ? sel.value : '';
   try{
     if(matchId) await sbAssignGameToMatch(gameId, matchId);
     else await sbUnassignGameFromMatch(gameId);
@@ -3721,9 +3721,9 @@ async function saveAssignGameToMatch(gameId){
 }
 
 function openEditMatchModal(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
   if(!m){showToast('Match not found');return;}
-  var body = document.getElementById('edit-match-body');
+  const body = document.getElementById('edit-match-body');
   body.innerHTML =
     '<div class="input-group"><label class="input-label">Match Name</label><input class="input" id="em-name" value="'+(m.name||'').replace(/"/g,'&quot;')+'"/></div>'+
     '<div class="row">'+
@@ -3749,7 +3749,7 @@ function openEditMatchModal(matchId){
 }
 
 async function saveEditMatch(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
   if(!m) return;
   m.name = (document.getElementById('em-name').value||'').trim()||m.name;
   m.date = document.getElementById('em-date').value||'';
@@ -3767,8 +3767,8 @@ async function saveEditMatch(matchId){
 async function confirmDeleteMatch(matchId){
   try{
     await sbDeleteMatch(matchId);
-    (_cache.games||[]).forEach(function(g){ if(g.matchId===matchId) g.matchId=null; });
-    _cache.matches = (_cache.matches||[]).filter(function(x){return x.id!==matchId;});
+    (App.cache.games||[]).forEach(function(g){ if(g.matchId===matchId) g.matchId=null; });
+    App.cache.matches = (App.cache.matches||[]).filter(function(x){return x.id!==matchId;});
     closeModal('edit-match-modal');
     showPage('page-history');
     showToast('✓ Match deleted');
@@ -3776,17 +3776,17 @@ async function confirmDeleteMatch(matchId){
 }
 
 function openRateMentalityModal(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
   if(!m){showToast('Match not found');return;}
-  var players = (_cache.players||[]).filter(function(p){return p.active!==false;});
-  var body = document.getElementById('rate-mentality-body');
+  const players = (App.cache.players||[]).filter(function(p){return p.active!==false;});
+  const body = document.getElementById('rate-mentality-body');
   function fld(pid,key,val){
     return '<input type="number" id="rm-'+pid+'-'+key+'" min="0" max="5" step="0.5" value="'+(val!=null?val:'')+'" placeholder="0–5" class="input" style="padding:6px 8px;font-size:12px;text-align:center;"/>';
   }
   body.innerHTML =
     '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);margin-bottom:12px;">Rate each player 0–5 on communication, discipline, and team contribution.</div>'+
     players.map(function(p){
-      var mo=(m.mentality&&m.mentality[p.id])||{};
+      const mo=(m.mentality&&m.mentality[p.id])||{};
       return '<div style="border:var(--border);border-radius:2px;padding:12px;margin-bottom:10px;">'+
         '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">'+p.nick+' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+p.role+'</span></div>'+
         '<div class="row" style="gap:8px;">'+
@@ -3802,14 +3802,14 @@ function openRateMentalityModal(matchId){
 }
 
 async function saveRateMentality(matchId){
-  var m = (_cache.matches||[]).find(function(x){return x.id===matchId;});
+  const m = (App.cache.matches||[]).find(function(x){return x.id===matchId;});
   if(!m) return;
-  var players = (_cache.players||[]).filter(function(p){return p.active!==false;});
-  var mentality = m.mentality || {};
+  const players = (App.cache.players||[]).filter(function(p){return p.active!==false;});
+  const mentality = m.mentality || {};
   players.forEach(function(p){
-    function num(key){var v=parseFloat(document.getElementById('rm-'+p.id+'-'+key)?.value);return isNaN(v)?0:v;}
-    var note=(document.getElementById('rm-'+p.id+'-note')?.value||'').trim();
-    var c=num('communication'),d=num('discipline'),t=num('team_contribution');
+    function num(key){const v=parseFloat(document.getElementById('rm-'+p.id+'-'+key)?.value);return isNaN(v)?0:v;}
+    const note=(document.getElementById('rm-'+p.id+'-note')?.value||'').trim();
+    const c=num('communication'),d=num('discipline'),t=num('team_contribution');
     if(c||d||t||note) mentality[p.id]={communication:c,discipline:d,team_contribution:t,note:note||undefined};
     else delete mentality[p.id];
   });
