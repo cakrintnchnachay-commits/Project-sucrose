@@ -270,10 +270,14 @@ async function sbDeleteMatch(matchId){
 }
 
 async function sbAssignGameToMatch(gameId,matchId){
-  const {error}=await sb.from('games_v2').update({match_id:matchId}).eq('id',gameId);
+  // A game assigned to a match inherits that match's date.
+  var m=(_cache.matches||[]).find(function(x){return x.id===matchId;});
+  var upd={match_id:matchId};
+  if(m&&m.date) upd.match_date=m.date;
+  const {error}=await sb.from('games_v2').update(upd).eq('id',gameId);
   if(error) throw error;
   var g=(_cache.games||[]).find(function(x){return x.id===gameId;});
-  if(g) g.matchId=matchId;
+  if(g){ g.matchId=matchId; if(m&&m.date) g.date=m.date; }
 }
 
 async function sbUnassignGameFromMatch(gameId){
