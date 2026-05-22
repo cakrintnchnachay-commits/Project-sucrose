@@ -703,8 +703,8 @@ var SHOT_LABELS = ['RESULT','DAMAGE','BUILD'];
 var SCAN_FIELDS_LIST = [
   ['Player names','Hero played'],
   ['KDA scores','Gold per player'],
-  ['In-game rating','MVP (win side)'],
-  ['Match end clock','Game duration'],
+  ['In-game rating','MVP (our side)'],
+  ['Game duration','Total kills'],
   ['DMG dealt %','DMG taken %']
 ];
 
@@ -713,9 +713,8 @@ const SCAN_PROMPT = `Analyze these AOV (Arena of Valor) screenshots. Extract all
 Return this exact shape:
 {
   "result": "Win or Loss",
-  "endedAt": "HH:MM from clock icon on result screen (NOT game duration) or null",
-  "duration": "MM:SS match-length timer (how long the game ran) - NOT the time of day - or null",
-  "mvpIgn": "exact IGN of gold crown MVP on win side only or null",
+  "duration": "MM:SS game length shown next to the clock icon on the result screen, or null",
+  "mvpIgn": "exact IGN of the MVP on OUR team (the left/blue side) - never an enemy - or null",
   "ourKills": 0,
   "enemyKills": 0,
   "ourTeam": [
@@ -729,9 +728,8 @@ Return this exact shape:
 Rules:
 - ourTeam = LEFT column (blue side). oppTeam = RIGHT column (red side).
 - "VICTORY" text means result "Win". "DEFEAT" means result "Loss".
-- endedAt is the HH:MM next to a CLOCK ICON on the result screen — NOT the game duration timer.
-- duration is how LONG the match lasted - the match-length timer at the top center (e.g. "18:22"). It is NOT the wall-clock time of day. Never copy the endedAt clock value into duration. AOV matches almost always last between 8 and 35 minutes; if your duration reading falls far outside that range you are likely reading the wrong number, so return null instead.
-- mvpIgn is the player name with the GOLD MVP CROWN on the winning side (not silver crown).
+- duration is the game length (MM:SS) shown next to the small CLOCK ICON on the result screen, e.g. "18:22". AOV matches almost always last between 8 and 35 minutes.
+- mvpIgn is the MVP player on OUR team only — the LEFT/blue column. Even when our team lost, return our side's MVP. Never return a right-side (enemy) player.
 - hero is the character name shown beside the hero portrait (e.g. "Keera", "Eland'orr", "TeeMee").
 - ign is the player handle exactly as shown (e.g. "NOR.Pennii", "wildMutt").
 - gold is the numeric value (e.g. 12859). gameRating is the numeric score (e.g. 7.4).
@@ -975,9 +973,9 @@ function buildScanReviewHtml(){
   });
   html+='</div>';
 
-  // clock tip
+  // duration tip
   html+='<div style="background:rgba(255,204,68,0.06);border:1px solid rgba(255,204,68,0.2);border-radius:4px;padding:10px 12px;display:flex;gap:10px;margin-bottom:12px;font-size:11.5px;color:var(--grey-6);line-height:1.5;">'
-    +'<span style="font-size:14px;">ℹ</span><div><b style="color:var(--white)">Match end (clock icon) ≠ game duration.</b> Sucrose combines with the match date. Confirm if the value looks off.</div></div>';
+    +'<span style="font-size:14px;">ℹ</span><div><b style="color:var(--white)">Game duration</b> is the timer next to the clock icon on the result screen. Confirm if the value looks off.</div></div>';
 
   // match-level section
   if(matchRows.length>0){
@@ -1157,7 +1155,7 @@ function startScan(){
   var steps=[
     'RESULT · player names · heroes · KDA',
     'RESULT · gold · in-game rating',
-    'RESULT · clock icon timestamp · MVP',
+    'RESULT · duration · MVP',
     'DAMAGE · reading damage dealt %',
     'DAMAGE · damage taken %',
     'BUILD · final items',
@@ -1302,10 +1300,15 @@ function applyScannedData(){
     LS._pendingOppTeam=_scanResult.oppTeam;
   }
 
-  // MVP
+  // MVP — mark the score and autofill the Step-0 MVP search box
   if(_scanChecked['mvp']&&raw.mvpIgn){
     var mvpP=findPlayerByIgn(raw.mvpIgn);
-    if(mvpP){if(!LS.scores[mvpP.id])LS.scores[mvpP.id]={};LS.scores[mvpP.id].mvp=true;}
+    if(mvpP){
+      if(!LS.scores[mvpP.id])LS.scores[mvpP.id]={};
+      LS.scores[mvpP.id].mvp=true;
+      var mvpInp=document.getElementById('log-mvp');
+      if(mvpInp) mvpInp.value=mvpP.nick||mvpP.ign||'';
+    }
   }
 
   // Player-level
@@ -1674,13 +1677,22 @@ function initLog(){
   LS.scanData = null;
   LS._pendingOppTeam = null;
   LS._matchId = null;
+  LS._gameNum = null;
   LS._step = 0;
 
   // Clear the static Step-0 inputs. These are not regenerated per game, so without
   // this they keep the previous game's values — and applyScannedData only fills
   // empty fields, so a fresh scan would be ignored in favour of stale data.
-  ['log-opponent','log-duration','log-team-kills','log-enemy-kills','log-vod','log-notes']
+  ['log-opponent','log-duration','log-team-kills','log-enemy-kills','log-vod','log-notes','log-mvp']
     .forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+
+  // Populate the MVP search list with our roster
+  var mvpList=document.getElementById('log-mvp-list');
+  if(mvpList){
+    mvpList.innerHTML=(PLAYERS||[]).map(function(p){
+      return '<option value="'+(p.nick||p.ign||'').replace(/"/g,'&quot;')+'"></option>';
+    }).join('');
+  }
 
   // Default result to Win
   var winBtn  = document.getElementById('log-result-win');
@@ -2349,6 +2361,18 @@ function _dbErr(err, table){
   }
 }
 
+// Reject after `ms` so a stalled network request can't hang the UI forever.
+function _withTimeout(promise, ms, label){
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise(function(_, reject){
+      setTimeout(function(){
+        reject(new Error((label||'Request')+' timed out — check your connection and try again'));
+      }, ms);
+    })
+  ]);
+}
+
 async function saveGame(){
   var btn = document.getElementById('save-game-btn');
   if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -2368,11 +2392,18 @@ async function saveGame(){
       showToast('Tip: duration or kills not set — saving anyway');
     }
 
-    // MVP comes from the scan (LS.scores[pid].mvp); persist it instead of dropping it.
+    // MVP from the Step-0 search box (the scan autofills it; the coach can override).
     var _mvpPid = null;
-    Object.keys(LS.scores||{}).forEach(function(pid){
-      if(LS.scores[pid] && LS.scores[pid].mvp) _mvpPid = pid;
-    });
+    var _mvpVal = (document.getElementById('log-mvp')?.value || '').trim().toLowerCase();
+    if(_mvpVal){
+      var _mvpP = (PLAYERS||[]).find(function(p){
+        return (p.nick && p.nick.toLowerCase()===_mvpVal) || (p.ign && p.ign.toLowerCase()===_mvpVal);
+      });
+      if(_mvpP) _mvpPid = _mvpP.id;
+    }
+
+    // The Step-0 "Game Name" box drives both the game name and opponent label.
+    var _gameName = LS.matchInfo.opponent || null;
 
     // Build games_v2 row
     var gameRow = {
@@ -2380,7 +2411,9 @@ async function saveGame(){
       mvp_player_id:     _mvpPid,
       result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
       game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
-      opponent_name:     LS.matchInfo.opponent  || null,
+      game_name:         _gameName,
+      game_num:          LS._gameNum || 1,
+      opponent_name:     _gameName,
       duration_seconds:  LS.matchInfo.duration_seconds || null,
       team_total_kills:  LS.matchInfo.team_total_kills  || null,
       enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
@@ -2482,7 +2515,7 @@ async function saveGame(){
     }
 
     // 1. Insert game row
-    var gRes = await sb.from('games_v2').insert(gameRow).select('id').single();
+    var gRes = await _withTimeout(sb.from('games_v2').insert(gameRow).select('id').single(), 25000, 'Saving the game');
     if(gRes.error){ _dbErr(gRes.error, 'games_v2'); _restoreBtn(); return; }
     var gameId = gRes.data.id;
 
@@ -2491,10 +2524,10 @@ async function saveGame(){
     enemyRows.forEach(function(r){  r.game_id = gameId; });
 
     // 2. Parallel child inserts — check both for errors
-    var results = await Promise.all([
+    var results = await _withTimeout(Promise.all([
       sb.from('player_scores_v2').insert(playerRows),
       enemyRows.length ? sb.from('enemy_picks').insert(enemyRows) : Promise.resolve({error:null}),
-    ]);
+    ]), 25000, 'Saving player scores');
     var pErr = results[0] && results[0].error;
     var eErr = results[1] && results[1].error;
     if(pErr){ _dbErr(pErr, 'player_scores_v2'); _restoreBtn(); return; }
@@ -2520,8 +2553,8 @@ async function saveGame(){
       });
       _cache.games.unshift({
         id:gameId,date:LS.matchInfo.date,
-        type:LS.matchInfo.type||'Scrim',gameNum:1,gameName:'',
-        result:LS.matchInfo.result,opponent:LS.matchInfo.opponent||'',
+        type:LS.matchInfo.type||'Scrim',gameNum:LS._gameNum||1,gameName:_gameName||'',
+        result:LS.matchInfo.result,opponent:_gameName||'',
         oppTier:'',notes:LS.matchInfo.notes||'',playerScores:newPS,
         duration_seconds:LS.matchInfo.duration_seconds||null,
         team_total_kills:LS.matchInfo.team_total_kills||null,
@@ -2534,7 +2567,7 @@ async function saveGame(){
     // If launched from a match, link the game now
     var _returnMatchId = LS._matchId||null;
     if(_returnMatchId){
-      try{ await sbAssignGameToMatch(gameId, _returnMatchId); }catch(e){ console.warn('match link failed',e); }
+      try{ await _withTimeout(sbAssignGameToMatch(gameId, _returnMatchId), 25000, 'Linking to match'); }catch(e){ console.warn('match link failed',e); }
     }
 
     showToast('✓ Game saved');
@@ -3276,8 +3309,8 @@ function _renderEditGameModal(game, scoredPlayers){
     '</div>'+
     '<div class="row" style="gap:8px;">'+
       '<div class="input-group mb-0" style="flex:2;">'+
-        '<label class="input-label">Opponent</label>'+
-        '<input class="input" id="egm-opponent" value="'+oppVal+'" placeholder="Opponent"/>'+
+        '<label class="input-label">Game Name</label>'+
+        '<input class="input" id="egm-opponent" value="'+oppVal+'" placeholder="Game name"/>'+
       '</div>'+
       '<div class="input-group mb-0" style="flex:1;">'+
         '<label class="input-label">Game #</label>'+
@@ -3517,12 +3550,13 @@ async function saveEditGame(gameId){
     var newGameNum = (gnEl && gnEl.value !== '') ? parseInt(gnEl.value, 10) : null;
     var newDate    = gdEl ? gdEl.value : '';
     var newOpp     = goEl ? goEl.value.trim() : '';
-    var gameUpdate = { opponent_name: newOpp || null };
+    var gameUpdate = { opponent_name: newOpp || null, game_name: newOpp || null };
     if(newDate) gameUpdate.match_date = newDate;
     if(newGameNum != null && !isNaN(newGameNum)) gameUpdate.game_num = newGameNum;
     var {error: gErr} = await sb.from('games_v2').update(gameUpdate).eq('id', gameId);
     if(gErr) throw gErr;
     game.opponent = gameUpdate.opponent_name || '';
+    game.gameName = gameUpdate.game_name || '';
     if(gameUpdate.match_date) game.date = gameUpdate.match_date;
     if('game_num' in gameUpdate) game.gameNum = gameUpdate.game_num;
 
@@ -3741,13 +3775,13 @@ function addGameToMatch(matchId){
   var nextNum = _matchGames(matchId).length+1;
   showPage('page-log'); // triggers initLog(), which resets LS.*
   LS._matchId = matchId; // set after initLog so it isn't cleared
+  LS._gameNum = nextNum;
   setTimeout(function(){
-    var oppEl = document.getElementById('log-opponent');
-    if(oppEl) oppEl.value = m.name;
+    // Game name = (match/opponent name)-(game number)
+    var nameEl = document.getElementById('log-opponent');
+    if(nameEl) nameEl.value = m.name + '-' + nextNum;
     if(m.date){ var dateEl=document.getElementById('log-date'); if(dateEl) dateEl.value=m.date; }
     if(m.type==='Tournament') setLogType('Tournament'); else setLogType('Scrim');
-    var notesEl = document.getElementById('log-notes');
-    if(notesEl) notesEl.value = m.name+' – Game '+nextNum;
   },50);
 }
 

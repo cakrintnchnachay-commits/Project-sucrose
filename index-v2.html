@@ -221,10 +221,10 @@
           <button class="log-toggle-btn" id="log-type-tournament" onclick="setLogType('Tournament')">TOURNAMENT</button>
         </div>
       </div>
-      <!-- Opponent name -->
+      <!-- Game name -->
       <div class="input-group">
-        <label class="input-label">Opponent Name <span style="color:var(--grey-5);font-weight:400;">(optional)</span></label>
-        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
+        <label class="input-label">Game Name</label>
+        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix-1"/>
       </div>
       <!-- Duration -->
       <div class="input-group">
@@ -244,6 +244,12 @@
             <input class="input" type="number" id="log-enemy-kills" placeholder="7" min="0"/>
           </div>
         </div>
+      </div>
+      <!-- MVP -->
+      <div class="input-group">
+        <label class="input-label">MVP <span style="color:var(--grey-5);font-weight:400;">(our side · optional)</span></label>
+        <input class="input" id="log-mvp" list="log-mvp-list" placeholder="Search player…" autocomplete="off"/>
+        <datalist id="log-mvp-list"></datalist>
       </div>
       <!-- VOD URL -->
       <div class="input-group">
