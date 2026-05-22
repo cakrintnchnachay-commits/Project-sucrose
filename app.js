@@ -536,7 +536,7 @@ function renderHeroes(){
     var grade=avgScore>0?scoreToGrade(avgScore):null;
     var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
     var lowConf=h.picks>0&&h.picks<3?'<span class="low-conf">·</span>':'';
-    return '<div class="hero-row" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))">'+
+    return '<div class="hero-row" onclick="openHeroDetail(decodeURIComponent(\''+_encHero(h.name)+'\'))">'+
       heroPortraitHtml(h.name,44,false)+
       '<div style="flex:1;min-width:0;margin-left:10px;">'+
         '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
@@ -673,7 +673,7 @@ function buildTop3HeroesHtml(playerId,games){
     var wr=h.picks?Math.round(h.wins/h.picks*100):0;
     var avgSc=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
     var gr=avgSc>0?scoreToGrade(avgSc):null;
-    return '<div class="top3-chip" onclick="openHeroDetail(decodeURIComponent(\''+encodeURIComponent(h.name)+'\'))" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
+    return '<div class="top3-chip" onclick="openHeroDetail(decodeURIComponent(\''+_encHero(h.name)+'\'))" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;min-width:80px;">'+
       '<div class="top3-medal" style="margin-bottom:5px;">'+medals[i]+'</div>'+
       heroPortraitHtml(h.name,56,false)+
       '<div class="top3-hero" style="text-align:center;margin-top:6px;">'+h.name+'</div>'+
@@ -1349,8 +1349,9 @@ function applyScannedData(){
     if(dEl&&dEl.value)LS.matchInfo.date=dEl.value;
   }
 
-  // Populate duration input in the log form if visible
-  if(LS.matchInfo.duration){var durInp=document.getElementById('log-duration');if(durInp&&!durInp.value)durInp.value=LS.matchInfo.duration;}
+  // Populate the duration input so logStep0Next() reads the scanned value back.
+  // Force-set (don't skip when non-empty): a checked duration means apply it.
+  if(LS.matchInfo.duration){var durInp=document.getElementById('log-duration');if(durInp)durInp.value=LS.matchInfo.duration;}
 
   // Draft
   if(!LS.draft)LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
@@ -2104,6 +2105,8 @@ function updateComputedStats(slotIdx){
   });
   html += '</div></div>';
   container.innerHTML = html;
+
+  _refreshPillarHints(slotIdx);
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -2123,7 +2126,7 @@ function renderPillarSliders(role, slotIdx){
     html += '<span class="pillar-val" id="'+dispId+'">5</span>';
     html += '</div>';
     if(!isManual){
-      html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Stat-based — drag to override</div>';
+      html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;" id="lp-phint'+n+'-'+slotIdx+'">Stat-based — drag to override</div>';
     }
     html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
     html += '</div>';
@@ -2293,6 +2296,50 @@ function calculateSuggestionFromScore(role, pillarIndex, score, game, playerId){
   return _benchScale(_benchMetricFromScore(fieldKey,score,game),benchmark);
 }
 
+// ── Pillar stat hints — show the stat behind each slider next to its title ──
+function _fmtBenchMetric(fieldKey, v){
+  if(v==null||isNaN(v)) return null;
+  if(fieldKey==='kda'||fieldKey==='dmg_per_dmg_taken'||fieldKey==='min_per_death') return (+v).toFixed(2);
+  if(fieldKey==='kill_contrib'||fieldKey==='dmg_dealt_pct'||fieldKey==='dmg_taken_pct') return Math.round(v)+'%';
+  if(fieldKey==='rating') return (+v).toFixed(1);
+  return Math.round(v); // gpm
+}
+
+// "KDA 3.20  ·  benchmark 7" — the stat behind a pillar plus its benchmark score.
+function _pillarHint(role, pillarIndex, metricVal, suggestion){
+  var fields=BENCHMARK_FIELDS[String(role||'').toLowerCase()];
+  if(!fields||pillarIndex<0||pillarIndex>=fields.length) return '';
+  var f=fields[pillarIndex];
+  var parts=[];
+  var fv=_fmtBenchMetric(f.k, metricVal);
+  if(fv!=null) parts.push(f.label+' '+fv);
+  if(suggestion!=null) parts.push('benchmark '+suggestion);
+  return parts.join('  ·  ');
+}
+
+// Refresh the live stat hint under each stat-based pillar slider of a log slot.
+function _refreshPillarHints(i){
+  var roleEl=document.getElementById('lp-role-'+i);
+  var role=(roleEl?roleEl.value:'').toLowerCase();
+  var pillars=PILLAR_MAP[role]||[];
+  if(!pillars.length) return;
+  function num(id){ var el=document.getElementById(id); var v=el?parseFloat(el.value):NaN; return isNaN(v)?null:v; }
+  var raw={
+    kills:num('lp-kills-'+i)||0, deaths:num('lp-deaths-'+i)||0, assists:num('lp-assists-'+i)||0,
+    gold:num('lp-gold-'+i), gameRating:num('lp-in_game_rating-'+i),
+    dmgDealtPct:num('lp-dmg_dealt_pct-'+i), dmgTakenPct:num('lp-dmg_taken_pct-'+i),
+    dmgDealt:num('lp-dmg_dealt_raw-'+i), dmgTaken:num('lp-dmg_taken_raw-'+i),
+    _playerId:(document.getElementById('lp-player-'+i)||{}).value||null
+  };
+  for(var n=0;n<pillars.length;n++){
+    var span=document.getElementById('lp-phint'+n+'-'+i);
+    if(!span||MANUAL_PILLARS.has(pillars[n])) continue;
+    var fk=(BENCHMARK_FIELDS[role]&&BENCHMARK_FIELDS[role][n])?BENCHMARK_FIELDS[role][n].k:null;
+    var hint=_pillarHint(role, n, _benchMetricFromRaw(fk, raw), calculateSuggestion(role, n, raw));
+    span.textContent = hint || 'Stat-based — drag to override';
+  }
+}
+
 function _dbErr(err, table){
   var msg = (err && err.message) || String(err);
   if(msg.toLowerCase().indexOf('row-level security') !== -1 || (err && (err.code === '42501' || err.status === 401 || err.status === 403))){
@@ -2321,9 +2368,16 @@ async function saveGame(){
       showToast('Tip: duration or kills not set — saving anyway');
     }
 
+    // MVP comes from the scan (LS.scores[pid].mvp); persist it instead of dropping it.
+    var _mvpPid = null;
+    Object.keys(LS.scores||{}).forEach(function(pid){
+      if(LS.scores[pid] && LS.scores[pid].mvp) _mvpPid = pid;
+    });
+
     // Build games_v2 row
     var gameRow = {
       match_date:        LS.matchInfo.date,
+      mvp_player_id:     _mvpPid,
       result:            LS.matchInfo.result === 'Win' ? 'win' : 'loss',
       game_type:         (LS.matchInfo.type || 'Scrim').toLowerCase(),
       opponent_name:     LS.matchInfo.opponent  || null,
@@ -2473,7 +2527,7 @@ async function saveGame(){
         team_total_kills:LS.matchInfo.team_total_kills||null,
         enemy_total_kills:LS.matchInfo.enemy_total_kills||null,
         enemyPicks:enemyRows.map(function(e){return {hero:e.hero_name,role:e.role,gold:e.gold};}),
-        matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:null,savedAt:new Date().toISOString(),
+        matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:_mvpPid,savedAt:new Date().toISOString(),
       });
     })();
 
@@ -2551,17 +2605,17 @@ function renderMetaTiers(){
   var bandsEl=document.getElementById('meta-tier-bands');
   if(bandsEl)bandsEl.innerHTML=META_LEVELS.map(function(l){
     var chips=(byTier[l.key]||[]).map(function(name){
-      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+
+      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+_encHero(name)+'\',\''+role+'\',\'meta\')">'+
         heroPortraitHtml(name,22,false)+
         '<span>'+name+'</span>'+
-        '<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(decodeURIComponent(\''+encodeURIComponent(name)+'\'))">✎</button>'+
+        '<button class="chip-edit" onclick="event.stopPropagation();openHeroEditModal(decodeURIComponent(\''+_encHero(name)+'\'))">✎</button>'+
       '</div>';
     }).join('');
     return '<div class="tier-band"><div class="tier-band-header"><span class="tier-band-letter '+l.cls+'">'+l.label+'</span><span class="tier-band-desc">'+l.desc+'</span></div><div class="tier-hero-grid">'+chips+'</div></div>';
   }).join('');
   var upEl=document.getElementById('meta-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
-    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+role+'\',\'meta\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+_encHero(name)+'\',\''+role+'\',\'meta\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
   var pn=document.getElementById('patch-name-display');
   if(pn)pn.textContent=(_cache.patches&&_cache.patches.length?_cache.patches[_cache.patches.length-1].name:'Current');
@@ -2592,7 +2646,7 @@ function renderMasteryTiers(){
   if(bandsEl)bandsEl.innerHTML=MASTERY_LEVELS.map(function(l){
     var chips=(byTier[l.key]||[]).map(function(name){
       var mt=metaTiers[name]&&metaTiers[name][masteryRole];
-      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+
+      return '<div class="tier-hero-chip placed" onclick="openTierAssign(\''+_encHero(name)+'\',\''+masteryRole+'\',\'mastery\')">'+
         heroPortraitHtml(name,22,false)+
         (mt?'<span class="chip-class">'+mt+'</span>':'')+
         '<span>'+name+'</span>'+
@@ -2602,7 +2656,7 @@ function renderMasteryTiers(){
   }).join('');
   var upEl=document.getElementById('mastery-unplaced');
   if(upEl)upEl.innerHTML=unplaced.map(function(name){
-    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+encodeURIComponent(name)+'\',\''+masteryRole+'\',\'mastery\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
+    return '<div class="tier-hero-chip" onclick="openTierAssign(\''+_encHero(name)+'\',\''+masteryRole+'\',\'mastery\')">'+heroPortraitHtml(name,22,false)+'<span>'+name+'</span></div>';
   }).join('');
 }
 function setMasteryPlayer(pid){window._masteryPlayer=pid;renderMasteryTiers();}
@@ -2616,6 +2670,10 @@ function renderPatchHistory(){
     return '<div class="patch-history-row"><div style="flex:1;"><div style="font-size:13px;font-weight:600;">'+p.name+'</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+new Date(p.savedAt).toLocaleDateString('en-GB')+'</div></div></div>';
   }).join('');
 }
+// Encode a hero name for use inside an inline onclick string. encodeURIComponent
+// leaves apostrophes intact, which breaks the JS string for heroes like Y'bneth.
+function _encHero(n){ return encodeURIComponent(n).replace(/'/g,'%27'); }
+
 function openTierAssign(encodedName,role,mode){
   var heroName=decodeURIComponent(encodedName);
   var data=loadData();
@@ -3263,10 +3321,10 @@ function _buildEditPlayerPanel(game, player, idx){
   var pillars = PILLAR_MAP[role] || ['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
   var ps = s.pillar_scores || {};
 
-  function sliderRow(label, key, val, sug){
+  function sliderRow(label, key, val, sug, hintStr){
     var v = Math.round(val!=null ? val : (sug!=null ? sug : 5));
-    var hint = (sug!=null)
-      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
+    var hint = hintStr
+      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">'+hintStr+'</div>'
       : '';
     return '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
@@ -3300,7 +3358,10 @@ function _buildEditPlayerPanel(game, player, idx){
   html += '<div class="score-sec">PILLAR SCORES</div>';
   html += '<div id="egm-'+idx+'-pillars">';
   pillars.forEach(function(lbl, i){
-    html += sliderRow(lbl, 'p'+i, ps['p'+i], calculateSuggestionFromScore(role, i, s, game, player.id));
+    var _sug = calculateSuggestionFromScore(role, i, s, game, player.id);
+    var _fk = (BENCHMARK_FIELDS[role]&&BENCHMARK_FIELDS[role][i]) ? BENCHMARK_FIELDS[role][i].k : null;
+    var _hint = MANUAL_PILLARS.has(lbl) ? '' : _pillarHint(role, i, _benchMetricFromScore(_fk, s, game), _sug);
+    html += sliderRow(lbl, 'p'+i, ps['p'+i], _sug, _hint);
   });
   html += '</div>';
 
@@ -3349,8 +3410,10 @@ function refreshEditPillars(idx){
   pillars.forEach(function(lbl, i){
     var sug = calculateSuggestionFromScore(role, i, s, game, player.id);
     var v = Math.round(ps['p'+i]!=null ? ps['p'+i] : (sug!=null ? sug : 5));
-    var hint = (sug!=null)
-      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">Benchmark suggestion: '+sug+'</div>'
+    var _fk = (BENCHMARK_FIELDS[role]&&BENCHMARK_FIELDS[role][i]) ? BENCHMARK_FIELDS[role][i].k : null;
+    var _hintStr = MANUAL_PILLARS.has(lbl) ? '' : _pillarHint(role, i, _benchMetricFromScore(_fk, s, game), sug);
+    var hint = _hintStr
+      ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">'+_hintStr+'</div>'
       : '';
     container.innerHTML += '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
