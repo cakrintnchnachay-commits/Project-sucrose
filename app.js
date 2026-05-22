@@ -613,8 +613,8 @@ function openHeroDetail(heroName){
     rawStatRow('KDA',null,null,2).replace('—',kdaLine||'—')+
     rawStatRow('Avg Gold / Min',avgGpm,'',0)+
     rawStatRow('Avg In-Game Rating',avgRating,'',1)+
-    rawStatRow('Avg DMG Dealt %',avgDmgDealt!=null?avgDmgDealt*100:null,'%',1)+
-    rawStatRow('Avg DMG Taken %',avgDmgTaken!=null?avgDmgTaken*100:null,'%',1):
+    rawStatRow('Avg DMG Dealt %',avgDmgDealt,'%',1)+
+    rawStatRow('Avg DMG Taken %',avgDmgTaken,'%',1):
     '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No games logged with this hero yet</div>';
   var winLabel=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{l:'All Time'}).l;
   document.getElementById('hd-title').textContent=heroName.toUpperCase();
@@ -714,7 +714,7 @@ Return this exact shape:
 {
   "result": "Win or Loss",
   "endedAt": "HH:MM from clock icon on result screen (NOT game duration) or null",
-  "duration": "MM:SS game timer shown at top center or null",
+  "duration": "MM:SS match-length timer (how long the game ran) - NOT the time of day - or null",
   "mvpIgn": "exact IGN of gold crown MVP on win side only or null",
   "ourKills": 0,
   "enemyKills": 0,
@@ -730,7 +730,7 @@ Rules:
 - ourTeam = LEFT column (blue side). oppTeam = RIGHT column (red side).
 - "VICTORY" text means result "Win". "DEFEAT" means result "Loss".
 - endedAt is the HH:MM next to a CLOCK ICON on the result screen — NOT the game duration timer.
-- duration is the game timer at the top center of the result screen (e.g. "18:22").
+- duration is how LONG the match lasted - the match-length timer at the top center (e.g. "18:22"). It is NOT the wall-clock time of day. Never copy the endedAt clock value into duration. AOV matches almost always last between 8 and 35 minutes; if your duration reading falls far outside that range you are likely reading the wrong number, so return null instead.
 - mvpIgn is the player name with the GOLD MVP CROWN on the winning side (not silver crown).
 - hero is the character name shown beside the hero portrait (e.g. "Keera", "Eland'orr", "TeeMee").
 - ign is the player handle exactly as shown (e.g. "NOR.Pennii", "wildMutt").
@@ -916,7 +916,8 @@ function buildScanReviewHtml(){
   // build match-level rows
   var matchRows=[];
   if(raw.endedAt)matchRows.push({id:'endedAt',label:'MATCH END · CLOCK ICON',val:''+raw.endedAt,badge:'NEW',badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)'});
-  if(raw.duration)matchRows.push({id:'duration',label:'GAME DURATION',val:''+raw.duration,badge:'NEW',badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)'});
+  var _revDur=_validScannedDuration(raw.duration,raw.endedAt);
+  if(_revDur)matchRows.push({id:'duration',label:'GAME DURATION',val:''+_revDur,badge:'NEW',badgeColor:'var(--success)',badgeBg:'rgba(68,255,136,0.08)',badgeBorder:'rgba(68,255,136,0.25)'});
   if(raw.mvpIgn){
     var mvpP=findPlayerByIgn(raw.mvpIgn);
     matchRows.push({id:'mvp',label:'MVP (WIN SIDE)',val:(mvpP?mvpP.nick+' · ':'')+raw.mvpIgn,badge:'MVP',badgeColor:'var(--warn)',badgeBg:'rgba(255,204,68,0.1)',badgeBorder:'rgba(255,204,68,0.3)'});
@@ -1246,6 +1247,19 @@ function processScanResult(raw){
   return{ourTeam:mapTeam(raw.ourTeam),oppTeam:mapTeam(raw.oppTeam)};
 }
 
+// The scanner sometimes reads the result-screen wall-clock (time of day) instead of the
+// match-length timer. Reject a duration that just copies the end clock or isn't a sane MM:SS.
+function _validScannedDuration(dur, endedAt){
+  if(!dur) return null;
+  var d=String(dur).trim();
+  if(endedAt && d===String(endedAt).trim()) return null; // copied the end-of-match clock
+  var p=d.split(':');
+  if(p.length!==2) return null;
+  var mm=parseInt(p[0],10), ss=parseInt(p[1],10);
+  if(isNaN(mm)||isNaN(ss)||ss<0||ss>59||mm<1||mm>99) return null;
+  return d;
+}
+
 function applyScannedData(){
   if(!_scanResult)return;
   if(_scanResult._editMode){applyEditScannedData();return;}
@@ -1263,10 +1277,11 @@ function applyScannedData(){
 
   // Match-level: endedAt, duration
   if(_scanChecked['endedAt']&&raw.endedAt){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.endedAt=raw.endedAt;}
-  if(_scanChecked['duration']&&raw.duration){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.duration=raw.duration;}
+  var _scanDur=_validScannedDuration(raw.duration,raw.endedAt);
+  if(_scanChecked['duration']&&_scanDur){if(!LS.matchInfo)LS.matchInfo={};LS.matchInfo.duration=_scanDur;}
   // duration_seconds for pillar calculations
-  if(raw.duration){
-    var dParts=raw.duration.split(':');
+  if(_scanDur){
+    var dParts=_scanDur.split(':');
     if(dParts.length===2)LS.matchInfo.duration_seconds=parseInt(dParts[0])*60+parseInt(dParts[1]);
   }
   // Total kills per side — prefer the scanned tally, else sum per-player kills
@@ -1309,14 +1324,13 @@ function applyScannedData(){
     if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)LS.scores[pid].dmgTaken=ex.dmgTaken;
   });
 
-  // Hero → default role for all 10 players (Flowborn → unassigned, unknown → manual picker)
+  // Role for our players comes from their roster entry, not the hero played.
+  // Guessing from the hero mis-tags games (e.g. a jungler on a flex hero → Support).
   ourTeam.forEach(function(entry){
     if(!entry.player)return;
     var pid=entry.player.id;
-    var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
-    var hObj=entry.hero||findHeroByName(hName);
     if(!LS.scores[pid])LS.scores[pid]={};
-    LS.scores[pid].role=_defaultHeroRole(hObj,hName);
+    LS.scores[pid].role=_normalizeRole(entry.player.role);
   });
   LS.scanEnemy=oppTeam.map(function(entry){
     var hName=(entry.hero&&entry.hero.name)||(entry.extracted&&entry.extracted.hero)||'';
@@ -1366,22 +1380,24 @@ function applyScannedData(){
 // ENEMY ROLE CONFIRMATION
 // ══════════════════════════════════════════
 
+// Map any role string (case/spelling variants) to a canonical GAME_ROLES value, or '' if unknown.
+// Without this, a hero whose stored role is e.g. "Jungle" fails to match any <option> and the
+// role <select> silently falls back to its first option — Support.
+function _normalizeRole(r) {
+  if (!r) return '';
+  var s = String(r).trim().toLowerCase();
+  if (s === 'jungle' || s === 'jg' || s === 'jung') s = 'jungler';
+  var hit = GAME_ROLES.find(function(g){ return g.toLowerCase() === s; });
+  return hit || '';
+}
+
 function _inferEnemyRole(heroObj, heroName) {
   // Multi-role heroes — always require manual selection
   var MULTI_ROLE = ['Flowborn'];
   if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
   if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
-  if (heroObj.roles.length === 1) return heroObj.roles[0];
+  if (heroObj.roles.length === 1) return _normalizeRole(heroObj.roles[0]) || null;
   return null; // multiple roles → coach must pick
-}
-
-// Default role for our-side players: first DB role.
-// Flowborn → unassigned; unknown hero → null (manual picker).
-function _defaultHeroRole(heroObj, heroName) {
-  var MULTI_ROLE = ['Flowborn'];
-  if (MULTI_ROLE.indexOf(heroName) !== -1) return null;
-  if (!heroObj || !heroObj.roles || !heroObj.roles.length) return null;
-  return heroObj.roles[0];
 }
 
 function openEnemyRoleConfirm() {
@@ -1650,14 +1666,20 @@ var PILLAR_MAP = {
 var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
 
 function initLog(){
-  var prevDuration = LS.matchInfo && LS.matchInfo.duration;
   LS.matchInfo = {};
   LS.scores    = {};
   LS.enemyRoles = null;
   LS.scanEnemy = null;
+  LS.scanData = null;
   LS._pendingOppTeam = null;
   LS._matchId = null;
   LS._step = 0;
+
+  // Clear the static Step-0 inputs. These are not regenerated per game, so without
+  // this they keep the previous game's values — and applyScannedData only fills
+  // empty fields, so a fresh scan would be ignored in favour of stale data.
+  ['log-opponent','log-duration','log-team-kills','log-enemy-kills','log-vod','log-notes']
+    .forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
 
   // Default result to Win
   var winBtn  = document.getElementById('log-result-win');
@@ -1681,12 +1703,6 @@ function initLog(){
     var mm    = String(today.getMonth()+1).padStart(2,'0');
     var dd    = String(today.getDate()).padStart(2,'0');
     dateEl.value = yyyy+'-'+mm+'-'+dd;
-  }
-
-  // Pre-fill duration from scan if available
-  if(prevDuration){
-    var durEl = document.getElementById('log-duration');
-    if(durEl) durEl.value = prevDuration;
   }
 
   logGoToStep(0);
@@ -3193,13 +3209,26 @@ function _renderEditGameModal(game, scoredPlayers){
   var isWin = game.result==='Win';
   var dur = game.duration_seconds ? (Math.floor(game.duration_seconds/60)+':'+(''+(game.duration_seconds%60)).padStart(2,'0')) : '';
 
-  // Game info header
+  // Game info header — editable game/date/opponent
+  var oppVal = (game.opponent||'').replace(/"/g,'&quot;');
   var headerHtml = '<div style="padding:14px 16px;background:var(--grey-1);border-bottom:var(--border);flex-shrink:0;">'+
-    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'+
       '<span class="game-card-badge '+(isWin?'game-card-badge-win':'game-card-badge-loss')+'">'+(isWin?'WIN':'LOSS')+'</span>'+
-      '<span style="font-size:13px;font-weight:600;">'+(game.opponent||'Unknown Opponent')+'</span>'+
-      '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+_fmtDate(game.date)+'</span>'+
       (dur?'<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+dur+'</span>':'')+
+    '</div>'+
+    '<div class="row" style="gap:8px;">'+
+      '<div class="input-group mb-0" style="flex:2;">'+
+        '<label class="input-label">Opponent</label>'+
+        '<input class="input" id="egm-opponent" value="'+oppVal+'" placeholder="Opponent"/>'+
+      '</div>'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">Game #</label>'+
+        '<input class="input" type="number" min="1" id="egm-gamenum" value="'+(game.gameNum||1)+'"/>'+
+      '</div>'+
+    '</div>'+
+    '<div class="input-group mb-0" style="margin-top:8px;">'+
+      '<label class="input-label">Date</label>'+
+      '<input class="input" type="date" id="egm-date" value="'+(game.date||'')+'"/>'+
     '</div>'+
   '</div>';
 
@@ -3417,6 +3446,22 @@ async function saveEditGame(gameId){
     if(delErr) throw delErr;
     var {error: uErr} = await sb.from('player_scores_v2').insert(updateRows);
     if(uErr) throw uErr;
+
+    // Persist editable game-level info (date / game number / opponent)
+    var gnEl = document.getElementById('egm-gamenum');
+    var gdEl = document.getElementById('egm-date');
+    var goEl = document.getElementById('egm-opponent');
+    var newGameNum = (gnEl && gnEl.value !== '') ? parseInt(gnEl.value, 10) : null;
+    var newDate    = gdEl ? gdEl.value : '';
+    var newOpp     = goEl ? goEl.value.trim() : '';
+    var gameUpdate = { opponent_name: newOpp || null };
+    if(newDate) gameUpdate.match_date = newDate;
+    if(newGameNum != null && !isNaN(newGameNum)) gameUpdate.game_num = newGameNum;
+    var {error: gErr} = await sb.from('games_v2').update(gameUpdate).eq('id', gameId);
+    if(gErr) throw gErr;
+    game.opponent = gameUpdate.opponent_name || '';
+    if(gameUpdate.match_date) game.date = gameUpdate.match_date;
+    if('game_num' in gameUpdate) game.gameNum = gameUpdate.game_num;
 
     // Update local cache
     players.forEach(function(p, i){
