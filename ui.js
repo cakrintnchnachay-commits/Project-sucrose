@@ -636,14 +636,26 @@ function renderRoster(){
 
   // ─── CARDS VIEW ──────────────────────────────────────────
   function renderCards(){
+    // Sort starters by games played descending
+    var gamesCount={};
+    (data.games||[]).forEach(function(g){
+      if(!g.playerScores)return;
+      PLAYERS.forEach(function(p){
+        var s=g.playerScores[p.id];
+        if(s&&!s.skipped)gamesCount[p.id]=(gamesCount[p.id]||0)+1;
+      });
+    });
+    var sortedStarters=starters.slice().sort(function(a,b){return (gamesCount[b.id]||0)-(gamesCount[a.id]||0);});
+
     function starterCard(p,rank){
       var st=getMonthStats(p.id);
       var heroes=getTop3Heroes(p.id);
       var roleCol=ROLE_COL[p.role]||'var(--grey-6)';
       var igrGrade=st.igr!=null?scoreToGrade(st.igr):null;
       var coachGrade=st.coachAvg!=null?scoreToGrade(st.coachAvg):null;
-      var heroRow=heroes.length?('<div class="rst-heroes">'+heroes.map(function(h){return heroThumb(h,26,'rst-hero-thumb');}).join('')+'</div>'):'';
-      var chartRow=st.chartVals.length?('<div class="rst-chart">'+rBarChart(st.chartVals)+'</div>'):'';
+      // Heroes overlaid inside portrait shadow
+      var heroesOverlay=heroes.length?
+        '<div class="rst-heroes-overlay">'+heroes.map(function(h){return heroThumb(h,32,'rst-hero-thumb');}).join('')+'</div>':'';
       return '<article class="roster-starter-card" onclick="showProfile(\''+p.id+'\')">'+
         '<div class="rst-role-bar">'+
           '<span class="rst-role-label" style="color:'+roleCol+';">'+p.role+'</span>'+
@@ -653,30 +665,30 @@ function renderRoster(){
           pfpImg(p,null)+
           '<div class="rst-grad"></div>'+
           '<div class="rst-sid"></div>'+
+          heroesOverlay+
           '<div class="rst-name-block">'+
             '<div class="rst-nick">'+p.nick.toUpperCase()+'</div>'+
             '<div class="rst-ign">'+p.ign+'</div>'+
           '</div>'+
         '</div>'+
-        heroRow+
         '<div class="rst-stats">'+
           '<div class="rst-stat"><div class="rst-stat-val">'+(st.kda!=null?st.kda.toFixed(2):'—')+'</div><div class="rst-stat-lbl">KDA</div></div>'+
           '<div class="rst-stat"><div class="rst-stat-val">'+(st.gpm!=null?Math.round(st.gpm):'—')+'</div><div class="rst-stat-lbl">GPM</div></div>'+
           '<div class="rst-stat"><div class="rst-stat-val">'+(st.kp!=null?Math.round(st.kp)+'%':'—')+'</div><div class="rst-stat-lbl">KP%</div></div>'+
         '</div>'+
         '<div class="rst-footer">'+
-          '<div class="rst-footer-half">'+
+          '<div class="rst-footer-item">'+
             '<div class="rst-footer-val">'+(st.igr!=null?st.igr.toFixed(1):'—')+'</div>'+
             '<div class="rst-footer-lbl">IGR · 1M</div>'+
-            (igrGrade?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;">'+igrGrade.grade+'</div>':'')+
+            (igrGrade?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;margin-top:1px;">'+igrGrade.grade+'</div>':'')+
           '</div>'+
-          '<div class="rst-footer-half">'+
+          '<div class="rst-footer-item">'+
             '<div class="rst-footer-val">'+(st.coachAvg!=null?st.coachAvg.toFixed(1):'—')+'</div>'+
             '<div class="rst-footer-lbl">Coach · 1M</div>'+
-            (coachGrade?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;">'+coachGrade.grade+'</div>':'')+
+            (coachGrade?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);letter-spacing:1px;margin-top:1px;">'+coachGrade.grade+'</div>':'')+
           '</div>'+
+          '<div class="rst-footer-chart">'+rBarChart(st.chartVals)+'</div>'+
         '</div>'+
-        chartRow+
       '</article>';
     }
 
@@ -688,7 +700,6 @@ function renderRoster(){
       var avatarHtml=url?
         '<div style="width:40px;height:40px;border-radius:50%;overflow:hidden;flex-shrink:0;border:1px solid var(--grey-3);"><img src="'+url+'" alt="" style="width:100%;height:100%;object-fit:cover;filter:grayscale(0.25);opacity:0.85;" onerror="this.style.display=\'none\'"/></div>':
         '<div style="width:40px;height:40px;border-radius:50%;background:var(--grey-3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:17px;color:var(--grey-5);">'+p.nick[0]+'</div>';
-      var chartRow=st.chartVals.length?('<div style="padding:4px 12px 7px;border-top:var(--border);">'+rBarChart(st.chartVals)+'</div>'):'';
       return '<article class="roster-sub-card" onclick="showProfile(\''+p.id+'\')">'+
         '<div class="rst-sub-top">'+
           '<div style="display:flex;align-items:center;gap:5px;">'+
@@ -702,28 +713,28 @@ function renderRoster(){
           '<div style="flex:1;min-width:0;">'+
             '<div class="rst-sub-name">'+p.nick.toUpperCase()+'</div>'+
             '<div class="rst-sub-ign">'+p.ign+'</div>'+
-            (heroes.length?'<div class="rst-sub-heroes">'+heroes.map(function(h){return heroThumb(h,18,'rst-sub-thumb');}).join('')+'</div>':'')+
+            (heroes.length?'<div class="rst-sub-heroes">'+heroes.map(function(h){return heroThumb(h,20,'rst-sub-thumb');}).join('')+'</div>':'')+
           '</div>'+
-          '<div style="text-align:right;flex-shrink:0;">'+
+          '<div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;gap:0;">'+
             '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;color:var(--grey-5);line-height:1;">'+(st.igr!=null?st.igr.toFixed(1):'—')+'</div>'+
-            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;">IGR · 1M</div>'+
-            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;color:var(--grey-4);line-height:1;margin-top:4px;">'+(st.coachAvg!=null?st.coachAvg.toFixed(1):'—')+'</div>'+
+            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;margin-bottom:4px;">IGR · 1M</div>'+
+            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;color:var(--grey-4);line-height:1;">'+(st.coachAvg!=null?st.coachAvg.toFixed(1):'—')+'</div>'+
             '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;">Coach</div>'+
           '</div>'+
         '</div>'+
-        chartRow+
+        (st.chartVals.length?'<div style="padding:4px 12px 7px;border-top:var(--border);">'+rBarChart(st.chartVals)+'</div>':'')+
       '</article>';
     }
 
-    var startersHtml=starters.length?starters.map(function(p,i){return starterCard(p,i+1);}).join(''):
+    var startersHtml=sortedStarters.length?sortedStarters.map(function(p,i){return starterCard(p,i+1);}).join(''):
       '<div style="padding:20px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No starters yet</div>';
     var subsSection=subs.length?
-      '<div class="roster-subs-rail">'+
-        '<div class="rst-rail-head">'+
-          '<span class="rst-rail-title">Substitutes</span>'+
-          '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);">'+subs.length+' active</span>'+
+      '<div class="roster-subs-section">'+
+        '<div class="rst-subs-head">'+
+          '<span class="rst-subs-title">Substitutes</span>'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);">'+subs.length+' reserve</span>'+
         '</div>'+
-        subs.map(subCard).join('')+
+        '<div class="roster-subs-grid">'+subs.map(subCard).join('')+'</div>'+
       '</div>':'';
 
     return '<div class="roster-cards-layout">'+
