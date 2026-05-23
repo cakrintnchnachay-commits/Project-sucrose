@@ -165,23 +165,31 @@ function renderHomeDesktop(data){
 
   var recent4=orderedDesc.slice(0,4);
 
+  // Matches sorted newest-first for "Recent sessions" panel
+  var recentMatches=(_cache.matches||[]).slice().sort(function(a,b){
+    var da=parseDate(a.date)||new Date(a.createdAt||0);
+    var db=parseDate(b.date)||new Date(b.createdAt||0);
+    return db-da;
+  }).slice(0,4);
+
   var activePlayers=PLAYERS.filter(function(p){return p.status!=='Inactive';});
 
-  function avgRating(pid,field){
-    var sum=0,n=0;
-    games.forEach(function(g){
-      var s=g.playerScores&&g.playerScores[pid];
-      if(s&&!s.skipped&&s[field]!=null&&!isNaN(parseFloat(s[field]))){sum+=parseFloat(s[field]);n++;}
-    });
-    return n?sum/n:null;
+  // avg in-game rating from last 5 games for a player
+  function avgIGRLast5(pid){
+    var vals=games.slice().sort(function(a,b){return parseDate(b.date)-parseDate(a.date);})
+      .map(function(g){var s=g.playerScores&&g.playerScores[pid];if(!s||s.skipped)return null;var v=s.in_game_rating!=null?+s.in_game_rating:(s.gameRating!=null?+s.gameRating:null);return v;})
+      .filter(function(v){return v!=null&&!isNaN(v);}).slice(0,5);
+    return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null;
   }
-  function recentGameRatings(pid,k){
+  // avg coach (pillar) score from last 5 games; also returns the 5 scores for chart
+  function coachScoresLast5(pid){
     var pl=PLAYERS.find(function(p){return p.id===pid;});
     var role=pl?pl.role:'';
-    var arr=games.slice().sort(function(a,b){return parseDate(a.date)-parseDate(b.date);})
-      .map(function(g){var s=g.playerScores&&g.playerScores[pid];if(!s||s.skipped)return null;return calcGameScore(s,role,g,pid);})
-      .filter(function(v){return v!=null&&v>0;});
-    return arr.slice(-k);
+    var vals=games.slice().sort(function(a,b){return parseDate(b.date)-parseDate(a.date);})
+      .map(function(g){var s=g.playerScores&&g.playerScores[pid];if(!s||s.skipped)return null;var v=calcGameScore(s,role,g,pid);return v>0?v:null;})
+      .filter(function(v){return v!=null;}).slice(0,5);
+    var avg=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null;
+    return {avg:avg,vals:vals.reverse()};
   }
 
   // spotlight = best 7d performer
@@ -252,64 +260,119 @@ function renderHomeDesktop(data){
       '</div>'+
     '</section>';
 
-  function recentRowHtml(g,i){
-    var match=(_cache.matches||[]).find(function(m){return m.id===g.matchId;});
-    var opp=g.opponent||(match&&match.name)||'UNTITLED';
-    var dateLabel=_fmtDate?_fmtDate(g.date):g.date;
-    var type=(g.type||'SCRIM').toUpperCase();
-    var mvp='';
-    if(g.playerScores){for(var pid in g.playerScores){var s=g.playerScores[pid];if(s&&s.mvp){var pl=PLAYERS.find(function(p){return p.id===pid;});mvp=pl?pl.nick:pid;break;}}}
-    var notes=g.vodNotes?String(g.vodNotes).slice(0,38):('Game '+(g.gameNum||''));
-    return '<div class="hd-recent-row'+(i===0?' top':'')+'" onclick="openGameDetail&&openGameDetail(\''+g.id+'\')">'+
-      '<span class="hd-rb '+(g.result==='Win'?'W':'L')+'">'+(g.result==='Win'?'W':'L')+'</span>'+
-      '<div><div class="hd-opp">'+String(opp).toUpperCase()+'</div><div class="hd-meta">'+type+' · '+dateLabel+'</div></div>'+
-      '<div class="hd-key">'+notes+'</div>'+
-      '<div class="hd-score">'+(g.score||'—')+'</div>'+
-      '<div class="hd-mvp">'+(mvp?'MVP '+mvp.toUpperCase():'—')+'</div>'+
+  function recentMatchRowHtml(m,i){
+    var mGames=(_cache.games||[]).filter(function(g){return g.matchId===m.id;});
+    var wins=mGames.filter(function(g){return g.result==='Win';}).length;
+    var losses=mGames.length-wins;
+    var result=mGames.length?(wins>losses?'W':losses>wins?'L':'D'):null;
+    var scoreStr=mGames.length?(wins+'–'+losses):'—';
+    var type=(m.type||'Scrim').toUpperCase();
+    var tierStr=m.oppTier?m.oppTier:'';
+    var tierHtml=tierStr?'<span style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;padding:1px 5px;background:var(--grey-3);border-radius:1px;color:var(--grey-6);">'+tierStr+'</span>':'';
+    var dateLabel=_fmtDate?_fmtDate(m.date):m.date;
+    var rbClass=result==='W'?'W':result==='L'?'L':'';
+    var rbHtml=result?'<span class="hd-rb '+rbClass+'">'+result+'</span>':'<span class="hd-rb" style="background:var(--grey-3);color:var(--grey-5);">—</span>';
+    return '<div class="hd-recent-row'+(i===0?' top':'')+'" style="cursor:pointer;" onclick="showMatchDetail&&showMatchDetail(\''+m.id+'\')">'+
+      rbHtml+
+      '<div style="min-width:0;">'+
+        '<div class="hd-opp" style="display:flex;align-items:center;gap:6px;">'+String(m.name||'UNTITLED').toUpperCase()+(tierHtml?' '+tierHtml:'')+'</div>'+
+        '<div class="hd-meta">'+type+' · '+dateLabel+'</div>'+
+      '</div>'+
+      '<div class="hd-key" style="color:var(--grey-5);font-size:10px;">'+mGames.length+(mGames.length===1?' game':' games')+'</div>'+
+      '<div class="hd-score" style="color:'+(result==='W'?'var(--success)':result==='L'?'var(--danger)':'var(--white)')+';">'+scoreStr+'</div>'+
+      '<div class="hd-mvp"></div>'+
     '</div>';
   }
 
-  var recentRows=recent4.length?recent4.map(recentRowHtml).join(''):'<div class="hd-placeholder-inner" style="padding:30px;"><div class="ph-title">NO SESSIONS YET</div><div class="ph-sub">Log a game to populate</div></div>';
+  var recentRows=recentMatches.length?recentMatches.map(recentMatchRowHtml).join(''):'<div class="hd-placeholder-inner" style="padding:30px;"><div class="ph-title">NO MATCHES YET</div><div class="ph-sub">Create a match to get started</div></div>';
   var recentSection=''+
     '<section class="hd-card hd-recent">'+
-      '<div class="hd-recent-head"><div class="hd-label">Recent sessions <span class="sub">· '+(recent4[0]?(_fmtDate?_fmtDate(recent4[0].date):recent4[0].date):'')+'</span></div><div class="hd-link" onclick="showPage(\'page-history\')">VIEW ALL →</div></div>'+
+      '<div class="hd-recent-head"><div class="hd-label">Recent matches <span class="sub">· '+(recentMatches[0]?(_fmtDate?_fmtDate(recentMatches[0].date):recentMatches[0].date):'')+'</span></div><div class="hd-link" onclick="showPage(\'page-history\')">VIEW ALL →</div></div>'+
       '<div class="hd-recent-list">'+recentRows+'</div>'+
     '</section>';
 
-  // Roster pulse rows: Player Name, Position, avg in-game rating, avg coach rating (bold), white form line graph (green for good)
+  // Roster pulse: player name, position, avg IGR (last 5), avg coach score (last 5, bold), bar chart of last 5 coach scores
+  function coachBarChart(vals){
+    if(!vals||!vals.length) return '<span style="color:var(--grey-4);font-family:\'DM Mono\',monospace;font-size:9px;">—</span>';
+    var w=60,h=22,bw=8,gap=3;
+    var total=vals.length,totalW=total*bw+(total-1)*gap;
+    var startX=(w-totalW)/2;
+    var bars=vals.map(function(v,i){
+      var pct=Math.min(Math.max(v/10,0),1);
+      var barH=Math.max(Math.round(pct*(h-2))+1,2);
+      var x=startX+i*(bw+gap);
+      var y=h-barH;
+      var col=v>=6.5?'var(--success)':v<5?'var(--danger)':'var(--white)';
+      var opacity=v>=6.5?1:v<5?0.9:0.75;
+      return '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+barH+'" rx="1" fill="'+col+'" opacity="'+opacity+'"/>';
+    }).join('');
+    return '<svg width="'+w+'" height="'+h+'" style="overflow:visible;display:block;">'+bars+'</svg>';
+  }
+
   var rpRows=activePlayers.map(function(p){
-    var avgGR=avgRating(p.id,'gameRating');
-    var avgCR=avgRating(p.id,'coachRating');
-    var formArr=recentGameRatings(p.id,8);
+    var avgIGR=avgIGRLast5(p.id);
+    var cs=coachScoresLast5(p.id);
     return '<div class="hd-rp-row" onclick="showProfile(\''+p.id+'\')">'+
       pfp(p,30)+
       '<div style="min-width:0;"><div class="hd-rp-name">'+p.nick+'</div><div class="hd-rp-role">'+p.role+'</div></div>'+
-      '<div style="display:flex;align-items:center;justify-content:center;">'+
-        (formArr.length?spark(formArr,{w:60,h:20,color:'#f4f4f0',hi:'#44ff88',threshold:6.5}):'<span style="color:var(--grey-4);font-family:\'DM Mono\',monospace;font-size:9px;">—</span>')+
-      '</div>'+
-      '<div class="hd-rp-rating"><span class="v">'+(avgGR!=null?avgGR.toFixed(1):'—')+'</span><span class="lbl">IGR</span></div>'+
-      '<div class="hd-rp-rating coach"><span class="v">'+(avgCR!=null?avgCR.toFixed(1):'—')+'</span><span class="lbl">COACH</span></div>'+
+      '<div style="display:flex;align-items:center;justify-content:center;">'+coachBarChart(cs.vals)+'</div>'+
+      '<div class="hd-rp-rating"><span class="v">'+(avgIGR!=null?avgIGR.toFixed(1):'—')+'</span><span class="lbl">IGR</span></div>'+
+      '<div class="hd-rp-rating coach"><span class="v">'+(cs.avg!=null?cs.avg.toFixed(1):'—')+'</span><span class="lbl">COACH</span></div>'+
     '</div>';
   }).join('');
 
   var rosterSection=''+
     '<section class="hd-card hd-rp">'+
-      '<div class="hd-rp-head"><div class="hd-label">Roster pulse <span class="sub">· Last 8 games</span></div><div class="hd-link" onclick="showPage(\'page-roster\')">OPEN ROSTER →</div></div>'+
+      '<div class="hd-rp-head"><div class="hd-label">Roster pulse <span class="sub">· Last 5 games</span></div><div class="hd-link" onclick="showPage(\'page-roster\')">OPEN ROSTER →</div></div>'+
       '<div class="hd-rp-list">'+(rpRows||'<div class="hd-placeholder-inner"><div class="ph-sub">No active players</div></div>')+'</div>'+
     '</section>';
 
-  var nextMatchPlaceholder=''+
-    '<section class="hd-card hd-next" style="min-height:108px;">'+
-      '<div class="left">'+
-        '<div class="hd-label">Next match <span class="hd-coming" style="margin-left:6px;">COMING SOON</span></div>'+
-        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:1.5px;margin-top:8px;color:var(--grey-5);">VS — — —</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);letter-spacing:1.5px;margin-top:4px;">Upcoming match scheduling not yet available</div>'+
-      '</div>'+
-      '<div style="text-align:right;">'+
-        '<div class="countdown">—</div>'+
-        '<div class="label">DAYS OUT</div>'+
-      '</div>'+
-    '</section>';
+  // Find nearest upcoming match (date >= today, no past games that fill the BO)
+  var todayIso=(function(){var d=new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);})();
+  var upcomingMatch=null;
+  (_cache.matches||[]).slice().sort(function(a,b){return (a.date||'')>(b.date||'')?1:-1;}).forEach(function(m){
+    if(upcomingMatch) return;
+    if(m.date&&m.date>=todayIso) upcomingMatch=m;
+  });
+  var nextMatchHtml;
+  if(upcomingMatch){
+    var um=upcomingMatch;
+    var umGames=(_cache.games||[]).filter(function(g){return g.matchId===um.id;});
+    var umWins=umGames.filter(function(g){return g.result==='Win';}).length;
+    var umType=(um.type||'Scrim').toUpperCase();
+    var umTierHtml=um.oppTier?'<span style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;padding:1px 6px;background:var(--grey-3);border-radius:1px;color:var(--grey-6);">'+um.oppTier+'</span>':'';
+    var daysOut=Math.max(0,Math.round((parseDate(um.date)-now)/(1000*60*60*24)));
+    var scorePreview=umGames.length?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+umWins+' – '+(umGames.length-umWins)+' so far</div>':'';
+    nextMatchHtml=''+
+      '<section class="hd-card hd-next" style="min-height:108px;cursor:pointer;" onclick="showMatchDetail&&showMatchDetail(\''+um.id+'\')">'+
+        '<div class="left">'+
+          '<div class="hd-label">Next match'+
+            (umTierHtml?' '+umTierHtml:'')+
+            '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1.5px;margin-left:6px;">'+umType+'</span>'+
+          '</div>'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:1.5px;margin-top:6px;">VS '+String(um.name||'—').toUpperCase()+'</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1.5px;margin-top:4px;">'+(_fmtDate?_fmtDate(um.date):um.date)+'</div>'+
+          scorePreview+
+        '</div>'+
+        '<div style="text-align:right;">'+
+          '<div class="countdown" style="color:var(--success);">'+daysOut+'</div>'+
+          '<div class="label">DAYS OUT</div>'+
+        '</div>'+
+      '</section>';
+  } else {
+    nextMatchHtml=''+
+      '<section class="hd-card hd-next" style="min-height:108px;">'+
+        '<div class="left">'+
+          '<div class="hd-label">Next match</div>'+
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:1.5px;margin-top:8px;color:var(--grey-5);">NO UPCOMING MATCHES</div>'+
+          '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);letter-spacing:1.5px;margin-top:4px;">Create a match in History to schedule ahead</div>'+
+        '</div>'+
+        '<div style="text-align:right;">'+
+          '<div class="countdown" style="color:var(--grey-4);">—</div>'+
+          '<div class="label">DAYS OUT</div>'+
+        '</div>'+
+      '</section>';
+  }
 
   var spotlightHtml='';
   if(spotlight){
@@ -350,7 +413,7 @@ function renderHomeDesktop(data){
       '<div class="home-d-col">'+
         wrHero+
         '<div class="hd-mid-row">'+recentSection+rosterSection+'</div>'+
-        nextMatchPlaceholder+
+        nextMatchHtml+
       '</div>'+
       '<div class="home-d-col">'+
         spotlightHtml+
