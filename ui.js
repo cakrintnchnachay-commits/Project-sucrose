@@ -427,7 +427,7 @@ function renderHomeDesktop(data){
 function updateCoachFab(){
   var fab=document.getElementById('home-coach-fab');if(!fab) return;
   var homeActive=document.getElementById('page-home')&&document.getElementById('page-home').classList.contains('active');
-  var isDesktop=window.matchMedia('(min-width:1100px)').matches;
+  var isDesktop=window.matchMedia('(min-width:768px)').matches;
   if(homeActive&&isDesktop) fab.classList.add('show'); else fab.classList.remove('show');
   if(!homeActive||!isDesktop) closeCoachMenu();
   var data=(typeof loadData==='function')?loadData():null;
