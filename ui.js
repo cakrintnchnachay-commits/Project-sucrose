@@ -378,7 +378,7 @@ function renderHomeDesktop(data){
   if(spotlight){
     var pfpUrl=data.pfp&&data.pfp[spotlight.id];
     var st=getPlayerStats(spotlight.id,games);
-    var spotIGR=avgRating(spotlight.id,'gameRating');
+    var spotIGR=avgIGRLast5(spotlight.id);
     var grade=scoreToGrade(st.monthAvg);
     spotlightHtml=''+
       '<section class="hd-card hd-spot" onclick="showProfile(\''+spotlight.id+'\')" style="cursor:pointer;">'+
@@ -427,7 +427,7 @@ function renderHomeDesktop(data){
 function updateCoachFab(){
   var fab=document.getElementById('home-coach-fab');if(!fab) return;
   var homeActive=document.getElementById('page-home')&&document.getElementById('page-home').classList.contains('active');
-  var isDesktop=window.matchMedia('(min-width:1100px)').matches;
+  var isDesktop=window.matchMedia('(min-width:768px)').matches;
   if(homeActive&&isDesktop) fab.classList.add('show'); else fab.classList.remove('show');
   if(!homeActive||!isDesktop) closeCoachMenu();
   var data=(typeof loadData==='function')?loadData():null;
