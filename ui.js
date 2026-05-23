@@ -636,7 +636,7 @@ function renderRoster(){
 
   // ─── CARDS VIEW ──────────────────────────────────────────
   function renderCards(){
-    // Sort starters by games played descending
+    // Count games played per player in their designated position
     var gamesCount={};
     (data.games||[]).forEach(function(g){
       if(!g.playerScores)return;
@@ -645,7 +645,15 @@ function renderRoster(){
         if(s&&!s.skipped)gamesCount[p.id]=(gamesCount[p.id]||0)+1;
       });
     });
-    var sortedStarters=starters.slice().sort(function(a,b){return (gamesCount[b.id]||0)-(gamesCount[a.id]||0);});
+    // Sort starters by games played in their position (desc); role order breaks ties
+    var ROLE_ORDER={Carry:0,Jungler:1,Midlane:2,Offlane:3,Support:4};
+    var sortedStarters=starters.slice().sort(function(a,b){
+      var gDiff=(gamesCount[b.id]||0)-(gamesCount[a.id]||0);
+      if(gDiff!==0)return gDiff;
+      var rA=ROLE_ORDER[a.role]!==undefined?ROLE_ORDER[a.role]:99;
+      var rB=ROLE_ORDER[b.role]!==undefined?ROLE_ORDER[b.role]:99;
+      return rA-rB;
+    });
 
     function starterCard(p,rank){
       var st=getMonthStats(p.id);
