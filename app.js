@@ -3078,12 +3078,28 @@ function benchDeletePreset(){
 // ══════════════════════════════════════════
 
 var _histMode = 'games'; // 'games' | 'matches'
+var _histQuery = '';
 
 function setHistoryMode(mode){
   _histMode = mode;
   document.getElementById('hist-mode-matches').classList.toggle('active', mode==='matches');
   document.getElementById('hist-mode-games').classList.toggle('active', mode==='games');
   renderHistory();
+}
+
+function setHistoryQuery(q){
+  _histQuery = (q||'').trim().toLowerCase();
+  renderHistory();
+}
+
+// Case-insensitive substring match across a list of haystack strings.
+function _histMatches(haystacks){
+  if(!_histQuery) return true;
+  for(var i=0;i<haystacks.length;i++){
+    var h=haystacks[i];
+    if(h && (''+h).toLowerCase().indexOf(_histQuery)!==-1) return true;
+  }
+  return false;
 }
 
 function renderHistory(){
@@ -3121,8 +3137,19 @@ function _renderGameList(el){
   var games = (_cache.games||[]).slice().sort(function(a,b){
     return new Date(b.savedAt||0) - new Date(a.savedAt||0);
   });
+  var hadAny = games.length > 0;
+  if(_histQuery){
+    var playersById = {};
+    (_cache.players||[]).forEach(function(p){ playersById[p.id]=p; });
+    games = games.filter(function(g){
+      var mvp = g.mvpPlayerId ? playersById[g.mvpPlayerId] : null;
+      return _histMatches([g.opponent, g.notes, g.type, g.date, _fmtDate(g.date), mvp && (mvp.nick||mvp.ign)]);
+    });
+  }
   if(!games.length){
-    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">No games logged yet</div></div>';
+    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">'+
+      (hadAny ? 'No games match “'+_histQuery+'”' : 'No games logged yet')+
+    '</div></div>';
     return;
   }
   el.innerHTML = '<div style="padding:10px 0 2px;">' + games.map(function(g){
@@ -3182,8 +3209,16 @@ function _renderMatchList(el){
   var matches = (_cache.matches||[]).slice().sort(function(a,b){
     return new Date(b.createdAt||0) - new Date(a.createdAt||0);
   });
+  var hadAny = matches.length > 0;
+  if(_histQuery){
+    matches = matches.filter(function(m){
+      return _histMatches([m.name, m.type, m.date, _fmtDate(m.date)]);
+    });
+  }
   if(!matches.length){
-    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">No matches yet — create one above</div></div>';
+    el.innerHTML = '<div class="empty" style="padding:40px 20px;"><div class="empty-icon">📋</div><div class="empty-text">'+
+      (hadAny ? 'No matches match “'+_histQuery+'”' : 'No matches yet — create one above')+
+    '</div></div>';
     return;
   }
   el.innerHTML = '<div style="padding:10px 0 2px;">' + matches.map(function(m){
@@ -3409,6 +3444,37 @@ function _renderEditGameModal(game, scoredPlayers){
         '</select>'+
       '</div>'+
     '</div>'+
+    '<div class="row" style="gap:8px;margin-top:8px;">'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">Result</label>'+
+        '<select class="input" id="egm-result">'+
+          '<option value="Win"'+(isWin?' selected':'')+'>Win</option>'+
+          '<option value="Loss"'+(isWin?'':' selected')+'>Loss</option>'+
+        '</select>'+
+      '</div>'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">Duration (MM:SS)</label>'+
+        '<input class="input" id="egm-duration" value="'+(dur||'')+'" placeholder="12:54" style="font-family:\'DM Mono\',monospace;letter-spacing:1px;"/>'+
+      '</div>'+
+    '</div>'+
+    '<div class="row" style="gap:8px;margin-top:8px;">'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">Our Kills</label>'+
+        '<input class="input" type="number" min="0" id="egm-team-kills" value="'+(game.team_total_kills!=null?game.team_total_kills:'')+'" placeholder="—"/>'+
+      '</div>'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">Enemy Kills</label>'+
+        '<input class="input" type="number" min="0" id="egm-enemy-kills" value="'+(game.enemy_total_kills!=null?game.enemy_total_kills:'')+'" placeholder="—"/>'+
+      '</div>'+
+    '</div>'+
+    '<div class="input-group mb-0" style="margin-top:8px;">'+
+      '<label class="input-label">VOD URL</label>'+
+      '<input class="input" id="egm-vod" value="'+((game.vod_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://…"/>'+
+    '</div>'+
+    '<div class="input-group mb-0" style="margin-top:8px;">'+
+      '<label class="input-label">Game Notes</label>'+
+      '<textarea class="input" id="egm-notes" rows="2" placeholder="Match notes…">'+(game.notes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</textarea>'+
+    '</div>'+
   '</div>';
 
   // Player tabs
@@ -3565,9 +3631,29 @@ async function saveEditGame(gameId){
     var game = (_cache.games||[]).find(function(g){return g.id===gameId;});
     if(!game) throw new Error('Game not found');
     var players = window._editGamePlayers||[];
-    var durMin = game.duration_seconds ? game.duration_seconds/60 : 0;
-    var teamK  = game.team_total_kills || 0;
     var enemyPicks = game.enemyPicks || [];
+
+    // Read game-level edits up-front so the player loop's derived metrics
+    // (kda/gpm/min-per-death/kill-contrib) reflect the new duration & team kills.
+    var durEl     = document.getElementById('egm-duration');
+    var teamKEl   = document.getElementById('egm-team-kills');
+    var enemyKEl  = document.getElementById('egm-enemy-kills');
+    function _parseDurSec(v){
+      if(!v) return null;
+      var p = (''+v).trim().split(':');
+      if(p.length!==2) return null;
+      var mm=parseInt(p[0],10), ss=parseInt(p[1],10);
+      if(isNaN(mm)||isNaN(ss)) return null;
+      return mm*60+ss;
+    }
+    var newDurSec = durEl ? _parseDurSec(durEl.value) : game.duration_seconds;
+    if(newDurSec==null) newDurSec = game.duration_seconds || null;
+    var newTeamK  = (teamKEl && teamKEl.value!=='') ? parseInt(teamKEl.value,10) : (game.team_total_kills||null);
+    if(isNaN(newTeamK)) newTeamK = null;
+    var newEnemyK = (enemyKEl && enemyKEl.value!=='') ? parseInt(enemyKEl.value,10) : (game.enemy_total_kills||null);
+    if(isNaN(newEnemyK)) newEnemyK = null;
+    var durMin = newDurSec ? newDurSec/60 : 0;
+    var teamK  = newTeamK  || 0;
 
     var updateRows = [];
     players.forEach(function(p, i){
@@ -3631,28 +3717,48 @@ async function saveEditGame(gameId){
     var {error: uErr} = await sb.from('player_scores_v2').insert(updateRows);
     if(uErr) throw uErr;
 
-    // Persist editable game-level info (date / game number / opponent)
-    var gnEl = document.getElementById('egm-gamenum');
-    var gdEl = document.getElementById('egm-date');
-    var goEl = document.getElementById('egm-opponent');
-    var gtEl = document.getElementById('egm-gametype');
-    var mvpEl = document.getElementById('egm-mvp');
+    // Persist editable game-level info (all fields shown in the modal header)
+    var gnEl     = document.getElementById('egm-gamenum');
+    var gdEl     = document.getElementById('egm-date');
+    var goEl     = document.getElementById('egm-opponent');
+    var gtEl     = document.getElementById('egm-gametype');
+    var mvpEl    = document.getElementById('egm-mvp');
+    var resEl    = document.getElementById('egm-result');
+    var vodEl    = document.getElementById('egm-vod');
+    var notesEl  = document.getElementById('egm-notes');
     var newGameNum = (gnEl && gnEl.value !== '') ? parseInt(gnEl.value, 10) : null;
     var newDate    = gdEl ? gdEl.value : '';
     var newOpp     = goEl ? goEl.value.trim() : '';
-    var gameUpdate = { opponent_name: newOpp || null, game_name: newOpp || null };
+    var newVod     = vodEl   ? vodEl.value.trim()   : '';
+    var newNotes   = notesEl ? notesEl.value        : '';
+    var gameUpdate = {
+      opponent_name:     newOpp || null,
+      game_name:         newOpp || null,
+      duration_seconds:  newDurSec,
+      team_total_kills:  newTeamK,
+      enemy_total_kills: newEnemyK,
+      vod_url:           newVod || null,
+      notes:             newNotes.trim() || null,
+    };
     if(newDate) gameUpdate.match_date = newDate;
     if(newGameNum != null && !isNaN(newGameNum)) gameUpdate.game_num = newGameNum;
     if(gtEl && gtEl.value) gameUpdate.game_type = gtEl.value.toLowerCase();
     if(mvpEl) gameUpdate.mvp_player_id = mvpEl.value || null;
+    if(resEl && resEl.value) gameUpdate.result = (resEl.value === 'Win') ? 'win' : 'loss';
     var {error: gErr} = await sb.from('games_v2').update(gameUpdate).eq('id', gameId);
     if(gErr) throw gErr;
     game.opponent = gameUpdate.opponent_name || '';
     game.gameName = gameUpdate.game_name || '';
+    game.duration_seconds  = gameUpdate.duration_seconds;
+    game.team_total_kills  = gameUpdate.team_total_kills;
+    game.enemy_total_kills = gameUpdate.enemy_total_kills;
+    game.vod_url = gameUpdate.vod_url;
+    game.notes   = gameUpdate.notes || '';
     if(gameUpdate.match_date) game.date = gameUpdate.match_date;
     if('game_num' in gameUpdate) game.gameNum = gameUpdate.game_num;
     if(gtEl && gtEl.value) game.type = gtEl.value;
     if('mvp_player_id' in gameUpdate) game.mvpPlayerId = gameUpdate.mvp_player_id;
+    if('result' in gameUpdate) game.result = (gameUpdate.result === 'win') ? 'Win' : 'Loss';
 
     // Update local cache
     players.forEach(function(p, i){

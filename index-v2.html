@@ -307,6 +307,7 @@
         <button class="tier-mode-btn" id="hist-mode-matches" onclick="setHistoryMode('matches')">Matches</button>
         <button class="tier-mode-btn active" id="hist-mode-games" onclick="setHistoryMode('games')">All Games</button>
       </div>
+      <input class="input" id="hist-search" placeholder="Search by name, date, opponent…" oninput="setHistoryQuery(this.value)" style="margin-top:10px;"/>
     </div>
     <div id="history-list"></div>
     <div style="padding:16px 20px;border-top:var(--border);">
