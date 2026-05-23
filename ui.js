@@ -378,7 +378,7 @@ function renderHomeDesktop(data){
   if(spotlight){
     var pfpUrl=data.pfp&&data.pfp[spotlight.id];
     var st=getPlayerStats(spotlight.id,games);
-    var spotIGR=avgRating(spotlight.id,'gameRating');
+    var spotIGR=avgIGRLast5(spotlight.id);
     var grade=scoreToGrade(st.monthAvg);
     spotlightHtml=''+
       '<section class="hd-card hd-spot" onclick="showProfile(\''+spotlight.id+'\')" style="cursor:pointer;">'+
