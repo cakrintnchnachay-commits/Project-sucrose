@@ -734,10 +734,8 @@ function setRosterMode(m){_rosterMode=m;renderRoster();}
 
 function renderRoster(){
   PLAYERS=getPlayers();var data=loadData();
-  var sub=document.getElementById('roster-subtitle');
   var activeCount=PLAYERS.filter(function(p){return p.status!=='Inactive';}).length;
   var inactiveCount=PLAYERS.filter(function(p){return p.status==='Inactive';}).length;
-  if(sub)sub.textContent=activeCount+' active · '+inactiveCount+' inactive';
 
   var starters=PLAYERS.filter(function(p){return p.status==='Starter';});
   var subs=PLAYERS.filter(function(p){return p.status==='Substitute';});
@@ -745,16 +743,36 @@ function renderRoster(){
 
   var mode=_rosterMode||'cards';
 
-  // ── Mode toggle bar ──
-  var modeBar='<div class="roster-mode-bar">'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:3px;color:var(--grey-5);">VIEW MODE</div>'+
-    '<div class="roster-mode-btns">'+
-      '<button class="roster-mode-btn'+(mode==='cards'?' active':'')+'" onclick="setRosterMode(\'cards\')">Cards</button>'+
-      '<button class="roster-mode-btn'+(mode==='list'?' active':'')+'" onclick="setRosterMode(\'list\')">List</button>'+
-      '<button class="roster-mode-btn'+(mode==='compare'?' active':'')+'" onclick="setRosterMode(\'compare\')">Compare</button>'+
-    '</div>'+
-    '<button class="btn btn-sm btn-muted" style="font-size:9px;padding:7px 12px;" onclick="openPlayerEdit(null)">+ Add Player</button>'+
-  '</div>';
+  // ── Build header with title + mode buttons on same line ──
+  var hdrEl=document.getElementById('roster-page-header');
+  if(hdrEl){
+    hdrEl.innerHTML=
+      '<div class="roster-hdr-inner">'+
+        '<div class="roster-hdr-left">'+
+          '<div class="roster-hdr-title">ROSTER</div>'+
+          '<div class="roster-mode-btns">'+
+            '<button class="roster-mode-btn'+(mode==='cards'?' active':'')+'" onclick="setRosterMode(\'cards\')">Cards</button>'+
+            '<button class="roster-mode-btn'+(mode==='list'?' active':'')+'" onclick="setRosterMode(\'list\')">List</button>'+
+            '<button class="roster-mode-btn'+(mode==='compare'?' active':'')+'" onclick="setRosterMode(\'compare\')">Compare</button>'+
+          '</div>'+
+        '</div>'+
+        '<button class="btn btn-sm btn-muted" style="font-size:9px;padding:7px 12px;flex-shrink:0;" onclick="openPlayerEdit(null)">+ Add Player</button>'+
+      '</div>'+
+      '<div class="roster-hdr-sub" id="roster-subtitle">'+activeCount+' active · '+inactiveCount+' inactive</div>';
+  }
+
+  // ── Set compare/normal overflow mode on page and list ──
+  var pageEl=document.getElementById('page-roster');
+  var listEl=document.getElementById('roster-list');
+  if(mode==='compare'){
+    if(pageEl)pageEl.classList.add('cmp-active');
+    if(listEl)listEl.classList.add('cmp-active');
+  }else{
+    if(pageEl)pageEl.classList.remove('cmp-active');
+    if(listEl){listEl.classList.remove('cmp-active');listEl.style.cssText='';}
+  }
+
+  var modeBar='';
 
   // ── Shared helpers ──
   function getMonthStats(pid){
@@ -992,15 +1010,17 @@ function renderRoster(){
   // ─── COMPARE VIEW ────────────────────────────────────────
   function renderCompareView(){
     var opts=PLAYERS.map(function(p){return '<option value="'+p.id+'">'+p.nick+' ('+p.role+')</option>';}).join('');
-    return '<div>'+
-      '<div class="rst-cmp-selectors">'+
-        '<div class="input-group mb-0"><label class="input-label">Player A</label>'+
-          '<select class="input" id="rst-cmp-a" onchange="window._rosterCmpA=this.value;renderRosterCompare()">'+opts+'</select></div>'+
-        '<div class="input-group mb-0"><label class="input-label">Player B</label>'+
-          '<select class="input" id="rst-cmp-b" onchange="window._rosterCmpB=this.value;renderRosterCompare()">'+opts+'</select></div>'+
+    return '<div class="cmp-selectors-bar">'+
+        '<div class="input-group mb-0"><label class="input-label" style="font-size:7px;">LEFT PLAYER</label>'+
+          '<select class="input" id="rst-cmp-a" style="font-size:11px;padding:6px 8px;" onchange="window._rosterCmpA=this.value;renderRosterCompare()">'+opts+'</select></div>'+
+        '<div class="input-group mb-0"><label class="input-label" style="font-size:7px;">RIGHT PLAYER</label>'+
+          '<select class="input" id="rst-cmp-b" style="font-size:11px;padding:6px 8px;" onchange="window._rosterCmpB=this.value;renderRosterCompare()">'+opts+'</select></div>'+
       '</div>'+
-      '<div id="rst-cmp-content"></div>'+
-    '</div>';
+      '<div class="cmp-body">'+
+        '<div class="cmp-side-panel" id="cmp-panel-a" style="border-right:var(--border);"></div>'+
+        '<div class="cmp-center-panel" id="cmp-center"></div>'+
+        '<div class="cmp-side-panel" id="cmp-panel-b"></div>'+
+      '</div>';
   }
 
   var content;
@@ -1008,7 +1028,7 @@ function renderRoster(){
   else if(mode==='compare') content=renderCompareView();
   else content=renderCards();
 
-  document.getElementById('roster-list').innerHTML=modeBar+content;
+  document.getElementById('roster-list').innerHTML=content;
 
   if(mode==='compare'){
     var aEl=document.getElementById('rst-cmp-a');
@@ -1023,94 +1043,330 @@ function renderRoster(){
   }
 }
 
+// ── Current compare stat mode (overall / statistics) ──
+var _cmpStatMode = 'overall';
+function setCmpStatMode(m){
+  _cmpStatMode=m;
+  var btnO=document.getElementById('cmp-mode-btn-overall');
+  var btnS=document.getElementById('cmp-mode-btn-stats');
+  if(btnO){btnO.classList.toggle('active',m==='overall');}
+  if(btnS){btnS.classList.toggle('active',m==='statistics');}
+  _renderCmpCenter();
+}
+
+// ── Shared compare data (set in renderRosterCompare, read in _renderCmpCenter) ──
+var _cmpCtx={};
+
 function renderRosterCompare(){
-  var cc=document.getElementById('rst-cmp-content');
-  if(!cc)return;
+  var panA=document.getElementById('cmp-panel-a');
+  var panB=document.getElementById('cmp-panel-b');
+  var center=document.getElementById('cmp-center');
+  if(!panA||!panB||!center)return;
+
   PLAYERS=getPlayers();var data=loadData();
   var aId=window._rosterCmpA,bId=window._rosterCmpB;
-  if(!aId||!bId){cc.innerHTML='<div class="empty"><div class="empty-icon">⚖️</div><div class="empty-text">Select two players</div></div>';return;}
+  var empty='<div class="empty" style="padding:30px 10px;"><div class="empty-icon" style="font-size:24px;">⚖️</div><div class="empty-text" style="font-size:10px;">Select players</div></div>';
+  if(!aId||!bId){panA.innerHTML=empty;panB.innerHTML=empty;center.innerHTML='';return;}
   var pA=PLAYERS.find(function(p){return p.id===aId;}),pB=PLAYERS.find(function(p){return p.id===bId;});
-  if(!pA||!pB){cc.innerHTML='<div class="empty"><div class="empty-icon">⚖️</div><div class="empty-text">Select two players</div></div>';return;}
-  var COL_A='rgba(100,180,255,1)',COL_B='rgba(80,220,140,1)';
-  var roleA=(pA.role||'').toLowerCase(),roleB=(pB.role||'').toLowerCase();
-  var pillarsA=PILLAR_MAP[roleA]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
-  var pillarsB=PILLAR_MAP[roleB]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  if(!pA||!pB){panA.innerHTML=empty;panB.innerHTML=empty;center.innerHTML='';return;}
+
+  var COL_A='rgba(68,255,136,1)'; // green for left
+  var COL_B='rgba(100,180,255,1)'; // blue for right
+
   function pGames(pid){return (data.games||[]).filter(function(g){var s=g.playerScores&&g.playerScores[pid];return s&&!s.skipped;});}
   var gamesA=pGames(aId),gamesB=pGames(bId);
-  function avgPillar(pid,gs,idx){
-    var vals=gs.map(function(g){var ps=g.playerScores[pid].pillar_scores;return ps?ps['p'+idx]:null;}).filter(function(v){return v!=null&&v>0;});
-    return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;
-  }
-  var stA=getPlayerStats(aId,data.games),stB=getPlayerStats(bId,data.games);
-  function avHtml(p,pfp,bc){
-    if(pfp)return '<div style="width:40px;height:40px;border-radius:50%;overflow:hidden;border:1.5px solid '+bc+';flex-shrink:0;"><img src="'+pfp+'" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'"/></div>';
-    return '<div style="width:40px;height:40px;border-radius:50%;background:var(--grey-3);display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:17px;color:var(--grey-6);border:1.5px solid '+bc+';">'+p.nick[0]+'</div>';
-  }
-  var pfpA=data.pfp&&data.pfp[aId],pfpB=data.pfp&&data.pfp[bId];
-  var header='<div style="display:flex;gap:20px;align-items:center;justify-content:center;padding:16px 20px;border-bottom:var(--border);">'+
-    '<div style="display:flex;align-items:center;gap:10px;">'+avHtml(pA,pfpA,COL_A)+
-      '<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;color:'+COL_A+';">'+pA.nick+'</div>'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+(pA.role||'')+'</div></div></div>'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);letter-spacing:2px;">VS</div>'+
-    '<div style="display:flex;align-items:center;gap:10px;">'+avHtml(pB,pfpB,COL_B)+
-      '<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;color:'+COL_B+';">'+pB.nick+'</div>'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+(pB.role||'')+'</div></div></div>'+
-  '</div>';
-  function gradeTxt(v){var g=v>0?scoreToGrade(v):null;return g?g.grade:'';}
-  function barRow(lbl,val,col){
-    var pct=val>0?Math.max(val/10*100,3):0;
-    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
-      '<div style="width:96px;flex-shrink:0;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0.5px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+lbl+'</div>'+
-      '<div class="cmp-bar-track"><div class="cmp-bar-fill" style="width:'+pct+'%;background:'+col+';"></div></div>'+
-      '<div style="width:58px;flex-shrink:0;font-family:\'DM Mono\',monospace;font-size:10px;text-align:right;">'+(val>0?val.toFixed(1):'--')+' <span style="color:var(--grey-5);font-size:8px;">'+gradeTxt(val)+'</span></div>'+
-    '</div>';
-  }
-  function aspectBlock(title,la,va,lb,vb){
-    return '<div class="cmp-aspect">'+
-      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:6px;text-transform:uppercase;">'+title+'</div>'+
-      barRow(la,va,COL_A)+barRow(lb,vb,COL_B)+'</div>';
-  }
-  var graded='<div class="section-label" style="padding:16px 20px 8px;">Graded Performance <span style="color:var(--grey-4);">· avg of logged games</span></div>';
-  graded+=aspectBlock('30-Day Overall',pA.nick,stA.monthAvg,pB.nick,stB.monthAvg);
-  [0,1,2,3].forEach(function(i){
-    graded+=aspectBlock('Aspect '+(i+1),pillarsA[i]||('Pillar '+(i+1)),avgPillar(aId,gamesA,i),pillarsB[i]||('Pillar '+(i+1)),avgPillar(bId,gamesB,i));
+
+  // ── Store shared context for center re-render ──
+  _cmpCtx={pA:pA,pB:pB,aId:aId,bId:bId,gamesA:gamesA,gamesB:gamesB,COL_A:COL_A,COL_B:COL_B,data:data};
+
+  // ── Build player profile panels ──
+  panA.innerHTML=_buildCmpProfile(pA,aId,gamesA,COL_A,data,'left');
+  panB.innerHTML=_buildCmpProfile(pB,bId,gamesB,COL_B,data,'right');
+
+  // ── Build center panel ──
+  center.innerHTML=
+    '<div class="cmp-mode-toggle">'+
+      '<button class="cmp-mode-btn'+(_cmpStatMode==='overall'?' active':'')+'" id="cmp-mode-btn-overall" onclick="setCmpStatMode(\'overall\')">Overall</button>'+
+      '<button class="cmp-mode-btn'+(_cmpStatMode==='statistics'?' active':'')+'" id="cmp-mode-btn-stats" onclick="setCmpStatMode(\'statistics\')">Statistics</button>'+
+    '</div>'+
+    '<div id="cmp-stat-content"></div>';
+
+  _renderCmpCenter();
+}
+
+function _buildCmpProfile(p,pid,games,col,data,side){
+  var pfp=data.pfp&&data.pfp[pid];
+  var avatarHtml=pfp?
+    '<img src="'+pfp+'" alt="" onerror="this.style.display=\'none\'" style="width:100%;height:100%;object-fit:cover;"/>':
+    '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;color:var(--grey-6);">'+p.nick[0]+'</span>';
+
+  // Top 5 heroes
+  var hMap={};
+  games.forEach(function(g){var s=g.playerScores[pid];if(s&&s.hero)hMap[s.hero]=(hMap[s.hero]||0)+1;});
+  var top5=Object.keys(hMap).sort(function(a,b){return hMap[b]-hMap[a];}).slice(0,5);
+  var heroesHtml=top5.map(function(h){
+    var url=heroImgUrl(h);
+    return '<div class="cmp-profile-hero-th">'+(url?'<img src="'+url+'" alt="" onerror="this.style.display=\'none\'"/>':'')+'</div>';
+  }).join('');
+
+  // Last 5 game stats
+  var last5=games.slice().sort(function(a,b){return gameDateTime(b)-gameDateTime(a);}).slice(0,5);
+  var k=0,d=0,a=0,gpmS=0,gpmN=0,igrS=0,igrN=0,kpS=0,kpN=0,coachS=0,coachN=0;
+  last5.forEach(function(g){
+    var s=g.playerScores[pid];
+    k+=+(s.kills||0);d+=+(s.deaths||0);a+=+(s.assists||0);
+    if(s.gold_per_min!=null){gpmS+=+s.gold_per_min;gpmN++;}
+    if(s.in_game_rating!=null){igrS+=+s.in_game_rating;igrN++;}
+    var tk=g.team_total_kills;
+    if(tk&&tk>0){kpS+=((+(s.kills||0)+(+(s.assists||0)))/tk*100);kpN++;}
+    var cv=calcGameScore(s,p.role,g,pid);if(cv>0){coachS+=cv;coachN++;}
   });
-  function rawAgg(pid,gs){
-    var r={g:gs.length,k:0,d:0,a:0,gpmS:0,gpmN:0,rS:0,rN:0,ddS:0,ddN:0,dtS:0,dtN:0};
-    gs.forEach(function(g){var s=g.playerScores[pid];
-      r.k+=s.kills||0;r.d+=s.deaths||0;r.a+=s.assists||0;
-      if(s.gold_per_min!=null){r.gpmS+=s.gold_per_min;r.gpmN++;}
-      if(s.in_game_rating!=null){r.rS+=s.in_game_rating;r.rN++;}
-      if(s.dmg_dealt_pct!=null){r.ddS+=s.dmg_dealt_pct;r.ddN++;}
-      if(s.dmg_taken_pct!=null){r.dtS+=s.dmg_taken_pct;r.dtN++;}
+  var kda=last5.length?((k+a)/Math.max(d,1)):null;
+  var gpm=gpmN?gpmS/gpmN:null;
+  var igr=igrN?igrS/igrN:null;
+  var kp=kpN?kpS/kpN:null;
+  var coach=coachN?coachS/coachN:null;
+
+  // Form bar (last 5 coach scores in chronological order)
+  var chartVals=last5.slice().reverse().map(function(g){var s=g.playerScores[pid];var v=calcGameScore(s,p.role,g,pid);return v>0?v:null;}).filter(function(v){return v!=null;});
+  function formBar(vals){
+    if(!vals||!vals.length)return '';
+    var w=70,h=22,bw=8,gap=3,total=vals.length,totalW=total*bw+(total-1)*gap,startX=(w-totalW)/2;
+    var bars=vals.map(function(v,i){
+      var pct=Math.min(Math.max(v/10,0),1);
+      var barH=Math.max(Math.round(pct*(h-2))+1,2);
+      var x=startX+i*(bw+gap),y=h-barH;
+      var c=v>=6.5?'var(--success)':v<5?'var(--danger)':'var(--white)';
+      return '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+barH+'" rx="1" fill="'+c+'" opacity="'+(v>=6.5?1:v<5?0.9:0.75)+'"/>';
+    }).join('');
+    return '<svg width="'+w+'" height="'+h+'" style="overflow:visible;display:block;">'+bars+'</svg>';
+  }
+
+  var roleCol=({Support:'#bbb',Midlane:'var(--warn)',Carry:'var(--danger)',Offlane:'var(--success)',Jungler:'var(--auto)'})[p.role]||'var(--grey-6)';
+
+  return '<div class="cmp-profile">'+
+    '<div class="cmp-profile-avatar" style="border-color:'+col+';">'+avatarHtml+'</div>'+
+    '<div class="cmp-profile-name" style="color:'+col+';">'+p.nick.toUpperCase()+'</div>'+
+    '<div class="cmp-profile-ign">'+p.ign+'</div>'+
+    '<div class="cmp-profile-role"><span class="tag tag-role" style="font-size:7px;color:'+roleCol+';">'+p.role+'</span></div>'+
+    '<hr class="cmp-profile-divider"/>'+
+    '<div class="cmp-profile-section-lbl">Top Heroes</div>'+
+    '<div class="cmp-profile-heroes">'+(heroesHtml||'<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">—</span>')+'</div>'+
+    '<hr class="cmp-profile-divider"/>'+
+    '<div class="cmp-profile-scores">'+
+      '<div class="cmp-profile-score-cell">'+
+        '<div class="cmp-profile-score-val" style="color:'+col+';">'+(igr!=null?igr.toFixed(1):'—')+'</div>'+
+        '<div class="cmp-profile-score-lbl">IGR L5</div>'+
+      '</div>'+
+      '<div class="cmp-profile-score-cell">'+
+        '<div class="cmp-profile-score-val" style="color:'+col+';">'+(coach!=null?coach.toFixed(1):'—')+'</div>'+
+        '<div class="cmp-profile-score-lbl">Coach L5</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="cmp-profile-stats" style="border-top:var(--border);">'+
+      '<div class="cmp-profile-stat"><div class="cmp-profile-stat-val">'+(kda!=null?kda.toFixed(2):'—')+'</div><div class="cmp-profile-stat-lbl">KDA</div></div>'+
+      '<div class="cmp-profile-stat"><div class="cmp-profile-stat-val">'+(gpm!=null?Math.round(gpm):'—')+'</div><div class="cmp-profile-stat-lbl">GPM</div></div>'+
+      '<div class="cmp-profile-stat"><div class="cmp-profile-stat-val">'+(kp!=null?Math.round(kp)+'%':'—')+'</div><div class="cmp-profile-stat-lbl">KP%</div></div>'+
+    '</div>'+
+    '<div class="cmp-profile-form">'+(chartVals.length?formBar(chartVals):'<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">No form data</span>')+'</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1px;text-align:center;padding-bottom:8px;">FORM · LAST 5</div>'+
+  '</div>';
+}
+
+function _renderCmpCenter(){
+  var box=document.getElementById('cmp-stat-content');if(!box)return;
+  var ctx=_cmpCtx;if(!ctx||!ctx.pA)return;
+  if(_cmpStatMode==='statistics'){
+    box.innerHTML=_buildCmpStatistics(ctx);
+  }else{
+    box.innerHTML=_buildCmpOverall(ctx);
+    setTimeout(function(){_drawCmpRadar(ctx);},60);
+  }
+}
+
+function _buildCmpOverall(ctx){
+  var pA=ctx.pA,pB=ctx.pB,aId=ctx.aId,bId=ctx.bId,gamesA=ctx.gamesA,gamesB=ctx.gamesB,COL_A=ctx.COL_A,COL_B=ctx.COL_B;
+  var roleA=(pA.role||'').toLowerCase();
+  var pl=PILLAR_MAP[roleA]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  var axisLabels=pl.concat(['Mentality','Hero Pool']);
+
+  // Pre-compute radar values for each player
+  var radarA=_profileRadarAxes(aId,roleA);
+  var valuesA=radarA.values;
+  var labelsUsed=radarA.labels;
+
+  // Player B axes (may differ by role but we plot on A's axes)
+  var roleB=(pB.role||'').toLowerCase();
+  var radarB=_profileRadarAxes(bId,roleB);
+  var valuesB=radarB.values;
+
+  // Build pillar breakdown rows
+  var bdRows=labelsUsed.map(function(lbl,i){
+    var vA=valuesA[i]||0,vB=valuesB[i]||0;
+    var maxV=Math.max(vA,vB,0.1);
+    var pctA=Math.min(vA/10*100,100).toFixed(1);
+    var pctB=Math.min(vB/10*100,100).toFixed(1);
+    return '<div class="cmp-pillar-bd-row">'+
+      '<div class="cmp-pillar-bd-label">'+lbl+'</div>'+
+      '<div class="cmp-pillar-bd-bars">'+
+        '<div class="cmp-pillar-bd-bar-row">'+
+          '<div class="cmp-pillar-bd-bar-fill" style="width:'+pctA+'%;background:'+COL_A+';opacity:0.8;"></div>'+
+        '</div>'+
+        '<div class="cmp-pillar-bd-bar-row">'+
+          '<div class="cmp-pillar-bd-bar-fill" style="width:'+pctB+'%;background:'+COL_B+';opacity:0.8;"></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="cmp-pillar-bd-vals">'+
+        '<div class="cmp-pillar-bd-val" style="color:'+COL_A+';">'+(vA>0?vA.toFixed(1):'—')+'</div>'+
+        '<div class="cmp-pillar-bd-val" style="color:'+COL_B+';">'+(vB>0?vB.toFixed(1):'—')+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  return '<div class="cmp-radar-wrap"><canvas id="cmp-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;"></canvas></div>'+
+    '<div class="cmp-radar-legend">'+
+      '<div class="cmp-radar-legend-item"><div class="cmp-radar-legend-dot" style="background:'+COL_A+';"></div>'+pA.nick+'</div>'+
+      '<div class="cmp-radar-legend-item"><div class="cmp-radar-legend-dot" style="background:'+COL_B+';"></div>'+pB.nick+'</div>'+
+    '</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-5);text-transform:uppercase;padding:8px 14px 4px;border-top:var(--border);">Pillar Breakdown</div>'+
+    '<div class="cmp-pillar-bd">'+bdRows+'</div>'+
+    '<div style="height:16px;"></div>';
+}
+
+function _drawCmpRadar(ctx){
+  var canvas=document.getElementById('cmp-radar-canvas');if(!canvas)return;
+  var pA=ctx.pA,pB=ctx.pB,aId=ctx.aId,bId=ctx.bId,COL_A=ctx.COL_A,COL_B=ctx.COL_B;
+  var roleA=(pA.role||'').toLowerCase(),roleB=(pB.role||'').toLowerCase();
+  var radarA=_profileRadarAxes(aId,roleA);
+  var radarB=_profileRadarAxes(bId,roleB);
+  var labels=radarA.labels;
+  var valsA=radarA.values,valsB=radarB.values;
+  var n=labels.length;
+
+  var dpr=window.devicePixelRatio||1;
+  var dW=canvas.offsetWidth||canvas.width;var dH=canvas.offsetHeight||canvas.height;
+  canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.width=dW+'px';canvas.style.height=dH+'px';
+  var ctx2=canvas.getContext('2d');ctx2.scale(dpr,dpr);
+  var W=dW,H=dH,cx=W/2,cy=H/2,R=Math.min(W,H)/2-42;
+  ctx2.clearRect(0,0,W,H);
+
+  function ang(i){return(Math.PI*2*i/n)-Math.PI/2;}
+  function pt(i,r){return{x:cx+r*Math.cos(ang(i)),y:cy+r*Math.sin(ang(i))};}
+
+  // Grid rings
+  [0.2,0.4,0.6,0.8,1].forEach(function(f){
+    ctx2.beginPath();
+    for(var i=0;i<n;i++){var p=pt(i,R*f);i===0?ctx2.moveTo(p.x,p.y):ctx2.lineTo(p.x,p.y);}
+    ctx2.closePath();ctx2.strokeStyle=f===1?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.05)';ctx2.lineWidth=1;ctx2.stroke();
+  });
+  for(var i=0;i<n;i++){var p=pt(i,R);ctx2.beginPath();ctx2.moveTo(cx,cy);ctx2.lineTo(p.x,p.y);ctx2.strokeStyle='rgba(255,255,255,0.1)';ctx2.lineWidth=1;ctx2.stroke();}
+
+  function drawPoly(vals,fillCol,strokeCol){
+    var hasData=vals.some(function(v){return v>0;});
+    ctx2.beginPath();
+    vals.forEach(function(v,i){var frac=hasData?Math.min(v/10,1):0.1;var p=pt(i,R*frac);i===0?ctx2.moveTo(p.x,p.y):ctx2.lineTo(p.x,p.y);});
+    ctx2.closePath();ctx2.fillStyle=fillCol;ctx2.fill();ctx2.strokeStyle=strokeCol;ctx2.lineWidth=2;ctx2.stroke();
+    if(hasData)vals.forEach(function(v,i){if(v<=0)return;var p=pt(i,R*Math.min(v/10,1));ctx2.beginPath();ctx2.arc(p.x,p.y,3,0,Math.PI*2);ctx2.fillStyle=strokeCol;ctx2.fill();});
+  }
+
+  drawPoly(valsB,COL_B.replace('1)','0.10)'),COL_B.replace('1)','0.85)'));
+  drawPoly(valsA,COL_A.replace('1)','0.10)'),COL_A.replace('1)','0.85)'));
+
+  // Labels
+  labels.forEach(function(lbl,i){
+    var lR=R+26;var p=pt(i,lR);
+    var short=lbl.replace('Survival & Positioning','Survival').replace('Protection & Peel','Protection').replace('Resource Efficiency','Resources').replace('Role Fulfillment','Role Ful.').replace('Lane Resilience','Lane Res.');
+    ctx2.textAlign='center';ctx2.textBaseline='middle';
+    ctx2.font='500 9px DM Sans,sans-serif';ctx2.fillStyle='rgba(255,255,255,0.5)';
+    ctx2.fillText(short,p.x,p.y);
+  });
+}
+
+function _buildCmpStatistics(ctx){
+  var pA=ctx.pA,pB=ctx.pB,aId=ctx.aId,bId=ctx.bId,gamesA=ctx.gamesA,gamesB=ctx.gamesB,COL_A=ctx.COL_A,COL_B=ctx.COL_B;
+
+  function agg(pid,gs){
+    var r={g:gs.length,wins:0,k:0,d:0,a:0,gpmS:0,gpmN:0,igrS:0,igrN:0,coachS:0,coachN:0,
+           ddS:0,ddN:0,dtS:0,dtN:0,kpS:0,kpN:0,
+           ddpmS:0,ddpmN:0,dtpmS:0,dtpmN:0,kpmS:0,kpmN:0};
+    var player=PLAYERS.find(function(p){return p.id===pid;});
+    gs.forEach(function(g){
+      var s=g.playerScores[pid];
+      if(g.result==='Win')r.wins++;
+      r.k+=+(s.kills||0);r.d+=+(s.deaths||0);r.a+=+(s.assists||0);
+      if(s.gold_per_min!=null){r.gpmS+=+s.gold_per_min;r.gpmN++;}
+      if(s.in_game_rating!=null){r.igrS+=+s.in_game_rating;r.igrN++;}
+      var cv=calcGameScore(s,player?player.role:'',g,pid);if(cv>0){r.coachS+=cv;r.coachN++;}
+      if(s.dmg_dealt_pct!=null){r.ddS+=+s.dmg_dealt_pct;r.ddN++;}
+      if(s.dmg_taken_pct!=null){r.dtS+=+s.dmg_taken_pct;r.dtN++;}
+      var tk=g.team_total_kills;
+      if(tk&&tk>0){r.kpS+=((+(s.kills||0)++(s.assists||0))/tk*100);r.kpN++;}
+      var durMin=g.duration_seconds?g.duration_seconds/60:null;
+      if(durMin&&durMin>0){
+        if(s.dmg_dealt_raw!=null){r.ddpmS+=+s.dmg_dealt_raw/durMin;r.ddpmN++;}
+        if(s.dmg_taken_raw!=null){r.dtpmS+=+s.dmg_taken_raw/durMin;r.dtpmN++;}
+        r.kpmS+=+(s.kills||0)/durMin;r.kpmN++;
+      }
     });
-    r.kda=r.g?((r.k+r.a)/Math.max(r.d,1)):null;r.gpm=r.gpmN?r.gpmS/r.gpmN:null;
-    r.rating=r.rN?r.rS/r.rN:null;r.dd=r.ddN?r.ddS/r.ddN:null;r.dt=r.dtN?r.dtS/r.dtN:null;
+    r.winRate=r.g?r.wins/r.g*100:null;
+    r.kda=r.g?((r.k+r.a)/Math.max(r.d,1)):null;
+    r.avgDeaths=r.g?r.d/r.g:null;
+    r.igr=r.igrN?r.igrS/r.igrN:null;
+    r.coach=r.coachN?r.coachS/r.coachN:null;
+    r.dd=r.ddN?r.ddS/r.ddN:null;
+    r.dt=r.dtN?r.dtS/r.dtN:null;
+    r.kp=r.kpN?r.kpS/r.kpN:null;
+    r.ddpm=r.ddpmN?r.ddpmS/r.ddpmN:null;
+    r.dtpm=r.dtpmN?r.dtpmS/r.dtpmN:null;
+    r.kpm=r.kpmN?r.kpmS/r.kpmN:null;
     return r;
   }
-  var rA=rawAgg(aId,gamesA),rB=rawAgg(bId,gamesB);
-  function rawRow(lbl,a,b,aN,bN){
-    var aWin=aN!=null&&bN!=null&&aN>bN,bWin=aN!=null&&bN!=null&&bN>aN;
-    return '<div class="compare-table-row">'+
-      '<div class="compare-table-cell">'+lbl+'</div>'+
-      '<div class="compare-table-cell mono '+(aWin?'compare-winner':bWin?'compare-loser':'')+'">'+a+'</div>'+
-      '<div class="compare-table-cell mono '+(bWin?'compare-winner':aWin?'compare-loser':'')+'">'+b+'</div>'+
+  var rA=agg(aId,gamesA),rB=agg(bId,gamesB);
+
+  function statRow(lbl,a,b,aN,bN,lowerIsBetter){
+    var aWin,bWin;
+    if(aN!=null&&bN!=null){
+      if(lowerIsBetter){aWin=aN<bN;bWin=bN<aN;}
+      else{aWin=aN>bN;bWin=bN>aN;}
+    }
+    return '<div class="cmp-stat-trow">'+
+      '<div class="cmp-stat-tcell">'+lbl+'</div>'+
+      '<div class="cmp-stat-tcell mono '+(aWin?'cmp-stat-winner':bWin?'cmp-stat-loser':(aN!=null?'':''))+'">'+a+'</div>'+
+      '<div class="cmp-stat-tcell mono '+(bWin?'cmp-stat-winner':aWin?'cmp-stat-loser':(bN!=null?'':''))+'">'+b+'</div>'+
     '</div>';
   }
-  function f1(v){return v!=null?v.toFixed(1):'--';}
-  var rawWin='<div class="section-label" style="padding:18px 20px 8px;">Raw Stats <span style="color:var(--grey-4);">· informational · not scored</span></div>'+
-    '<div class="compare-table">'+
-      '<div class="compare-table-row compare-table-header"><div class="compare-table-cell header-cell">Metric</div>'+
-      '<div class="compare-table-cell header-cell" style="color:'+COL_A+';">'+pA.nick+'</div>'+
-      '<div class="compare-table-cell header-cell" style="color:'+COL_B+';">'+pB.nick+'</div></div>'+
-      rawRow('Games',rA.g,rB.g,rA.g,rB.g)+
-      rawRow('KDA',f1(rA.kda),f1(rB.kda),rA.kda,rB.kda)+
-      rawRow('Gold / Min',rA.gpm!=null?Math.round(rA.gpm):'--',rB.gpm!=null?Math.round(rB.gpm):'--',rA.gpm,rB.gpm)+
-      rawRow('Avg Rating',f1(rA.rating),f1(rB.rating),rA.rating,rB.rating)+
-      rawRow('Dmg Dealt %',rA.dd!=null?rA.dd.toFixed(1)+'%':'--',rB.dd!=null?rB.dd.toFixed(1)+'%':'--',rA.dd,rB.dd)+
-      rawRow('Dmg Taken %',rA.dt!=null?rA.dt.toFixed(1)+'%':'--',rB.dt!=null?rB.dt.toFixed(1)+'%':'--',rA.dt,rB.dt)+
+  function hdr(){
+    return '<div class="cmp-stat-trow hdr">'+
+      '<div class="cmp-stat-tcell" style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">Metric</div>'+
+      '<div class="cmp-stat-tcell lbl" style="color:'+COL_A+';">'+pA.nick+'</div>'+
+      '<div class="cmp-stat-tcell lbl" style="color:'+COL_B+';">'+pB.nick+'</div>'+
     '</div>';
-  cc.innerHTML=header+graded+rawWin+'<div style="height:24px;"></div>';
+  }
+  function f1(v){return v!=null?v.toFixed(1):'—';}
+  function f2(v){return v!=null?v.toFixed(2):'—';}
+  function pct(v){return v!=null?v.toFixed(1)+'%':'—';}
+  function rnd(v){return v!=null?Math.round(v).toString():'—';}
+
+  return '<div class="cmp-stats-section-lbl">General</div>'+
+    '<div class="cmp-stat-table">'+
+      hdr()+
+      statRow('Win Rate',pct(rA.winRate),pct(rB.winRate),rA.winRate,rB.winRate)+
+      statRow('KDA Ratio',f2(rA.kda),f2(rB.kda),rA.kda,rB.kda)+
+      statRow('In-Game Rating',f1(rA.igr),f1(rB.igr),rA.igr,rB.igr)+
+      statRow('Death Avg',f1(rA.avgDeaths),f1(rB.avgDeaths),rA.avgDeaths,rB.avgDeaths,true)+
+      statRow('Coach Score',f1(rA.coach),f1(rB.coach),rA.coach,rB.coach)+
+    '</div>'+
+    '<div class="cmp-stats-section-lbl" style="margin-top:2px;">Positional</div>'+
+    '<div class="cmp-stat-table">'+
+      hdr()+
+      statRow('DMG %',pct(rA.dd),pct(rB.dd),rA.dd,rB.dd)+
+      statRow('DMG Taken %',pct(rA.dt),pct(rB.dt),rA.dt,rB.dt)+
+      statRow('DMG / Min',rnd(rA.ddpm),rnd(rB.ddpm),rA.ddpm,rB.ddpm)+
+      statRow('DMG Taken / Min',rnd(rA.dtpm),rnd(rB.dtpm),rA.dtpm,rB.dtpm)+
+      statRow('Kill / Min',f2(rA.kpm),f2(rB.kpm),rA.kpm,rB.kpm)+
+      statRow('Kill Participation',pct(rA.kp),pct(rB.kp),rA.kp,rB.kp)+
+    '</div>'+
+    '<div style="height:16px;"></div>';
 }
 
 // ══════════════════════════════════════════
