@@ -329,6 +329,7 @@ function renderHomeDesktop(data){
   var host=document.getElementById('home-d');if(!host) return;
   PLAYERS=getPlayers();
   var games=(data&&data.games)||[];
+  var matches=_cache.matches||[];
   var now=new Date();
   var d30=new Date(now-30*24*60*60*1000);
   var recent30=games.filter(function(g){return parseDate(g.date)>=d30;});
@@ -596,7 +597,7 @@ function renderHomeDesktop(data){
       '</section>';
   }
 
-  var alertsPlaceholder=renderAlertsSection(games,_cache.matches||[]);
+  var alertsPlaceholder=renderAlertsSection(games,matches);
 
   host.innerHTML=''+
     greetingHtml+
