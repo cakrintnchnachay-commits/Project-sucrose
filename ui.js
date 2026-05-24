@@ -38,6 +38,208 @@ function initLayout(){
 }
 window.addEventListener('resize',initLayout);
 
+// ══════════════════════════════════════════
+// ALERT SYSTEM
+// ══════════════════════════════════════════
+function generateAlerts(games,matches){
+  var players=PLAYERS||_cache.players||[];
+  var alerts=[];
+  var now=new Date();
+  var todayIso=now.getFullYear()+'-'+('0'+(now.getMonth()+1)).slice(-2)+'-'+('0'+now.getDate()).slice(-2);
+  var dismissed=_cache.dismissed||{};
+  if(!games||games.length<3) return alerts;
+
+  var sorted=games.slice().sort(function(a,b){return gameDateTime(b)-gameDateTime(a);});
+
+  // ── Team: losing streak ──
+  var last3=sorted.slice(0,3);
+  if(last3.length===3&&last3.every(function(g){return g.result==='Loss';})){
+    var k='team_losestreak';
+    if(!dismissed[k]) alerts.push({colour:'danger',playerId:null,message:'3-game losing streak — review last session',key:k});
+  }
+
+  // ── Team: win streak ──
+  if(last3.length===3&&last3.every(function(g){return g.result==='Win';})){
+    var k='team_winstreak';
+    if(!dismissed[k]) alerts.push({colour:'success',playerId:null,message:'On a 3-game win streak',key:k});
+  }
+
+  // ── Team: win rate drop (<40% last 10) ──
+  var last10=sorted.slice(0,10);
+  if(last10.length>=10){
+    var w10=last10.filter(function(g){return g.result==='Win';}).length;
+    if(w10<4){
+      var k='team_wrdrop';
+      if(!dismissed[k]) alerts.push({colour:'warn',playerId:null,message:'Win rate has fallen to '+Math.round(w10/10*100)+'% over last 10 games',key:k});
+    }
+  }
+
+  // ── Matches past their date with no games linked ──
+  (matches||[]).forEach(function(m){
+    if(!m.date||m.date>=todayIso) return;
+    var linked=games.filter(function(g){return g.matchId===m.id;}).length;
+    if(linked===0){
+      var k='match_nogames_'+m.id;
+      if(!dismissed[k]) alerts.push({colour:'warn',playerId:null,message:'Match vs '+(m.name||'Unknown')+' on '+(_fmtDate?_fmtDate(m.date):m.date)+' has no games logged',key:k});
+    }
+  });
+
+  // ── Enemy hero pattern (last 6 games) ──
+  var last6=sorted.slice(0,6);
+  var ehCount={};
+  last6.forEach(function(g){(g.enemyPicks||[]).forEach(function(ep){if(ep.hero) ehCount[ep.hero]=(ehCount[ep.hero]||0)+1;});});
+  Object.keys(ehCount).forEach(function(hero){
+    if(ehCount[hero]>=3){
+      var k='enemy_pattern_'+hero.toLowerCase().replace(/\s+/g,'_');
+      if(!dismissed[k]) alerts.push({colour:'warn',playerId:null,message:'Enemy has drafted '+hero+' in '+ehCount[hero]+' of your last 6 games — prepare a counter',key:k});
+    }
+  });
+
+  // ── Player-level alerts ──
+  players.filter(function(p){return p.status!=='Inactive';}).forEach(function(p){
+    var pid=p.id;
+    var role=(p.role||'').toLowerCase();
+    var pillars=(typeof PILLAR_MAP!=='undefined'&&PILLAR_MAP[role])||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+
+    var pGames=sorted.filter(function(g){var s=g.playerScores&&g.playerScores[pid];return s&&!s.skipped;});
+    if(pGames.length<3) return;
+
+    function getPillar(g,idx){var s=g.playerScores&&g.playerScores[pid];if(!s||!s.pillar_scores)return null;var v=s.pillar_scores['p'+idx];return(v!=null&&v>0)?v:null;}
+    function avgPillars(gList){var vals=gList.reduce(function(acc,g){var s=g.playerScores&&g.playerScores[pid];if(s&&s.pillar_scores) Object.values(s.pillar_scores).forEach(function(v){if(v!=null&&v>0)acc.push(v);});return acc;},[]);return vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:0;}
+
+    var l3=pGames.slice(0,3);
+    var l6=pGames.slice(0,6);
+    var l10=pGames.slice(0,10);
+
+    // 1. Pillar drop — all 3 below 5.0 on same pillar
+    for(var pi=0;pi<4;pi++){
+      var s3=l3.map(function(g){return getPillar(g,pi);}).filter(function(v){return v!=null;});
+      if(s3.length===3&&s3.every(function(v){return v<5.0;})){
+        var pName=pillars[pi]||('Pillar '+(pi+1));
+        var k='pillar_drop_'+pid+'_'+pi;
+        if(!dismissed[k]) alerts.push({colour:'danger',playerId:pid,message:p.nick+' — '+pName+' below 5 for 3 straight games',key:k});
+        break;
+      }
+    }
+
+    // 2. Overall rating drop — last 3 vs games 4–6
+    if(pGames.length>=6){
+      var rAvg=avgPillars(pGames.slice(0,3));
+      var pAvg=avgPillars(pGames.slice(3,6));
+      if(pAvg>0&&rAvg>0&&pAvg-rAvg>=1.5){
+        var k='overall_drop_'+pid;
+        if(!dismissed[k]) alerts.push({colour:'danger',playerId:pid,message:p.nick+' overall score dropped from '+pAvg.toFixed(1)+' to '+rAvg.toFixed(1)+' this week',key:k});
+      }
+    }
+
+    // 3. Death spike — last game deaths >40% above personal avg
+    var deathHist=pGames.slice(1).map(function(g){var s=g.playerScores&&g.playerScores[pid];return s?+s.deaths:null;}).filter(function(v){return v!=null&&!isNaN(v);});
+    var lastDeaths=(function(){var s=pGames[0].playerScores&&pGames[0].playerScores[pid];return s?+s.deaths:null;})();
+    if(deathHist.length>=2&&lastDeaths!=null){
+      var avgD=deathHist.reduce(function(a,b){return a+b;},0)/deathHist.length;
+      if(avgD>0&&lastDeaths>avgD*1.4){
+        var pct=Math.round((lastDeaths/avgD-1)*100);
+        var k='death_spike_'+pid;
+        if(!dismissed[k]) alerts.push({colour:'warn',playerId:pid,message:p.nick+' died '+lastDeaths+' times — '+pct+'% above their usual average',key:k});
+      }
+    }
+
+    // 4. Improvement streak — same pillar strictly increasing last 3 games
+    var improved=false;
+    for(var pi2=0;pi2<4&&!improved;pi2++){
+      var s0=getPillar(l3[2],pi2),s1=getPillar(l3[1],pi2),s2=getPillar(l3[0],pi2);
+      if(s0!=null&&s1!=null&&s2!=null&&s2>s1&&s1>s0){
+        var pName2=pillars[pi2]||('Pillar '+(pi2+1));
+        var k2='improve_'+pid+'_'+pi2;
+        if(!dismissed[k2]) alerts.push({colour:'success',playerId:pid,message:p.nick+'\'s '+pName2+' pillar has improved 3 games in a row',key:k2});
+        improved=true;
+      }
+    }
+
+    // 5. Gold deficit — outgolded by opponent 3 of last 3 games
+    var gBehind=l3.filter(function(g){var s=g.playerScores&&g.playerScores[pid];return s&&s.gold!=null&&s.opp_gold!=null&&+s.gold<+s.opp_gold;}).length;
+    if(gBehind===3){
+      var k='gold_deficit_'+pid;
+      if(!dismissed[k]) alerts.push({colour:'warn',playerId:pid,message:p.nick+' has been out-golded by enemy '+p.role+' 3 games running',key:k});
+    }
+
+    // 6. Narrow hero pool — ≤2 distinct heroes in last 10 games
+    if(l10.length>=10){
+      var heroSet={};
+      l10.forEach(function(g){var s=g.playerScores&&g.playerScores[pid];if(s&&s.hero) heroSet[s.hero]=true;});
+      var hCount=Object.keys(heroSet).length;
+      if(hCount<=2){
+        var k='hero_pool_'+pid;
+        if(!dismissed[k]) alerts.push({colour:'info',playerId:pid,message:p.nick+' has only played '+hCount+' hero'+(hCount===1?'':'es')+' in the last 10 games — low pool depth',key:k});
+      }
+    }
+
+    // 7. Low win rate on frequently played hero (<33% with 3+ games)
+    var heroWR={};
+    pGames.forEach(function(g){var s=g.playerScores&&g.playerScores[pid];if(!s||!s.hero) return;if(!heroWR[s.hero]) heroWR[s.hero]={w:0,n:0};heroWR[s.hero].n++;if(g.result==='Win') heroWR[s.hero].w++;});
+    Object.keys(heroWR).forEach(function(hero){
+      var h=heroWR[hero];
+      if(h.n>=3&&h.w/h.n<0.33){
+        var k='hero_wr_'+pid+'_'+hero.toLowerCase().replace(/\s+/g,'_');
+        if(!dismissed[k]) alerts.push({colour:'danger',playerId:pid,message:p.nick+' has a '+h.w+'-'+(h.n-h.w)+' record on '+hero+' — consider avoiding in draft',key:k});
+      }
+    });
+  });
+
+  // Sort: danger > warn > success > info
+  var order={danger:0,warn:1,success:2,info:3};
+  alerts.sort(function(a,b){return(order[a.colour]||99)-(order[b.colour]||99);});
+  return alerts;
+}
+
+function renderAlertsSection(games,matches){
+  var alerts=generateAlerts(games,matches);
+  var MAX=6;
+  var shown=alerts.slice(0,MAX);
+  var extra=alerts.length-shown.length;
+  var colMap={danger:'var(--danger)',warn:'var(--warn)',success:'var(--success)',info:'var(--auto)'};
+
+  if(!games||games.length<3){
+    return '<section class="hd-card hd-alerts">'+
+      '<div class="hd-alerts-head"><div class="hd-label">Form alerts</div></div>'+
+      '<div class="hd-placeholder-inner">'+
+        '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" style="opacity:0.35;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/></svg>'+
+        '<div class="ph-title">NOT ENOUGH DATA</div>'+
+        '<div class="ph-sub">Log 5+ games to activate alerts</div>'+
+      '</div>'+
+    '</section>';
+  }
+
+  var badge=alerts.length?'<span class="hd-alert-badge">'+alerts.length+'</span>':'';
+  var content='';
+  if(!shown.length){
+    content='<div class="hd-placeholder-inner" style="padding:20px;">'+
+      '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="1.8" style="opacity:0.7;"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>'+
+      '<div class="ph-title" style="color:var(--success);font-size:13px;">ALL CLEAR</div>'+
+      '<div class="ph-sub">No active alerts — keep it up</div>'+
+    '</div>';
+  } else {
+    content='<div class="hd-alert-list">'+
+      shown.map(function(a){
+        var col=colMap[a.colour]||'var(--grey-5)';
+        var oc=a.playerId?'onclick="showProfile(\''+a.playerId+'\')"':'';
+        return '<div class="hd-alert-item" id="alert-'+a.key+'">'+
+          '<span class="hd-alert-dot" style="background:'+col+';box-shadow:0 0 4px '+col+';"></span>'+
+          '<div class="hd-alert-msg" '+oc+' style="'+(a.playerId?'cursor:pointer;':'')+'">'+a.message+'</div>'+
+          '<button class="alert-banner-dismiss" onclick="dismissAlert(\''+a.key+'\')">&#x2715;</button>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+    if(extra>0){
+      content+='<div class="hd-alert-more">+'+extra+' more</div>';
+    }
+  }
+  return '<section class="hd-card hd-alerts">'+
+    '<div class="hd-alerts-head"><div class="hd-label">Form alerts '+badge+'</div></div>'+
+    content+
+  '</section>';
+}
+
 function renderHome(){
   PLAYERS=getPlayers();
   var data=loadData();
@@ -84,16 +286,13 @@ function renderHome(){
     }
   }
 
-  // ── Form-drop alerts ──
-  var dismissed=_cache.dismissed||{};
-  var alertsHtml='';
-  PLAYERS.forEach(function(p){
-    var st=getPlayerStats(p.id,games);
-    if(st.monthAvg>0&&st.weekAvg>0&&st.monthAvg-st.weekAvg>1.5){
-      var key='underperf_'+p.id;
-      if(!dismissed[key]) alertsHtml+='<div class="alert-banner alert-banner-danger" id="alert-'+key+'"><div style="flex:1;cursor:pointer;" onclick="showProfile(\''+p.id+'\')"><strong>'+p.nick+'</strong> — form drop detected. Week avg '+st.weekAvg.toFixed(1)+' vs month avg '+st.monthAvg.toFixed(1)+'</div><button class="alert-banner-dismiss" onclick="dismissAlert(\''+key+'\')">&#x2715;</button></div>';
-    }
-  });
+  // ── Alerts (mobile) ──
+  var mobileAlerts=generateAlerts(games,matches).filter(function(a){return a.colour==='danger'||a.colour==='warn';}).slice(0,3);
+  var alertsHtml=mobileAlerts.map(function(a){
+    var cls=a.colour==='danger'?'alert-banner-danger':'alert-banner-warn';
+    var oc=a.playerId?'showProfile(\''+a.playerId+'\')':'';
+    return '<div class="alert-banner '+cls+'" id="alert-'+a.key+'"><div style="flex:1;cursor:pointer;" onclick="'+oc+'">'+a.message+'</div><button class="alert-banner-dismiss" onclick="dismissAlert(\''+a.key+'\')">&#x2715;</button></div>';
+  }).join('');
   var aEl=document.getElementById('home-alerts');if(aEl) aEl.innerHTML=alertsHtml;
 
   // ── Recent sessions list ──
@@ -397,15 +596,7 @@ function renderHomeDesktop(data){
       '</section>';
   }
 
-  var alertsPlaceholder=''+
-    '<section class="hd-card hd-alerts">'+
-      '<div class="hd-alerts-head"><div class="hd-label">Form alerts</div><span class="hd-coming">COMING SOON</span></div>'+
-      '<div class="hd-placeholder-inner">'+
-        '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-7.036A9.001 9.001 0 003 12c0 4.97 4.03 9 9 9s9-4.03 9-9-4.03-9-9-9zM12 15.75h.008v.008H12v-.008z"/></svg>'+
-        '<div class="ph-title">FLAGGING SYSTEM</div>'+
-        '<div class="ph-sub">Hot/cold streaks, hero tier shifts<br/>and pool-thinness alerts will surface here.</div>'+
-      '</div>'+
-    '</section>';
+  var alertsPlaceholder=renderAlertsSection(games,matches);
 
   host.innerHTML=''+
     greetingHtml+
