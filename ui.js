@@ -975,7 +975,165 @@ function _starterAvgRadar(role){
 }
 function setProfileRole(playerId,role){window._profileRole=role;showProfile(playerId);}
 // Pillar trend timeframe + series-toggle state
-function _ptrendDefault(){return {preset:'all',from:'',to:'',series:{p0:1,p1:1,p2:1,p3:1,ment:1,hp:1,overall:1}};}
+function _ptrendRawDefs(){
+  return [
+    {k:'kills',  l:'Kills',       color:'rgba(255,120,120,1)', fmt:function(v){return Math.round(v);}},
+    {k:'deaths', l:'Deaths',      color:'rgba(255,80,80,1)',   fmt:function(v){return Math.round(v);}},
+    {k:'assists',l:'Assists',     color:'rgba(150,255,150,1)', fmt:function(v){return Math.round(v);}},
+    {k:'kda',    l:'KDA',         color:'rgba(100,180,255,1)', fmt:function(v){return v.toFixed(2);}},
+    {k:'gpm',    l:'Gold/Min',    color:'rgba(80,220,140,1)',  fmt:function(v){return Math.round(v);}},
+    {k:'igr',    l:'In-Game Rtg', color:'rgba(255,180,80,1)',  fmt:function(v){return v.toFixed(1);}},
+    {k:'kp',     l:'KP%',         color:'rgba(200,130,255,1)',fmt:function(v){return v.toFixed(1)+'%';}},
+    {k:'dd',     l:'Dmg Dealt%',  color:'rgba(240,210,90,1)', fmt:function(v){return v.toFixed(1)+'%';}},
+    {k:'dt',     l:'Dmg Taken%',  color:'rgba(90,210,220,1)', fmt:function(v){return v.toFixed(1)+'%';}},
+    {k:'ddraw',  l:'Dmg Dealt',   color:'rgba(255,160,80,1)', fmt:function(v){return Math.round(v);}},
+    {k:'dtraw',  l:'Dmg Taken',   color:'rgba(100,200,255,1)',fmt:function(v){return Math.round(v);}},
+    {k:'ddr',    l:'Dmg Ratio',   color:'rgba(180,255,180,1)',fmt:function(v){return v.toFixed(2);}},
+    {k:'mpd',    l:'Min/Death',   color:'rgba(255,255,100,1)',fmt:function(v){return v.toFixed(1);}},
+    {k:'oppgpm', l:'Opp GPM',     color:'rgba(180,180,180,1)',fmt:function(v){return Math.round(v);}},
+  ];
+}
+function _ptrendRawVal(key,g,playerId){
+  var s=g.playerScores&&g.playerScores[playerId];if(!s)return null;
+  if(key==='kills')return s.kills;if(key==='deaths')return s.deaths;if(key==='assists')return s.assists;
+  if(key==='kda')return s.kda;if(key==='gpm')return s.gold_per_min;if(key==='igr')return s.in_game_rating;
+  if(key==='kp')return s.kill_contribution_pct;if(key==='dd')return s.dmg_dealt_pct;if(key==='dt')return s.dmg_taken_pct;
+  if(key==='ddraw')return s.dmg_dealt_raw;if(key==='dtraw')return s.dmg_taken_raw;
+  if(key==='ddr')return s.dmg_per_dmg_taken;if(key==='mpd')return s.min_per_death;if(key==='oppgpm')return s.opp_gold_per_min;
+  return null;
+}
+function _niceAxisBounds(minV,maxV){
+  var range=maxV-minV||1;
+  var mag=Math.pow(10,Math.floor(Math.log10(range/4)));
+  var step=[1,2,2.5,5,10].reduce(function(best,s){return(s*mag*4>=range&&s*mag<best)?s*mag:best;},Infinity);
+  if(!isFinite(step))step=mag;
+  var lo=Math.floor(minV/step)*step,hi=Math.ceil(maxV/step)*step;
+  var ticks=[];for(var v=lo;v<=hi+step*0.001;v+=step)ticks.push(Math.round(v*1e6)/1e6);
+  return {min:lo,max:hi,ticks:ticks};
+}
+function _ptrendHideTooltip(playerId){
+  var tip=document.getElementById('ptrend-tip-'+playerId);
+  if(tip){tip.style.display='none';tip._lastHit=null;}
+}
+function _ptrendShowTooltip(playerId,cx,cy,hit){
+  var tip=document.getElementById('ptrend-tip-'+playerId);if(!tip)return;
+  var g=hit.game,s=g.playerScores&&g.playerScores[playerId];
+  var role=window._profileRole||'';
+  var heroName=(s&&s.hero)||'';
+  var kills=s&&s.kills!=null?s.kills:'?',deaths=s&&s.deaths!=null?s.deaths:'?',assists=s&&s.assists!=null?s.assists:'?';
+  var gpm=s&&s.gold_per_min!=null?Math.round(s.gold_per_min):'—';
+  var igr=s&&s.in_game_rating!=null?s.in_game_rating.toFixed(1):'—';
+  var coach=calcGameScore(s,role,g,playerId);var coachStr=coach>0?coach.toFixed(1):'—';
+  var tipHtml=
+    '<div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:6px;">'+
+      heroPortraitHtml(heroName,24,false)+
+      '<div><div style="color:rgba(255,255,255,0.9);font-size:9px;line-height:1.3;max-width:95px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(heroName||'Unknown')+'</div>'+
+      '<div style="color:rgba(255,255,255,0.35);font-size:8px;">'+g.date+'</div></div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;line-height:1.6;">'+
+      '<span style="color:rgba(255,255,255,0.4);">K/D/A</span><span style="color:rgba(255,255,255,0.85);">'+kills+'/'+deaths+'/'+assists+'</span>'+
+      '<span style="color:rgba(255,255,255,0.4);">GPM</span><span style="color:rgba(255,255,255,0.85);">'+gpm+'</span>'+
+      '<span style="color:rgba(255,255,255,0.4);">Rating</span><span style="color:rgba(255,255,255,0.85);">'+igr+'</span>'+
+      '<span style="color:rgba(255,255,255,0.4);">Coach</span><span style="color:rgba(255,255,255,0.85);">'+coachStr+'</span>'+
+    '</div>';
+  if(hit.label&&hit.fmtVal!=null){
+    tipHtml+='<div style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:6px;">'+
+      '<span style="display:inline-block;width:10px;height:2px;background:'+hit.color+';border-radius:1px;flex-shrink:0;"></span>'+
+      '<span style="color:rgba(255,255,255,0.45);">'+hit.label+'</span>'+
+      '<span style="color:rgba(255,255,255,0.9);margin-left:auto;font-weight:500;">'+hit.fmtVal+'</span>'+
+    '</div>';
+  }
+  tip.innerHTML=tipHtml;tip._lastHit=hit;
+  var pw=tip.parentElement.offsetWidth||300,ph=tip.parentElement.offsetHeight||200;
+  var tw=160,th=130;
+  var tx=cx+14,ty=cy-40;
+  if(tx+tw>pw-4)tx=cx-tw-14;if(tx<4)tx=4;
+  if(ty<4)ty=4;if(ty+th>ph-4)ty=Math.max(4,ph-th-4);
+  tip.style.left=tx+'px';tip.style.top=ty+'px';tip.style.display='block';
+}
+function _ptrendSetupCanvasEvents(playerId){
+  var canvas=document.getElementById('ptrend-'+playerId);if(!canvas)return;
+  function getHit(cx,cy){
+    var hits=(window._ptrendHits&&window._ptrendHits[playerId])||[];
+    var best=null,bestD=Infinity;
+    hits.forEach(function(h){var d=Math.hypot(h.x-cx,h.y-cy);if(d<bestD&&d<16){best=h;bestD=d;}});
+    return best;
+  }
+  canvas.addEventListener('mousemove',function(e){
+    var r=canvas.getBoundingClientRect();var hit=getHit(e.clientX-r.left,e.clientY-r.top);
+    if(hit)_ptrendShowTooltip(playerId,e.clientX-r.left,e.clientY-r.top,hit);else _ptrendHideTooltip(playerId);
+  });
+  canvas.addEventListener('mouseleave',function(){_ptrendHideTooltip(playerId);});
+  canvas.addEventListener('click',function(e){
+    var r=canvas.getBoundingClientRect();var cx=e.clientX-r.left,cy=e.clientY-r.top;var hit=getHit(cx,cy);
+    var tip=document.getElementById('ptrend-tip-'+playerId);
+    if(hit){if(tip&&tip.style.display!=='none'&&tip._lastHit===hit)_ptrendHideTooltip(playerId);else _ptrendShowTooltip(playerId,cx,cy,hit);}
+    else _ptrendHideTooltip(playerId);
+  });
+  canvas.addEventListener('touchstart',function(e){
+    e.preventDefault();var r=canvas.getBoundingClientRect();var t=e.touches[0];
+    var cx=t.clientX-r.left,cy=t.clientY-r.top;var hit=getHit(cx,cy);
+    var tip=document.getElementById('ptrend-tip-'+playerId);
+    if(hit){if(tip&&tip.style.display!=='none'&&tip._lastHit===hit)_ptrendHideTooltip(playerId);else _ptrendShowTooltip(playerId,cx,cy,hit);}
+    else _ptrendHideTooltip(playerId);
+  },{passive:false});
+}
+function drawRawStatsTrend(playerId){
+  var canvas=document.getElementById('ptrend-'+playerId);if(!canvas)return;
+  var role=window._profileRole;
+  var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
+  var st=_ptrendState(),rg=_ptrendRange();
+  var games=_profilePlayerGames(playerId).filter(function(g){
+    if(_profileRoleOf(g,playerId,player)!==role)return false;
+    var d=parseDate(g.date);
+    if(rg.from&&d<rg.from)return false;if(rg.to&&d>rg.to)return false;
+    return true;
+  }).sort(function(a,b){return gameDateTime(a)-gameDateTime(b);});
+  var activeDefs=_ptrendRawDefs().filter(function(d){return st.rawSeries[d.k];});
+  window._ptrendHits=window._ptrendHits||{};window._ptrendHits[playerId]=[];
+  var dpr=window.devicePixelRatio||1;var dW=canvas.offsetWidth||canvas.width||600;var dH=canvas.offsetHeight||200;
+  canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.height=dH+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,dW,dH);
+  var padL=38,padR=12,padT=12,padB=22;
+  var plotW=dW-padL-padR,plotH=dH-padT-padB;
+  if(!games.length){ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='center';ctx.font='10px DM Mono,monospace';ctx.textBaseline='middle';ctx.fillText('No games in range',dW/2,dH/2);_ptrendSetupCanvasEvents(playerId);return;}
+  var allVals=[];
+  activeDefs.forEach(function(def){games.forEach(function(g){var v=_ptrendRawVal(def.k,g,playerId);if(v!=null)allVals.push(v);});});
+  if(!allVals.length){ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='center';ctx.font='10px DM Mono,monospace';ctx.textBaseline='middle';ctx.fillText('No stats selected',dW/2,dH/2);_ptrendSetupCanvasEvents(playerId);return;}
+  var minV=Math.min.apply(null,allVals),maxV=Math.max.apply(null,allVals);
+  var bounds=_niceAxisBounds(Math.max(0,minV*0.92),maxV*1.08);
+  var axMin=bounds.min,axMax=bounds.max;
+  function yPos(v){return padT+plotH-((Math.max(axMin,Math.min(v,axMax))-axMin)/(axMax-axMin||1))*plotH;}
+  function xPos(i){return games.length<=1?padL+plotW/2:padL+(i/(games.length-1))*plotW;}
+  ctx.textBaseline='middle';ctx.font='9px DM Mono,monospace';ctx.textAlign='right';
+  bounds.ticks.forEach(function(gv){
+    if(gv<axMin-0.001||gv>axMax+0.001)return;
+    var y=yPos(gv);
+    ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(dW-padR,y);ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.3)';
+    var lbl=Math.abs(gv)>=10000?Math.round(gv/1000)+'k':Math.abs(gv)>=1000?(Math.round(gv/100)/10)+'k':gv%1===0?String(Math.round(gv)):gv.toFixed(1);
+    ctx.fillText(lbl,padL-4,y);
+  });
+  ctx.fillStyle='rgba(255,255,255,0.35)';ctx.font='8px DM Mono,monospace';ctx.textBaseline='top';
+  ctx.textAlign='left';ctx.fillText(games[0].date,padL,dH-padB+5);
+  if(games.length>1){ctx.textAlign='right';ctx.fillText(games[games.length-1].date,dW-padR,dH-padB+5);}
+  activeDefs.forEach(function(def){
+    var pts=[];
+    games.forEach(function(g,i){
+      var v=_ptrendRawVal(def.k,g,playerId);
+      if(v!=null){var px=xPos(i),py=yPos(v);pts.push({x:px,y:py,v:v});window._ptrendHits[playerId].push({x:px,y:py,game:g,key:def.k,label:def.l,color:def.color,value:v,fmtVal:def.fmt(v)});}
+    });
+    if(!pts.length)return;
+    ctx.strokeStyle=def.color;ctx.lineWidth=2;ctx.beginPath();
+    pts.forEach(function(p,idx){idx===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);});ctx.stroke();
+    ctx.fillStyle=def.color;pts.forEach(function(p){ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();});
+  });
+  _ptrendSetupCanvasEvents(playerId);
+}
+function _ptrendDefault(){
+  var rs={};_ptrendRawDefs().forEach(function(d){rs[d.k]=1;});
+  return {preset:'all',from:'',to:'',series:{p0:1,p1:1,p2:1,p3:1,ment:1,hp:1,overall:1},mode:'pillar',rawSeries:rs};
+}
 function _ptrendState(){if(!window._ptrend)window._ptrend=_ptrendDefault();return window._ptrend;}
 function _ptrendIso(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
 function _ptrendRange(){
@@ -995,7 +1153,9 @@ function setPtrendCustom(pid){
   renderPtrend(pid);
 }
 function togglePtrendSeries(pid,key){var st=_ptrendState();st.series[key]=st.series[key]?0:1;renderPtrend(pid);}
-function setPtrendAllSeries(pid,on){var st=_ptrendState();Object.keys(st.series).forEach(function(k){st.series[k]=on?1:0;});renderPtrend(pid);}
+function setPtrendAllSeries(pid,on){var st=_ptrendState();var tgt=st.mode==='raw'?st.rawSeries:st.series;Object.keys(tgt).forEach(function(k){tgt[k]=on?1:0;});renderPtrend(pid);}
+function setPtrendMode(pid,mode){var st=_ptrendState();st.mode=mode;renderPtrend(pid);}
+function togglePtrendRawSeries(pid,key){var st=_ptrendState();st.rawSeries[key]=st.rawSeries[key]?0:1;renderPtrend(pid);}
 function showProfile(playerId){
   PLAYERS=getPlayers();var player=PLAYERS.find(function(p){return p.id===playerId;});var data=loadData();
   if(!player){showPage('page-roster');return;}
@@ -1118,10 +1278,21 @@ function renderPtrend(playerId){
   var role=window._profileRole;
   var pl=PILLAR_MAP[role]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
   var st=_ptrendState();
-  var defs=[{k:'p0',l:pl[0]},{k:'p1',l:pl[1]},{k:'p2',l:pl[2]},{k:'p3',l:pl[3]},{k:'ment',l:'Mentality'},{k:'hp',l:'Hero Pool'},{k:'overall',l:'Overall'}];
+  var isPillar=st.mode!=='raw';
+  var pillarDefs=[{k:'p0',l:pl[0]},{k:'p1',l:pl[1]},{k:'p2',l:pl[2]},{k:'p3',l:pl[3]},{k:'ment',l:'Mentality'},{k:'hp',l:'Hero Pool'},{k:'overall',l:'Overall'}];
+  var rawDefs=_ptrendRawDefs();
+  var seriesDefs=isPillar?pillarDefs:rawDefs;
+  var seriesColors=isPillar?PTREND_COLORS:rawDefs.map(function(d){return d.color;});
+  var seriesState=isPillar?st.series:st.rawSeries;
+  var toggleFn=isPillar?'togglePtrendSeries':'togglePtrendRawSeries';
   var presets=[['all','All'],['1w','1W'],['2w','2W'],['1m','1M']];
   var inpStyle='background:var(--grey-1);border:var(--border);color:var(--white);font-family:inherit;font-size:10px;padding:4px 6px;border-radius:2px;';
-  var html=''+
+  var tipStyle='display:none;position:absolute;pointer-events:none;background:rgba(14,14,18,0.97);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;min-width:145px;max-width:195px;font-family:\'DM Mono\',monospace;font-size:9px;z-index:10;line-height:1.4;';
+  var html=
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;padding:0 20px 10px;">'+
+      '<button class="tier-mode-btn'+(isPillar?' active':'')+'" onclick="setPtrendMode(\''+playerId+'\',\'pillar\')">Pillar</button>'+
+      '<button class="tier-mode-btn'+(!isPillar?' active':'')+'" onclick="setPtrendMode(\''+playerId+'\',\'raw\')">Raw Stats</button>'+
+    '</div>'+
     '<div style="display:flex;gap:4px;flex-wrap:wrap;padding:0 20px 8px;">'+
       presets.map(function(p){return '<button class="tier-mode-btn'+(st.preset===p[0]?' active':'')+'" onclick="setPtrendPreset(\''+playerId+'\',\''+p[0]+'\')">'+p[1]+'</button>';}).join('')+
     '</div>'+
@@ -1134,11 +1305,21 @@ function renderPtrend(playerId){
       '<button class="tier-mode-btn" onclick="setPtrendAllSeries(\''+playerId+'\',false)">Hide all</button>'+
     '</div>'+
     '<div style="display:flex;gap:8px 16px;flex-wrap:wrap;padding:0 20px 10px;">'+
-      defs.map(function(s,i){return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);"><input type="checkbox" '+(st.series[s.k]?'checked':'')+' onchange="togglePtrendSeries(\''+playerId+'\',\''+s.k+'\')" style="accent-color:'+PTREND_COLORS[i]+';margin:0;"/><span style="display:inline-block;width:14px;height:2px;background:'+PTREND_COLORS[i]+';border-radius:1px;"></span>'+s.l+'</label>';}).join('')+
+      seriesDefs.map(function(s,i){
+        var col=seriesColors[i]||'rgba(255,255,255,0.5)';
+        return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+
+          '<input type="checkbox" '+(seriesState[s.k]?'checked':'')+' onchange="'+toggleFn+'(\''+playerId+'\',\''+s.k+'\')" style="accent-color:'+col+';margin:0;"/>'+
+          '<span style="display:inline-block;width:14px;height:2px;background:'+col+';border-radius:1px;"></span>'+s.l+'</label>';
+      }).join('')+
     '</div>'+
-    '<div style="padding:0 20px 20px;"><canvas id="ptrend-'+playerId+'" style="width:100%;height:200px;display:block;"></canvas></div>';
+    '<div style="padding:0 20px 20px;">'+
+      '<div style="position:relative;">'+
+        '<canvas id="ptrend-'+playerId+'" style="width:100%;height:200px;display:block;cursor:crosshair;"></canvas>'+
+        '<div id="ptrend-tip-'+playerId+'" style="'+tipStyle+'"></div>'+
+      '</div>'+
+    '</div>';
   box.innerHTML=html;
-  drawPillarTrend(playerId);
+  if(isPillar)drawPillarTrend(playerId);else drawRawStatsTrend(playerId);
 }
 function drawPillarTrend(playerId){
   var canvas=document.getElementById('ptrend-'+playerId);if(!canvas)return;
@@ -1161,7 +1342,7 @@ function drawPillarTrend(playerId){
   function xPos(i){return games.length<=1?padL+plotW/2:padL+(i/(games.length-1))*plotW;}
   ctx.textBaseline='middle';ctx.font='9px DM Mono,monospace';
   [2,4,6,8,10].forEach(function(gv){var y=yPos(gv);ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(dW-padR,y);ctx.stroke();ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='right';ctx.fillText(gv,padL-6,y);});
-  if(!games.length){ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='center';ctx.font='10px DM Mono,monospace';ctx.fillText('No games in range',dW/2,dH/2);return;}
+  if(!games.length){ctx.fillStyle='rgba(255,255,255,0.3)';ctx.textAlign='center';ctx.font='10px DM Mono,monospace';ctx.fillText('No games in range',dW/2,dH/2);_ptrendSetupCanvasEvents(playerId);return;}
   ctx.fillStyle='rgba(255,255,255,0.35)';ctx.font='8px DM Mono,monospace';ctx.textBaseline='top';
   ctx.textAlign='left';ctx.fillText(games[0].date,padL,dH-padB+5);
   if(games.length>1){ctx.textAlign='right';ctx.fillText(games[games.length-1].date,dW-padR,dH-padB+5);}
@@ -1172,15 +1353,25 @@ function drawPillarTrend(playerId){
     if(key==='overall')return calcGameScore(s,role,g,playerId);
     var ps=s.pillar_scores;return ps?ps[key]:null;
   }
+  var pl=PILLAR_MAP[role]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
+  var pillarLabels={p0:pl[0],p1:pl[1],p2:pl[2],p3:pl[3],ment:'Mentality',hp:'Hero Pool',overall:'Overall'};
+  window._ptrendHits=window._ptrendHits||{};window._ptrendHits[playerId]=[];
   ['p0','p1','p2','p3','ment','hp','overall'].forEach(function(key,si){
     if(!st.series[key])return;
     var pts=[];
-    games.forEach(function(g,i){var v=valFor(key,g);if(v!=null&&v>0)pts.push({x:xPos(i),y:yPos(v)});});
+    games.forEach(function(g,i){
+      var v=valFor(key,g);
+      if(v!=null&&v>0){
+        var px=xPos(i),py=yPos(v);pts.push({x:px,y:py,v:v});
+        window._ptrendHits[playerId].push({x:px,y:py,game:g,key:key,label:pillarLabels[key],color:PTREND_COLORS[si],value:v,fmtVal:v.toFixed(1)});
+      }
+    });
     if(!pts.length)return;
     ctx.strokeStyle=PTREND_COLORS[si];ctx.lineWidth=key==='overall'?2.5:2;ctx.beginPath();
     pts.forEach(function(p,idx){idx===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);});ctx.stroke();
-    ctx.fillStyle=PTREND_COLORS[si];pts.forEach(function(p){ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fill();});
+    ctx.fillStyle=PTREND_COLORS[si];pts.forEach(function(p){ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();});
   });
+  _ptrendSetupCanvasEvents(playerId);
 }
 // RADAR
 // ══════════════════════════════════════════
