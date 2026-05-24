@@ -596,7 +596,7 @@ function renderHomeDesktop(data){
       '</section>';
   }
 
-  var alertsPlaceholder=renderAlertsSection(games,matches);
+  var alertsPlaceholder=renderAlertsSection(games,_cache.matches||[]);
 
   host.innerHTML=''+
     greetingHtml+
