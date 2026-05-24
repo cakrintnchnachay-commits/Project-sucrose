@@ -1300,7 +1300,7 @@ function _buildCmpStatistics(ctx){
       if(s.dmg_dealt_pct!=null){r.ddS+=+s.dmg_dealt_pct;r.ddN++;}
       if(s.dmg_taken_pct!=null){r.dtS+=+s.dmg_taken_pct;r.dtN++;}
       var tk=g.team_total_kills;
-      if(tk&&tk>0){r.kpS+=((+(s.kills||0)++(s.assists||0))/tk*100);r.kpN++;}
+      if(tk&&tk>0){r.kpS+=(((s.kills||0)+(s.assists||0))/tk*100);r.kpN++;}
       var durMin=g.duration_seconds?g.duration_seconds/60:null;
       if(durMin&&durMin>0){
         if(s.dmg_dealt_raw!=null){r.ddpmS+=+s.dmg_dealt_raw/durMin;r.ddpmN++;}
