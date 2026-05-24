@@ -229,10 +229,16 @@
         <label class="input-label">Game Name</label>
         <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix-1"/>
       </div>
-      <!-- Duration -->
-      <div class="input-group">
-        <label class="input-label">Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS)</span></label>
-        <input class="input" id="log-duration" placeholder="12:54" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+      <!-- Duration + End Time -->
+      <div class="row" style="gap:10px;">
+        <div class="input-group" style="flex:1;">
+          <label class="input-label">Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS)</span></label>
+          <input class="input" id="log-duration" placeholder="12:54" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label class="input-label">Game End Time <span style="color:var(--grey-5);font-weight:400;">(HH:MM)</span></label>
+          <input class="input" id="log-end-time" placeholder="21:34" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+        </div>
       </div>
       <!-- Kills row -->
       <div class="input-group">

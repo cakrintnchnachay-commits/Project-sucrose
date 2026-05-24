@@ -77,7 +77,8 @@ async function bootApp(){
       matchMentality:g.match_mentality||{},
       matchId:g.match_id||null,
       mvpPlayerId:g.mvp_player_id||null,
-      savedAt:g.created_at
+      savedAt:g.created_at,
+      endedAt:g.ended_at||null
     }));
     // Merge per-player scores from player_scores_v2 into _cache.games
     var _psMap={};
