@@ -375,6 +375,15 @@ function parseDate(str){
   var p=str.split('/');
   return new Date(+p[2],+p[1]-1,+p[0]);
 }
+// Like parseDate but incorporates the game's wall-clock end time for same-day ordering.
+function gameDateTime(g){
+  var d=new Date(parseDate(g.date).getTime());
+  if(g.endedAt){
+    var p=String(g.endedAt).split(':');
+    if(p.length===2){d.setHours(parseInt(p[0],10)||0,parseInt(p[1],10)||0,0,0);}
+  }
+  return d;
+}
 var GRADE_SCALE=[{grade:'S+',min:9.0,cls:'grade-sp'},{grade:'S',min:8.0,cls:'grade-s'},{grade:'S-',min:7.0,cls:'grade-sm'},{grade:'A+',min:6.0,cls:'grade-ap'},{grade:'A',min:5.0,cls:'grade-a'},{grade:'A-',min:0,cls:'grade-am'}];
 function scoreToGrade(score){if(!score||score<=0)return null;for(var i=0;i<GRADE_SCALE.length;i++){if(score>=GRADE_SCALE[i].min)return GRADE_SCALE[i];}return GRADE_SCALE[GRADE_SCALE.length-1];}
 var MENTALITY_CRITERIA=[];
@@ -714,6 +723,7 @@ Return this exact shape:
 {
   "result": "Win or Loss",
   "duration": "MM:SS game length shown next to the clock icon on the result screen, or null",
+  "endedAt": "HH:MM real-world wall-clock time when the match ended (NOT the game timer), shown on the result screen without a clock icon, e.g. '21:34', or null",
   "mvpIgn": "exact IGN of the MVP on OUR team (the left/blue side) - never an enemy - or null",
   "ourKills": 0,
   "enemyKills": 0,
@@ -729,6 +739,7 @@ Rules:
 - ourTeam = LEFT column (blue side). oppTeam = RIGHT column (red side).
 - "VICTORY" text means result "Win". "DEFEAT" means result "Loss".
 - duration is the game length (MM:SS) shown next to the small CLOCK ICON on the result screen, e.g. "18:22". AOV matches almost always last between 8 and 35 minutes.
+- endedAt is the real-world wall-clock time of day (24-hour HH:MM) shown on the result screen — this is NOT the match timer next to the clock icon. It may appear as a small time display (e.g. "21:34") elsewhere on the result screen. Return null if not visible.
 - mvpIgn is the MVP player on OUR team only — the LEFT/blue column. Even when our team lost, return our side's MVP. Never return a right-side (enemy) player.
 - hero is the character name shown beside the hero portrait (e.g. "Keera", "Eland'orr", "TeeMee").
 - ign is the player handle exactly as shown (e.g. "NOR.Pennii", "wildMutt").
@@ -1355,6 +1366,7 @@ function applyScannedData(){
   // Populate the duration input so logStep0Next() reads the scanned value back.
   // Force-set (don't skip when non-empty): a checked duration means apply it.
   if(LS.matchInfo.duration){var durInp=document.getElementById('log-duration');if(durInp)durInp.value=LS.matchInfo.duration;}
+  if(LS.matchInfo.endedAt){var etInp=document.getElementById('log-end-time');if(etInp)etInp.value=LS.matchInfo.endedAt;}
 
   // Draft
   if(!LS.draft)LS.draft={side:'Blue',ourPicks:['','','','',''],oppPicks:['','','','','']};
@@ -1556,7 +1568,7 @@ function applyEditScannedData(){
 
   // Match-level: endedAt, duration stored on the game object
   if(gameIdx>=0){
-    if(_scanChecked['endedAt']&&raw.endedAt)_cache.games[gameIdx].endedAt=raw.endedAt;
+    if(_scanChecked['endedAt']&&raw.endedAt){_cache.games[gameIdx].endedAt=raw.endedAt;var etEl=document.getElementById('egm-ended-at');if(etEl)etEl.value=raw.endedAt;}
     if(_scanChecked['duration']&&raw.duration)_cache.games[gameIdx].duration=raw.duration;
     // MVP
     if(_scanChecked['mvp']&&raw.mvpIgn){
@@ -1683,7 +1695,7 @@ function initLog(){
   // Clear the static Step-0 inputs. These are not regenerated per game, so without
   // this they keep the previous game's values — and applyScannedData only fills
   // empty fields, so a fresh scan would be ignored in favour of stale data.
-  ['log-opponent','log-duration','log-team-kills','log-enemy-kills','log-vod','log-notes','log-mvp']
+  ['log-opponent','log-duration','log-end-time','log-team-kills','log-enemy-kills','log-vod','log-notes','log-mvp']
     .forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
 
   // Populate the MVP search list with our roster
@@ -1795,6 +1807,7 @@ function logStep0Next(){
   var type     = LS.matchInfo.type || 'Scrim';
   var opponent = (document.getElementById('log-opponent')?.value || '').trim();
   var durStr   = (document.getElementById('log-duration')?.value || '').trim();
+  var endedAt  = (document.getElementById('log-end-time')?.value || '').trim();
   var teamK    = (document.getElementById('log-team-kills')?.value || '').trim();
   var enemyK   = (document.getElementById('log-enemy-kills')?.value || '').trim();
   var vod      = (document.getElementById('log-vod')?.value || '').trim();
@@ -1810,6 +1823,7 @@ function logStep0Next(){
   LS.matchInfo.notes    = notes    || null;
   LS.matchInfo.team_total_kills  = teamK  ? parseInt(teamK,10)  : null;
   LS.matchInfo.enemy_total_kills = enemyK ? parseInt(enemyK,10) : null;
+  LS.matchInfo.endedAt = endedAt || null;
 
   if(durStr){
     LS.matchInfo.duration = durStr;
@@ -2415,6 +2429,7 @@ async function saveGame(){
       game_num:          LS._gameNum || 1,
       opponent_name:     _gameName,
       duration_seconds:  LS.matchInfo.duration_seconds || null,
+      ended_at:          LS.matchInfo.endedAt || null,
       team_total_kills:  LS.matchInfo.team_total_kills  || null,
       enemy_total_kills: LS.matchInfo.enemy_total_kills || null,
       vod_url:           LS.matchInfo.vod_url  || null,
@@ -3317,9 +3332,15 @@ function _renderEditGameModal(game, scoredPlayers){
         '<input class="input" type="number" min="1" id="egm-gamenum" value="'+(game.gameNum||1)+'"/>'+
       '</div>'+
     '</div>'+
-    '<div class="input-group mb-0" style="margin-top:8px;">'+
-      '<label class="input-label">Date</label>'+
-      '<input class="input" type="date" id="egm-date" value="'+(game.date||'')+'"/>'+
+    '<div class="row" style="gap:8px;margin-top:8px;">'+
+      '<div class="input-group mb-0" style="flex:2;">'+
+        '<label class="input-label">Date</label>'+
+        '<input class="input" type="date" id="egm-date" value="'+(game.date||'')+'"/>'+
+      '</div>'+
+      '<div class="input-group mb-0" style="flex:1;">'+
+        '<label class="input-label">End Time <span style="color:var(--grey-5);font-weight:400;">(HH:MM)</span></label>'+
+        '<input class="input" type="text" id="egm-ended-at" value="'+(game.endedAt||'')+'" placeholder="21:34" style="font-family:\'DM Mono\',monospace;letter-spacing:1px;"/>'+
+      '</div>'+
     '</div>'+
   '</div>';
 
@@ -3550,15 +3571,18 @@ async function saveEditGame(gameId){
     var newGameNum = (gnEl && gnEl.value !== '') ? parseInt(gnEl.value, 10) : null;
     var newDate    = gdEl ? gdEl.value : '';
     var newOpp     = goEl ? goEl.value.trim() : '';
+    var newEndedAt  = (document.getElementById('egm-ended-at')?.value || '').trim();
     var gameUpdate = { opponent_name: newOpp || null, game_name: newOpp || null };
     if(newDate) gameUpdate.match_date = newDate;
     if(newGameNum != null && !isNaN(newGameNum)) gameUpdate.game_num = newGameNum;
+    gameUpdate.ended_at = newEndedAt || null;
     var {error: gErr} = await sb.from('games_v2').update(gameUpdate).eq('id', gameId);
     if(gErr) throw gErr;
     game.opponent = gameUpdate.opponent_name || '';
     game.gameName = gameUpdate.game_name || '';
     if(gameUpdate.match_date) game.date = gameUpdate.match_date;
     if('game_num' in gameUpdate) game.gameNum = gameUpdate.game_num;
+    game.endedAt = newEndedAt || game.endedAt || null;
 
     // Update local cache
     players.forEach(function(p, i){
