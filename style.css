@@ -753,7 +753,9 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .roster-mode-btn.active{background:rgba(68,255,136,0.10);color:var(--success);}
 
 /* ══ ROSTER COMPARE 3-COLUMN LAYOUT ══ */
-#page-roster.cmp-active{overflow:hidden;}
+/* Lock the full app to viewport height so only the center panel scrolls */
+.app:has(#page-roster.cmp-active){height:100dvh;overflow:hidden;}
+#page-roster.cmp-active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;}
 #roster-list.cmp-active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;}
 
 .cmp-selectors-bar{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 10px;border-bottom:var(--border);flex-shrink:0;background:var(--grey-1);}
@@ -803,27 +805,21 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .cmp-radar-legend-item{display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);}
 .cmp-radar-legend-dot{width:20px;height:2px;border-radius:1px;}
 
-/* Pillar breakdown */
-.cmp-pillar-bd{border-top:var(--border);}
-.cmp-pillar-bd-row{display:flex;align-items:center;padding:9px 12px;border-bottom:var(--border);gap:8px;}
-.cmp-pillar-bd-row:last-child{border-bottom:none;}
-.cmp-pillar-bd-label{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1px;color:var(--grey-6);width:72px;flex-shrink:0;text-align:right;}
-.cmp-pillar-bd-bars{flex:1;display:flex;flex-direction:column;gap:3px;}
-.cmp-pillar-bd-bar-row{display:flex;align-items:center;gap:4px;height:5px;}
-.cmp-pillar-bd-bar-fill{height:100%;border-radius:2px;transition:width 0.4s;}
-.cmp-pillar-bd-vals{width:52px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
-.cmp-pillar-bd-val{font-family:'DM Mono',monospace;font-size:8px;text-align:center;}
-
-/* Stats table */
-.cmp-stats-section-lbl{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);padding:12px 14px 8px;border-bottom:var(--border);}
-.cmp-stat-table{border-bottom:var(--border);margin-bottom:0;}
-.cmp-stat-trow{display:grid;grid-template-columns:1fr 70px 70px;border-bottom:var(--border);align-items:center;}
-.cmp-stat-trow:last-child{border-bottom:none;}
-.cmp-stat-trow.hdr{background:var(--grey-1);}
-.cmp-stat-tcell{padding:8px 10px;font-size:11px;}
-.cmp-stat-tcell.mono{font-family:'DM Mono',monospace;font-size:11px;text-align:center;}
-.cmp-stat-tcell.lbl{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);text-transform:uppercase;text-align:center;}
-.cmp-stat-winner{color:var(--white);font-weight:600;}
-.cmp-stat-loser{color:var(--grey-4);}
+/* ── Advantage bar (FM-style) used in pillar breakdown + stats ── */
+.adv-section-lbl{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);padding:12px 14px 8px;border-bottom:var(--border);}
+.adv-row{display:flex;align-items:center;padding:7px 10px 3px;gap:6px;border-bottom:var(--border);}
+.adv-row:last-child{border-bottom:none;}
+.adv-val{font-family:'DM Mono',monospace;font-size:11px;width:36px;flex-shrink:0;line-height:1;}
+.adv-val-a{text-align:right;}
+.adv-val-b{text-align:left;}
+.adv-bar-col{flex:1;min-width:0;}
+.adv-bar-inner{display:flex;align-items:center;height:7px;}
+.adv-half{flex:1;height:100%;background:var(--grey-3);overflow:hidden;}
+.adv-half-left{border-radius:3px 0 0 3px;display:flex;justify-content:flex-end;}
+.adv-half-right{border-radius:0 3px 3px 0;display:flex;justify-content:flex-start;}
+.adv-fill-a{height:100%;border-radius:2px 0 0 2px;transition:width 0.35s ease;}
+.adv-fill-b{height:100%;border-radius:0 2px 2px 0;transition:width 0.35s ease;}
+.adv-center-badge{flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;width:28px;text-align:center;line-height:1;padding:0 2px;}
+.adv-metric-name{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);text-align:center;padding:2px 0 5px;letter-spacing:0.5px;text-transform:uppercase;}
 
 @keyframes scanSpin{to{transform:rotate(360deg)}}
