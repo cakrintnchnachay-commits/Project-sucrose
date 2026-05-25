@@ -1200,26 +1200,28 @@ function _buildCmpOverall(ctx){
   var radarB=_profileRadarAxes(bId,roleB);
   var valuesB=radarB.values;
 
-  // Build pillar breakdown rows
+  // Build pillar breakdown rows using advantage bars
   var bdRows=labelsUsed.map(function(lbl,i){
     var vA=valuesA[i]||0,vB=valuesB[i]||0;
-    var maxV=Math.max(vA,vB,0.1);
-    var pctA=Math.min(vA/10*100,100).toFixed(1);
-    var pctB=Math.min(vB/10*100,100).toFixed(1);
-    return '<div class="cmp-pillar-bd-row">'+
-      '<div class="cmp-pillar-bd-label">'+lbl+'</div>'+
-      '<div class="cmp-pillar-bd-bars">'+
-        '<div class="cmp-pillar-bd-bar-row">'+
-          '<div class="cmp-pillar-bd-bar-fill" style="width:'+pctA+'%;background:'+COL_A+';opacity:0.8;"></div>'+
+    var maxV=Math.max(vA,vB,0.001);
+    var pctA=(vA/maxV*100).toFixed(1);
+    var pctB=(vB/maxV*100).toFixed(1);
+    var aWin=vA>vB,bWin=vB>vA;
+    var diff=Math.abs(vA-vB);
+    var diffStr=diff>0?diff.toFixed(1):'';
+    var diffCol=aWin?COL_A:bWin?COL_B:'var(--grey-5)';
+    var colA=aWin?COL_A:'var(--grey-6)';var colB=bWin?COL_B:'var(--grey-6)';
+    return '<div class="adv-row">'+
+      '<div class="adv-val adv-val-a" style="color:'+colA+';">'+(vA>0?vA.toFixed(1):'—')+'</div>'+
+      '<div class="adv-bar-col">'+
+        '<div class="adv-bar-inner">'+
+          '<div class="adv-half adv-half-left"><div class="adv-fill-a" style="width:'+pctA+'%;background:'+COL_A+';"></div></div>'+
+          '<div class="adv-center-badge" style="color:'+diffCol+';">'+diffStr+'</div>'+
+          '<div class="adv-half adv-half-right"><div class="adv-fill-b" style="width:'+pctB+'%;background:'+COL_B+';"></div></div>'+
         '</div>'+
-        '<div class="cmp-pillar-bd-bar-row">'+
-          '<div class="cmp-pillar-bd-bar-fill" style="width:'+pctB+'%;background:'+COL_B+';opacity:0.8;"></div>'+
-        '</div>'+
+        '<div class="adv-metric-name">'+lbl+'</div>'+
       '</div>'+
-      '<div class="cmp-pillar-bd-vals">'+
-        '<div class="cmp-pillar-bd-val" style="color:'+COL_A+';">'+(vA>0?vA.toFixed(1):'—')+'</div>'+
-        '<div class="cmp-pillar-bd-val" style="color:'+COL_B+';">'+(vB>0?vB.toFixed(1):'—')+'</div>'+
-      '</div>'+
+      '<div class="adv-val adv-val-b" style="color:'+colB+';">'+(vB>0?vB.toFixed(1):'—')+'</div>'+
     '</div>';
   }).join('');
 
@@ -1228,8 +1230,8 @@ function _buildCmpOverall(ctx){
       '<div class="cmp-radar-legend-item"><div class="cmp-radar-legend-dot" style="background:'+COL_A+';"></div>'+pA.nick+'</div>'+
       '<div class="cmp-radar-legend-item"><div class="cmp-radar-legend-dot" style="background:'+COL_B+';"></div>'+pB.nick+'</div>'+
     '</div>'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-5);text-transform:uppercase;padding:8px 14px 4px;border-top:var(--border);">Pillar Breakdown</div>'+
-    '<div class="cmp-pillar-bd">'+bdRows+'</div>'+
+    '<div class="adv-section-lbl" style="border-top:var(--border);">Pillar Breakdown</div>'+
+    '<div>'+bdRows+'</div>'+
     '<div style="height:16px;"></div>';
 }
 
@@ -1323,49 +1325,55 @@ function _buildCmpStatistics(ctx){
   }
   var rA=agg(aId,gamesA),rB=agg(bId,gamesB);
 
-  function statRow(lbl,a,b,aN,bN,lowerIsBetter){
-    var aWin,bWin;
-    if(aN!=null&&bN!=null){
-      if(lowerIsBetter){aWin=aN<bN;bWin=bN<aN;}
-      else{aWin=aN>bN;bWin=bN>aN;}
-    }
-    return '<div class="cmp-stat-trow">'+
-      '<div class="cmp-stat-tcell">'+lbl+'</div>'+
-      '<div class="cmp-stat-tcell mono '+(aWin?'cmp-stat-winner':bWin?'cmp-stat-loser':(aN!=null?'':''))+'">'+a+'</div>'+
-      '<div class="cmp-stat-tcell mono '+(bWin?'cmp-stat-winner':aWin?'cmp-stat-loser':(bN!=null?'':''))+'">'+b+'</div>'+
-    '</div>';
-  }
-  function hdr(){
-    return '<div class="cmp-stat-trow hdr">'+
-      '<div class="cmp-stat-tcell" style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">Metric</div>'+
-      '<div class="cmp-stat-tcell lbl" style="color:'+COL_A+';">'+pA.nick+'</div>'+
-      '<div class="cmp-stat-tcell lbl" style="color:'+COL_B+';">'+pB.nick+'</div>'+
-    '</div>';
-  }
   function f1(v){return v!=null?v.toFixed(1):'—';}
   function f2(v){return v!=null?v.toFixed(2):'—';}
   function pct(v){return v!=null?v.toFixed(1)+'%':'—';}
   function rnd(v){return v!=null?Math.round(v).toString():'—';}
 
-  return '<div class="cmp-stats-section-lbl">General</div>'+
-    '<div class="cmp-stat-table">'+
-      hdr()+
-      statRow('Win Rate',pct(rA.winRate),pct(rB.winRate),rA.winRate,rB.winRate)+
-      statRow('KDA Ratio',f2(rA.kda),f2(rB.kda),rA.kda,rB.kda)+
-      statRow('In-Game Rating',f1(rA.igr),f1(rB.igr),rA.igr,rB.igr)+
-      statRow('Death Avg',f1(rA.avgDeaths),f1(rB.avgDeaths),rA.avgDeaths,rB.avgDeaths,true)+
-      statRow('Coach Score',f1(rA.coach),f1(rB.coach),rA.coach,rB.coach)+
-    '</div>'+
-    '<div class="cmp-stats-section-lbl" style="margin-top:2px;">Positional</div>'+
-    '<div class="cmp-stat-table">'+
-      hdr()+
-      statRow('DMG %',pct(rA.dd),pct(rB.dd),rA.dd,rB.dd)+
-      statRow('DMG Taken %',pct(rA.dt),pct(rB.dt),rA.dt,rB.dt)+
-      statRow('DMG / Min',rnd(rA.ddpm),rnd(rB.ddpm),rA.ddpm,rB.ddpm)+
-      statRow('DMG Taken / Min',rnd(rA.dtpm),rnd(rB.dtpm),rA.dtpm,rB.dtpm)+
-      statRow('Kill / Min',f2(rA.kpm),f2(rB.kpm),rA.kpm,rB.kpm)+
-      statRow('Kill Participation',pct(rA.kp),pct(rB.kp),rA.kp,rB.kp)+
-    '</div>'+
+  // FM-style horizontal advantage bar row
+  function advRow(lbl,vA,vB,rawA,rawB,lowerIsBetter,diffFmt){
+    if(rawA==null&&rawB==null)return '';
+    var aWin=false,bWin=false;
+    if(rawA!=null&&rawB!=null){
+      if(lowerIsBetter){aWin=rawA<rawB;bWin=rawB<rawA;}
+      else{aWin=rawA>rawB;bWin=rawB>rawA;}
+    }
+    var absA=Math.abs(rawA||0),absB=Math.abs(rawB||0);
+    var maxV=Math.max(absA,absB,0.001);
+    var pA2=rawA!=null?(absA/maxV*100).toFixed(1):'0';
+    var pB2=rawB!=null?(absB/maxV*100).toFixed(1):'0';
+    var diff=(rawA!=null&&rawB!=null)?Math.abs(rawA-rawB):null;
+    var diffStr=diff!=null?(diffFmt?diffFmt(diff):(diff<10?diff.toFixed(1):Math.round(diff).toString())):'';
+    var diffCol=aWin?COL_A:bWin?COL_B:'var(--grey-5)';
+    var colA=aWin?COL_A:rawA!=null?'var(--grey-6)':'var(--grey-4)';
+    var colB=bWin?COL_B:rawB!=null?'var(--grey-6)':'var(--grey-4)';
+    return '<div class="adv-row">'+
+      '<div class="adv-val adv-val-a" style="color:'+colA+';">'+vA+'</div>'+
+      '<div class="adv-bar-col">'+
+        '<div class="adv-bar-inner">'+
+          '<div class="adv-half adv-half-left"><div class="adv-fill-a" style="width:'+pA2+'%;background:'+COL_A+';"></div></div>'+
+          '<div class="adv-center-badge" style="color:'+diffCol+';">'+diffStr+'</div>'+
+          '<div class="adv-half adv-half-right"><div class="adv-fill-b" style="width:'+pB2+'%;background:'+COL_B+';"></div></div>'+
+        '</div>'+
+        '<div class="adv-metric-name">'+lbl+'</div>'+
+      '</div>'+
+      '<div class="adv-val adv-val-b" style="color:'+colB+';">'+vB+'</div>'+
+    '</div>';
+  }
+
+  return '<div class="adv-section-lbl">General</div>'+
+    advRow('Win Rate',pct(rA.winRate),pct(rB.winRate),rA.winRate,rB.winRate,false,function(d){return d.toFixed(1)+'%';})+
+    advRow('KDA Ratio',f2(rA.kda),f2(rB.kda),rA.kda,rB.kda,false,function(d){return d.toFixed(2);})+
+    advRow('In-Game Rating',f1(rA.igr),f1(rB.igr),rA.igr,rB.igr,false,function(d){return d.toFixed(1);})+
+    advRow('Death Avg',f1(rA.avgDeaths),f1(rB.avgDeaths),rA.avgDeaths,rB.avgDeaths,true,function(d){return d.toFixed(1);})+
+    advRow('Coach Score',f1(rA.coach),f1(rB.coach),rA.coach,rB.coach,false,function(d){return d.toFixed(1);})+
+    '<div class="adv-section-lbl" style="margin-top:2px;">Positional</div>'+
+    advRow('DMG %',pct(rA.dd),pct(rB.dd),rA.dd,rB.dd,false,function(d){return d.toFixed(1)+'%';})+
+    advRow('DMG Taken %',pct(rA.dt),pct(rB.dt),rA.dt,rB.dt,false,function(d){return d.toFixed(1)+'%';})+
+    advRow('DMG / Min',rnd(rA.ddpm),rnd(rB.ddpm),rA.ddpm,rB.ddpm,false,function(d){return Math.round(d).toString();})+
+    advRow('DMG Taken / Min',rnd(rA.dtpm),rnd(rB.dtpm),rA.dtpm,rB.dtpm,false,function(d){return Math.round(d).toString();})+
+    advRow('Kill / Min',f2(rA.kpm),f2(rB.kpm),rA.kpm,rB.kpm,false,function(d){return d.toFixed(2);})+
+    advRow('Kill Participation',pct(rA.kp),pct(rB.kp),rA.kp,rB.kp,false,function(d){return d.toFixed(1)+'%';})+
     '<div style="height:16px;"></div>';
 }
 
