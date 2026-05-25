@@ -1650,6 +1650,10 @@ function toggleSelectView(playerId){
   if(!dd)return;
   dd.style.display=dd.style.display==='none'?'block':'none';
 }
+function closeSelectView(playerId){
+  var dd=document.getElementById('sv-dd-'+playerId);
+  if(dd)dd.style.display='none';
+}
 // ── Fixed raw stats for statistic tab ──
 function _renderProfileRawStats(playerId){
   var box=document.getElementById('prof-rawstats-'+playerId);if(!box)return;
@@ -1868,6 +1872,9 @@ function showProfile(playerId){
 // ── Pillar trend: SELECT VIEW + date presets ──
 function renderPtrend(playerId){
   var box=document.getElementById('ptrend-block-'+playerId);if(!box)return;
+  // Preserve SELECT VIEW open state across re-renders
+  var existingDd=document.getElementById('sv-dd-'+playerId);
+  var svWasOpen=existingDd&&existingDd.style.display!=='none';
   var role=window._profileRole;
   var pl=PILLAR_MAP[role]||['Pillar 1','Pillar 2','Pillar 3','Pillar 4'];
   var st=_ptrendState();
@@ -1936,9 +1943,12 @@ function renderPtrend(playerId){
             ' SELECT VIEW <span class="select-view-count">'+svCount+'</span>'+
           '</button>'+
           '<div class="select-view-dropdown" id="sv-dd-'+playerId+'" style="display:none;">'+
-            '<div style="display:flex;gap:5px;padding:8px 12px 4px;">'+
-              '<button class="tier-mode-btn" style="padding:4px 8px;font-size:8px;" onclick="setPtrendAllSeries(\''+playerId+'\',true)">All</button>'+
-              '<button class="tier-mode-btn" style="padding:4px 8px;font-size:8px;" onclick="setPtrendAllSeries(\''+playerId+'\',false)">None</button>'+
+            '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px 6px;border-bottom:var(--border);">'+
+              '<div style="display:flex;gap:5px;">'+
+                '<button class="tier-mode-btn" style="padding:4px 8px;font-size:8px;" onclick="setPtrendAllSeries(\''+playerId+'\',true)">All</button>'+
+                '<button class="tier-mode-btn" style="padding:4px 8px;font-size:8px;" onclick="setPtrendAllSeries(\''+playerId+'\',false)">None</button>'+
+              '</div>'+
+              '<button onclick="closeSelectView(\''+playerId+'\')" style="background:none;border:none;color:var(--grey-5);cursor:pointer;font-size:16px;line-height:1;padding:0 2px;" title="Close">&times;</button>'+
             '</div>'+
             '<div class="sv-section-header">PILLAR</div>'+svPillarItems+
             '<div class="sv-section-header">RAW STATS</div>'+svRawItems+
@@ -1963,6 +1973,8 @@ function renderPtrend(playerId){
     '</div>'+
     legendHtml;
   box.innerHTML=html;
+  // Restore SELECT VIEW open state
+  if(svWasOpen){var newDd=document.getElementById('sv-dd-'+playerId);if(newDd)newDd.style.display='block';}
   if(isPillar)drawPillarTrend(playerId);else drawRawStatsTrend(playerId);
 }
 function drawPillarTrend(playerId){
