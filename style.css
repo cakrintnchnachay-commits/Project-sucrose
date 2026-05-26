@@ -804,7 +804,7 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .rst-grad{position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,transparent 42%,rgba(10,10,10,0.55) 62%,rgba(14,14,14,0.93) 80%,#141414 100%);}
 .rst-sid{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 110%,transparent 25%,rgba(14,14,14,0.45) 75%);}
 /* Heroes overlaid in shadow above name — drop-shadow for floating look */
-.rst-heroes-overlay{position:absolute;left:10px;bottom:70px;display:flex;gap:7px;z-index:2;}
+.rst-heroes-overlay{position:absolute;left:10px;bottom:70px;display:flex;gap:5px;z-index:2;}
 .rst-hero-thumb{width:40px;height:40px;border-radius:50%;background:var(--grey-3);overflow:hidden;border:1.5px solid rgba(255,255,255,0.22);flex-shrink:0;filter:drop-shadow(0 3px 10px rgba(0,0,0,0.95));}
 .rst-hero-thumb img{width:100%;height:100%;object-fit:cover;}
 /* Name block at very bottom */
@@ -941,5 +941,42 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .adv-fill-b{height:100%;border-radius:0 2px 2px 0;transition:width 0.35s ease;}
 .adv-center-badge{flex-shrink:0;font-family:'DM Mono',monospace;font-size:8px;width:28px;text-align:center;line-height:1;padding:0 2px;}
 .adv-metric-name{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);text-align:center;padding:2px 0 5px;letter-spacing:0.5px;text-transform:uppercase;}
+
+/* ══ COMPARE PICK MODE ══ */
+.btn-compare-pick{
+  display:flex;align-items:center;gap:6px;
+  padding:9px 18px;
+  background:var(--success);color:#000;
+  font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;
+  border:none;border-radius:3px;cursor:pointer;
+  flex-shrink:0;
+  transition:opacity 0.15s,transform 0.1s;
+}
+.btn-compare-pick:hover{opacity:0.85;transform:scale(1.03);}
+
+.pick-mode-banner{
+  background:rgba(68,255,136,0.08);
+  border-top:1px solid rgba(68,255,136,0.25);
+  border-bottom:1px solid rgba(68,255,136,0.15);
+  padding:9px 20px;
+  font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;
+  color:rgba(68,255,136,0.9);
+  text-align:center;
+}
+
+/* Card selection rings */
+[data-pid]{transition:box-shadow 0.2s ease,opacity 0.35s ease,transform 0.5s cubic-bezier(0.4,0,0.2,1);}
+.pick-sel-a{box-shadow:0 0 0 3px rgba(68,255,136,0.95),0 0 16px rgba(68,255,136,0.25)!important;}
+.pick-sel-b{box-shadow:0 0 0 3px rgba(100,180,255,0.95),0 0 16px rgba(100,180,255,0.25)!important;}
+.pick-faded{opacity:0.2!important;pointer-events:none;}
+.pick-fly-left{transform:translateX(-110%) scale(0.9)!important;opacity:0!important;}
+.pick-fly-right{transform:translateX(110%) scale(0.9)!important;opacity:0!important;}
+
+/* Compare panels slide-in */
+.cmp-side-panel{opacity:0;transform:translateX(-14px);transition:opacity 0.4s ease,transform 0.4s ease;}
+#cmp-panel-b{transform:translateX(14px);}
+.cmp-side-panel.cmp-panel-visible{opacity:1;transform:none;}
+.cmp-center-panel{opacity:0;transform:translateY(18px);transition:opacity 0.45s ease 0.1s,transform 0.45s ease 0.1s;}
+.cmp-center-panel.cmp-center-visible{opacity:1;transform:none;}
 
 @keyframes scanSpin{to{transform:rotate(360deg)}}
