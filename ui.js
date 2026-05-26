@@ -732,6 +732,48 @@ function showToast(msg){var t=document.getElementById('toast');t.textContent=msg
 var _rosterMode='cards';
 function setRosterMode(m){_rosterMode=m;renderRoster();}
 
+// ── Pick mode state ──
+var _pickMode=false;
+window._pickA=null;
+window._pickB=null;
+
+function enterPickMode(){
+  _pickMode=true;window._pickA=null;window._pickB=null;
+  _rosterMode='cards';renderRoster();
+}
+function exitPickMode(){
+  _pickMode=false;window._pickA=null;window._pickB=null;renderRoster();
+}
+function cardClick(pid,ev){
+  if(!_pickMode){showProfile(pid);return;}
+  if(window._pickA===pid){window._pickA=null;_updatePickClasses();return;}
+  if(window._pickB===pid){window._pickB=null;_updatePickClasses();return;}
+  if(!window._pickA){window._pickA=pid;_updatePickClasses();}
+  else if(!window._pickB){window._pickB=pid;_updatePickClasses();setTimeout(startCompareTransition,400);}
+}
+function _updatePickClasses(){
+  var cards=document.querySelectorAll('[data-pid]');
+  cards.forEach(function(card){
+    var pid=card.getAttribute('data-pid');
+    card.classList.remove('pick-sel-a','pick-sel-b','pick-faded');
+    if(pid===window._pickA)card.classList.add('pick-sel-a');
+    else if(pid===window._pickB)card.classList.add('pick-sel-b');
+    else if(window._pickA&&window._pickB)card.classList.add('pick-faded');
+  });
+}
+function startCompareTransition(){
+  var cardA=document.querySelector('[data-pid="'+window._pickA+'"]');
+  var cardB=document.querySelector('[data-pid="'+window._pickB+'"]');
+  if(cardA)cardA.classList.add('pick-fly-left');
+  if(cardB)cardB.classList.add('pick-fly-right');
+  var pidA=window._pickA,pidB=window._pickB;
+  setTimeout(function(){
+    window._rosterCmpA=pidA;window._rosterCmpB=pidB;
+    _pickMode=false;window._pickA=null;window._pickB=null;
+    _rosterMode='compare';renderRoster();
+  },500);
+}
+
 function renderRoster(){
   PLAYERS=getPlayers();var data=loadData();
   var activeCount=PLAYERS.filter(function(p){return p.status!=='Inactive';}).length;
@@ -753,11 +795,18 @@ function renderRoster(){
           '<div class="roster-mode-btns">'+
             '<button class="roster-mode-btn'+(mode==='cards'?' active':'')+'" onclick="setRosterMode(\'cards\')">Cards</button>'+
             '<button class="roster-mode-btn'+(mode==='list'?' active':'')+'" onclick="setRosterMode(\'list\')">List</button>'+
-            '<button class="roster-mode-btn'+(mode==='compare'?' active':'')+'" onclick="setRosterMode(\'compare\')">Compare</button>'+
           '</div>'+
         '</div>'+
-        '<button class="btn btn-sm btn-muted" style="font-size:9px;padding:7px 12px;flex-shrink:0;" onclick="openPlayerEdit(null)">+ Add Player</button>'+
+        '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">'+
+          (_pickMode?
+            '<button class="btn btn-sm" style="font-size:9px;padding:7px 14px;background:var(--grey-2);color:var(--grey-5);border:1px solid var(--grey-3);border-radius:3px;cursor:pointer;" onclick="exitPickMode()">Cancel</button>':
+            '<button class="btn-compare-pick" onclick="enterPickMode()">⚖ COMPARE</button>')+
+          '<button class="btn btn-sm btn-muted" style="font-size:9px;padding:7px 12px;flex-shrink:0;" onclick="openPlayerEdit(null)">+ Add Player</button>'+
+        '</div>'+
       '</div>'+
+      (_pickMode?'<div class="pick-mode-banner">'+
+        (window._pickA&&window._pickB?'Both players selected — transitioning…':window._pickA?'Now click a second player to compare (blue)':'Click a player to select for comparison (green)')+
+      '</div>':'')+
       '<div class="roster-hdr-sub" id="roster-subtitle">'+activeCount+' active · '+inactiveCount+' inactive</div>';
   }
 
@@ -813,7 +862,7 @@ function renderRoster(){
       if(!s||s.skipped||!s.hero)return;
       hMap[s.hero]=(hMap[s.hero]||0)+1;
     });
-    return Object.keys(hMap).sort(function(a,b){return hMap[b]-hMap[a];}).slice(0,3);
+    return Object.keys(hMap).sort(function(a,b){return hMap[b]-hMap[a];}).slice(0,5);
   }
 
   function rBarChart(vals){
@@ -872,8 +921,9 @@ function renderRoster(){
       var coachGrade=st.coachAvg!=null?scoreToGrade(st.coachAvg):null;
       // Heroes overlaid inside portrait shadow
       var heroesOverlay=heroes.length?
-        '<div class="rst-heroes-overlay">'+heroes.map(function(h){return heroThumb(h,32,'rst-hero-thumb');}).join('')+'</div>':'';
-      return '<article class="roster-starter-card" onclick="showProfile(\''+p.id+'\')">'+
+        '<div class="rst-heroes-overlay">'+heroes.map(function(h){return heroThumb(h,26,'rst-hero-thumb');}).join('')+'</div>':'';
+      var pickCls=window._pickA===p.id?' pick-sel-a':window._pickB===p.id?' pick-sel-b':(_pickMode&&window._pickA&&window._pickB?' pick-faded':'');
+      return '<article class="roster-starter-card'+pickCls+'" data-pid="'+p.id+'" onclick="cardClick(\''+p.id+'\',event)">'+
         '<div class="rst-role-bar">'+
           '<span class="rst-role-label" style="color:'+roleCol+';">'+p.role+'</span>'+
           '<span class="rst-rank">'+String(rank).padStart(2,'0')+'</span>'+
@@ -917,7 +967,8 @@ function renderRoster(){
       var avatarHtml=url?
         '<div style="width:40px;height:40px;border-radius:50%;overflow:hidden;flex-shrink:0;border:1px solid var(--grey-3);"><img src="'+url+'" alt="" style="width:100%;height:100%;object-fit:cover;filter:grayscale(0.25);opacity:0.85;" onerror="this.style.display=\'none\'"/></div>':
         '<div style="width:40px;height:40px;border-radius:50%;background:var(--grey-3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:17px;color:var(--grey-5);">'+p.nick[0]+'</div>';
-      return '<article class="roster-sub-card" onclick="showProfile(\''+p.id+'\')">'+
+      var pickClsSub=window._pickA===p.id?' pick-sel-a':window._pickB===p.id?' pick-sel-b':(_pickMode&&window._pickA&&window._pickB?' pick-faded':'');
+      return '<article class="roster-sub-card'+pickClsSub+'" data-pid="'+p.id+'" onclick="cardClick(\''+p.id+'\',event)">'+
         '<div class="rst-sub-top">'+
           '<div style="display:flex;align-items:center;gap:5px;">'+
             '<div style="width:4px;height:4px;border-radius:50%;background:'+roleCol+';"></div>'+
@@ -1092,6 +1143,12 @@ function renderRosterCompare(){
     '<div id="cmp-stat-content"></div>';
 
   _renderCmpCenter();
+  // Animate panels in
+  setTimeout(function(){
+    if(panA)panA.classList.add('cmp-panel-visible');
+    if(panB)panB.classList.add('cmp-panel-visible');
+    if(center)center.classList.add('cmp-center-visible');
+  },30);
 }
 
 function _buildCmpProfile(p,pid,games,col,data,side){
