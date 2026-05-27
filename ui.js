@@ -2285,6 +2285,185 @@ function toggleHeroStats(playerId){
   if(btnEl)btnEl.textContent=isOpen?'SHOW MORE ▾':'SHOW LESS ▴';
 }
 
+// ── Hero Radar: position-based caps (highest recorded value per stat per role) ──
+function _heroRadarCaps(role){
+  var data=loadData();
+  var games=data.games||[];
+  var players=getPlayers()||[];
+  var roleMap={};players.forEach(function(p){roleMap[p.id]=(p.role||'').toLowerCase();});
+  // Sensible floor minimums so radar is never empty-looking on tiny datasets
+  var caps={kda:5,kp:50,gpm:400,dd:20,dt:15,igr:8};
+  games.forEach(function(g){
+    Object.keys(g.playerScores||{}).forEach(function(pid){
+      var s=g.playerScores[pid];if(!s||s.skipped)return;
+      var pr=((s.role)||roleMap[pid]||'').toLowerCase();
+      if(role&&pr!==role.toLowerCase())return;
+      var kda=null;
+      if(s.kills!=null&&s.deaths!=null&&s.assists!=null)kda=(+s.kills+ +s.assists)/Math.max(+s.deaths,1);
+      else if(s.kda!=null)kda=+s.kda;
+      if(kda!=null&&kda>caps.kda)caps.kda=kda;
+      if(s.kill_contribution_pct!=null&&+s.kill_contribution_pct>caps.kp)caps.kp=+s.kill_contribution_pct;
+      if(s.gold_per_min!=null&&+s.gold_per_min>caps.gpm)caps.gpm=+s.gold_per_min;
+      if(s.dmg_dealt_pct!=null&&+s.dmg_dealt_pct>caps.dd)caps.dd=+s.dmg_dealt_pct;
+      if(s.dmg_taken_pct!=null&&+s.dmg_taken_pct>caps.dt)caps.dt=+s.dmg_taken_pct;
+      if(s.in_game_rating!=null&&+s.in_game_rating>caps.igr)caps.igr=+s.in_game_rating;
+    });
+  });
+  return caps;
+}
+
+// ── Hero Radar: team average across ALL players who played this hero ──
+function _heroRadarTeamAvg(heroName){
+  var data=loadData();
+  var games=data.games||[];
+  var sums={kda:0,kp:0,gpm:0,dd:0,dt:0,igr:0},cnts={kda:0,kp:0,gpm:0,dd:0,dt:0,igr:0};
+  games.forEach(function(g){
+    Object.keys(g.playerScores||{}).forEach(function(pid){
+      var s=g.playerScores[pid];if(!s||s.skipped||s.hero!==heroName)return;
+      var kda=null;
+      if(s.kills!=null&&s.deaths!=null&&s.assists!=null)kda=(+s.kills+ +s.assists)/Math.max(+s.deaths,1);
+      else if(s.kda!=null)kda=+s.kda;
+      if(kda!=null){sums.kda+=kda;cnts.kda++;}
+      if(s.kill_contribution_pct!=null){sums.kp+=+s.kill_contribution_pct;cnts.kp++;}
+      if(s.gold_per_min!=null){sums.gpm+=+s.gold_per_min;cnts.gpm++;}
+      if(s.dmg_dealt_pct!=null){sums.dd+=+s.dmg_dealt_pct;cnts.dd++;}
+      if(s.dmg_taken_pct!=null){sums.dt+=+s.dmg_taken_pct;cnts.dt++;}
+      if(s.in_game_rating!=null){sums.igr+=+s.in_game_rating;cnts.igr++;}
+    });
+  });
+  return{
+    kda:cnts.kda?sums.kda/cnts.kda:null,
+    kp:cnts.kp?sums.kp/cnts.kp:null,
+    gpm:cnts.gpm?sums.gpm/cnts.gpm:null,
+    dd:cnts.dd?sums.dd/cnts.dd:null,
+    dt:cnts.dt?sums.dt/cnts.dt:null,
+    igr:cnts.igr?sums.igr/cnts.igr:null
+  };
+}
+
+// ── Draw hero performance radar chart (6-pillar, position-capped) ──
+var _HD_PILLARS=[
+  {key:'kda',   label:'KDA',        fmt:function(v){return v.toFixed(2);}},
+  {key:'kp',    label:'Kill Part.', fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'gpm',   label:'Gold/Min',   fmt:function(v){return Math.round(v);}},
+  {key:'dd',    label:'DMG Dealt',  fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'dt',    label:'DMG Taken',  fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'igr',   label:'IGR',        fmt:function(v){return v.toFixed(1);}}
+];
+function drawHeroRadar(canvasId,playerVals,teamVals,caps){
+  var canvas=document.getElementById('hero-radar-'+canvasId);if(!canvas)return;
+  var dpr=window.devicePixelRatio||1;
+  var dW=canvas.offsetWidth||canvas.width;var dH=canvas.offsetHeight||canvas.height;
+  canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.width=dW+'px';canvas.style.height=dH+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  var W=dW,H=dH,cx=W/2,cy=H/2,R=Math.min(W,H)/2-58,n=_HD_PILLARS.length;
+  ctx.clearRect(0,0,W,H);
+  function ang(i){return(Math.PI*2*i/n)-Math.PI/2;}
+  function pt(i,r){return{x:cx+r*Math.cos(ang(i)),y:cy+r*Math.sin(ang(i))};}
+  // Grid rings
+  [0.25,0.5,0.75,1].forEach(function(f){
+    ctx.beginPath();
+    for(var i=0;i<n;i++){var p=pt(i,R*f);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);}
+    ctx.closePath();
+    ctx.strokeStyle=f===1?'rgba(255,255,255,0.14)':'rgba(255,255,255,0.06)';
+    ctx.lineWidth=1;ctx.stroke();
+  });
+  // Axis spokes
+  for(var i=0;i<n;i++){
+    var ep=pt(i,R);ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ep.x,ep.y);
+    ctx.strokeStyle='rgba(255,255,255,0.1)';ctx.lineWidth=1;ctx.stroke();
+  }
+  function norm(val,key){if(val==null)return 0;var cap=caps[key]||1;return Math.min(val/cap,1);}
+  function drawPoly(vals,fillCol,strokeCol,dotCol,dotR){
+    var hasData=_HD_PILLARS.some(function(p){return vals[p.key]!=null;});
+    ctx.beginPath();
+    _HD_PILLARS.forEach(function(pil,i){
+      var frac=hasData?norm(vals[pil.key],pil.key):0.04;
+      if(vals[pil.key]==null)frac=0.04;
+      var p=pt(i,R*Math.max(frac,0.03));
+      i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);
+    });
+    ctx.closePath();ctx.fillStyle=fillCol;ctx.fill();
+    ctx.strokeStyle=strokeCol;ctx.lineWidth=2;ctx.stroke();
+    if(hasData)_HD_PILLARS.forEach(function(pil,i){
+      if(vals[pil.key]==null)return;
+      var frac=norm(vals[pil.key],pil.key);
+      var p=pt(i,R*Math.max(frac,0.03));
+      ctx.beginPath();ctx.arc(p.x,p.y,dotR,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();
+    });
+  }
+  // Team avg in blue (behind player)
+  if(teamVals)drawPoly(teamVals,'rgba(100,180,255,0.08)','rgba(100,180,255,0.45)','rgba(100,180,255,0.7)',3);
+  // Player polygon in green (matching reference design)
+  drawPoly(playerVals,'rgba(80,220,140,0.15)','rgba(80,220,140,0.95)','rgba(80,220,140,1)',4.5);
+  // Labels
+  _HD_PILLARS.forEach(function(pil,i){
+    var lR=R+36;var p=pt(i,lR);var val=playerVals[pil.key];
+    ctx.textAlign='center';
+    ctx.font='500 10px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.fillText(pil.label,p.x,p.y);
+    if(val!=null){
+      ctx.font='bold 11px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.fillText(pil.fmt(val),p.x,p.y+13);
+    }
+  });
+  // Store hit zones for interactivity
+  if(!window._heroRadarHits)window._heroRadarHits={};
+  window._heroRadarHits[canvasId]=_HD_PILLARS.map(function(pil,i){
+    var val=playerVals[pil.key];if(val==null)return null;
+    var frac=norm(val,pil.key);var p=pt(i,R*Math.max(frac,0.03));
+    return{x:p.x,y:p.y,label:pil.label,value:val,fmt:pil.fmt,
+           teamVal:teamVals?teamVals[pil.key]:null,teamFmt:pil.fmt};
+  }).filter(Boolean);
+}
+
+// ── Hero radar canvas events: hover + click shows value card ──
+function _setupHeroRadarEvents(canvasId){
+  var canvas=document.getElementById('hero-radar-'+canvasId);
+  var tip=document.getElementById('hero-radar-tip-'+canvasId);
+  if(!canvas||!tip)return;
+  function getHit(cx,cy){
+    var hits=(window._heroRadarHits&&window._heroRadarHits[canvasId])||[];
+    var best=null,bestD=Infinity;
+    hits.forEach(function(h){var d=Math.hypot(h.x-cx,h.y-cy);if(d<bestD&&d<20){best=h;bestD=d;}});
+    return best;
+  }
+  function showTip(ex,ey,hit){
+    var lblEl=document.getElementById('hero-radar-tip-lbl-'+canvasId);
+    var valEl=document.getElementById('hero-radar-tip-val-'+canvasId);
+    var teamRow=document.getElementById('hero-radar-tip-team-'+canvasId);
+    var teamValEl=document.getElementById('hero-radar-tip-teamval-'+canvasId);
+    if(lblEl)lblEl.textContent=hit.label;
+    if(valEl)valEl.textContent=hit.fmt(hit.value);
+    if(teamRow)teamRow.style.display=hit.teamVal!=null?'flex':'none';
+    if(teamValEl&&hit.teamVal!=null)teamValEl.textContent=hit.teamFmt(hit.teamVal);
+    var pw=canvas.offsetWidth||300,ph=canvas.offsetHeight||300;
+    var tw=150,th=tip.offsetHeight||82;
+    var tx=ex+14,ty=ey-36;
+    if(tx+tw>pw-4)tx=ex-tw-14;if(tx<4)tx=4;
+    if(ty<4)ty=4;if(ty+th>ph-4)ty=Math.max(4,ph-th-4);
+    tip.style.left=tx+'px';tip.style.top=ty+'px';tip.style.display='block';tip._lastHit=hit;
+  }
+  function hideTip(){tip.style.display='none';tip._lastHit=null;}
+  canvas.addEventListener('mousemove',function(e){
+    var r=canvas.getBoundingClientRect();var hit=getHit(e.clientX-r.left,e.clientY-r.top);
+    canvas.style.cursor=hit?'pointer':'default';
+    if(hit)showTip(e.clientX-r.left,e.clientY-r.top,hit);else hideTip();
+  });
+  canvas.addEventListener('mouseleave',function(){hideTip();canvas.style.cursor='default';});
+  canvas.addEventListener('click',function(e){
+    var r=canvas.getBoundingClientRect();var cx=e.clientX-r.left,cy=e.clientY-r.top;var hit=getHit(cx,cy);
+    if(hit){if(tip.style.display!=='none'&&tip._lastHit===hit)hideTip();else showTip(cx,cy,hit);}
+    else hideTip();
+  });
+  canvas.addEventListener('touchstart',function(e){
+    e.preventDefault();var r=canvas.getBoundingClientRect();var t=e.touches[0];
+    var cx=t.clientX-r.left,cy=t.clientY-r.top;var hit=getHit(cx,cy);
+    if(hit){if(tip.style.display!=='none'&&tip._lastHit===hit)hideTip();else showTip(cx,cy,hit);}
+    else hideTip();
+  },{passive:false});
+}
+
 function _renderHeroDetail(playerId){
   var box=document.getElementById('prof-hero-detail-'+playerId);
   if(!box)return;
@@ -2303,17 +2482,58 @@ function _renderHeroDetail(playerId){
   var isMain=pool.length>0&&pool[0].hero===heroName;
   var poolPct=heroData?heroData.poolPct:0;
   var heroUrl=heroImgUrl(heroName);
+  var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
+  var role=player?(player.role||''):'';
 
-  // Portrait
-  var portraitHtml='<div class="hd-hero-portrait">'+
-    '<div class="hd-hero-portrait-img" style="background-image:url(\''+heroUrl+'\');"></div>'+
-    '<div class="hd-hero-portrait-grad"></div>'+
-    '<div class="hd-hero-badge">'+
-      (isMain?'<span class="hd-badge-main">▲ MAIN PICK</span>':'')+
-      '<span class="hd-badge-pct">'+poolPct.toFixed(0)+'% OF POOL</span>'+
+  // ── Build hero meta (class/roles) ──
+  var heroMeta='';
+  try{var hdb=(typeof getLiveHeroes==='function'?getLiveHeroes():[]).find(function(x){return x.name===heroName;});
+    if(hdb)heroMeta='<div class="hd-hdr-meta">'+hdb.cls+(hdb.roles&&hdb.roles.length?' · '+hdb.roles.join(', '):'')+'</div>';
+  }catch(e){}
+  var init=(heroName||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+  var roleLabel=role?role.charAt(0).toUpperCase()+role.slice(1):'—';
+
+  // ── Left column: square portrait + name + badges ──
+  var leftHtml='<div class="hd-top-left">'+
+    '<div class="hd-square-portrait">'+
+      '<div class="hd-square-portrait-fallback">'+init+'</div>'+
+      (heroUrl?'<img class="hd-square-portrait-img" src="'+heroUrl+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>':'')+
     '</div>'+
-    '<div class="hd-hero-name">'+heroName.toUpperCase()+'</div>'+
+    '<div class="hd-top-hero-name">'+heroName.toUpperCase()+'</div>'+
+    heroMeta+
+    '<div class="hd-top-badges">'+
+      (isMain?'<span class="hd-badge-main">▲ MAIN PICK</span>':'')+
+      '<span class="hd-badge-pool">'+poolPct.toFixed(0)+'% OF POOL</span>'+
+    '</div>'+
   '</div>';
+
+  // ── Right column: radar chart ──
+  var rightHtml='<div class="hd-top-right">'+
+    '<div class="hd-radar-section-hdr">'+
+      '<span class="hd-radar-section-title">PILLAR PERFORMANCE</span>'+
+      '<span class="hd-radar-section-sub">· '+roleLabel.toUpperCase()+'</span>'+
+    '</div>'+
+    (stats.games>0?
+      '<div class="hd-radar-canvas-wrap">'+
+        '<canvas id="hero-radar-'+playerId+'" width="300" height="300" style="width:100%;max-width:300px;display:block;margin:0 auto;"></canvas>'+
+        '<div class="hd-radar-tip" id="hero-radar-tip-'+playerId+'">'+
+          '<div class="hd-radar-tip-lbl" id="hero-radar-tip-lbl-'+playerId+'"></div>'+
+          '<div class="hd-radar-tip-val" id="hero-radar-tip-val-'+playerId+'"></div>'+
+          '<div class="hd-radar-tip-team" id="hero-radar-tip-team-'+playerId+'" style="display:none;">'+
+            '<span class="hd-radar-tip-team-lbl">TEAM AVG</span>'+
+            '<span class="hd-radar-tip-team-val" id="hero-radar-tip-teamval-'+playerId+'"></span>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="hd-radar-legend">'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.9);"></div>'+heroName.split(' ')[0]+'</div>'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.7);"></div>Team Avg</div>'+
+      '</div>'
+    :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:32px 0;flex:1;display:flex;align-items:center;justify-content:center;">No games with this hero yet</div>')+
+  '</div>';
+
+  // ── Two-column top block ──
+  var topHtml='<div class="hd-top-layout">'+leftHtml+rightHtml+'</div>';
 
   // 3 stat boxes
   var wrColor=stats.winRate>=60?'var(--success)':stats.winRate>=50?'var(--white)':stats.games>0?'var(--danger)':'var(--grey-5)';
@@ -2338,7 +2558,6 @@ function _renderHeroDetail(playerId){
   }
   var withHtml=syn.with.length?syn.with.map(synRow).join(''):'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);padding:12px 10px;">No data</div>';
   var vsHtml=syn.against.length?syn.against.map(synRow).join(''):'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);padding:12px 10px;">No data</div>';
-
   var synHtml='<div class="hd-syn-wrap">'+
     '<div class="hd-syn-col"><div class="hd-syn-label">PLAYED WITH</div>'+withHtml+'</div>'+
     '<div class="hd-syn-col"><div class="hd-syn-label">PLAYED AGAINST</div>'+vsHtml+'</div>'+
@@ -2368,7 +2587,18 @@ function _renderHeroDetail(playerId){
   '</div>'+
   '<button class="hd-show-more-btn" id="hd-showmore-btn-'+playerId+'" onclick="toggleHeroStats(\''+playerId+'\')">SHOW MORE ▾</button>';
 
-  box.innerHTML=portraitHtml+boxesHtml+synHtml+allTimeHtml+moreHtml;
+  box.innerHTML=topHtml+boxesHtml+synHtml+allTimeHtml+moreHtml;
+
+  // Draw radar after DOM update
+  if(stats.games>0){
+    setTimeout(function(){
+      var caps=_heroRadarCaps(role.toLowerCase());
+      var teamAvg=_heroRadarTeamAvg(heroName);
+      var playerVals={kda:stats.kda,kp:stats.kp,gpm:stats.gpm,dd:stats.dd,dt:stats.dt,igr:stats.igr};
+      drawHeroRadar(playerId,playerVals,teamAvg,caps);
+      _setupHeroRadarEvents(playerId);
+    },50);
+  }
 }
 
 function renderProfileHeroesTab(playerId){
