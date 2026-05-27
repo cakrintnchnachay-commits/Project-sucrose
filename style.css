@@ -982,3 +982,89 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .cmp-center-panel.cmp-center-visible{opacity:1;transform:none;}
 
 @keyframes scanSpin{to{transform:rotate(360deg)}}
+
+/* ── PROFILE HEROES TAB ── */
+.prof-heroes-split{display:flex;flex-direction:column;min-height:calc(100vh - 200px);}
+@media(min-width:900px){.prof-heroes-split{flex-direction:row;align-items:flex-start;}}
+.prof-hero-detail{flex:1;min-width:0;border-bottom:var(--border);overflow-y:auto;}
+@media(min-width:900px){.prof-hero-detail{border-bottom:none;border-right:var(--border);min-height:calc(100vh - 160px);overflow-y:auto;}}
+.prof-hero-pool{flex-shrink:0;width:100%;}
+@media(min-width:900px){.prof-hero-pool{width:260px;position:sticky;top:0;max-height:calc(100vh - 160px);overflow-y:auto;}}
+@media(min-width:1100px){.prof-hero-pool{width:300px;}}
+
+/* Hero portrait */
+.hd-hero-portrait{position:relative;width:100%;height:200px;overflow:hidden;background:var(--grey-2);}
+@media(min-width:900px){.hd-hero-portrait{height:240px;}}
+.hd-hero-portrait-img{position:absolute;inset:0;background-size:cover;background-position:top center;filter:brightness(0.75);}
+.hd-hero-portrait-grad{position:absolute;bottom:0;left:0;right:0;height:75%;background:linear-gradient(to top,var(--black) 0%,transparent 100%);}
+.hd-hero-badge{position:absolute;top:12px;left:14px;display:flex;gap:6px;align-items:center;}
+.hd-badge-main{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1.5px;color:var(--warn);background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.3);padding:2px 6px;border-radius:1px;}
+.hd-badge-pct{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:1px;}
+.hd-hero-name{position:absolute;bottom:14px;left:14px;right:14px;font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:2px;line-height:1;color:var(--white);}
+
+/* 3 main stat boxes */
+.hd-stat-boxes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border-bottom:var(--border);}
+.hd-stat-box{background:var(--black);padding:14px 12px;text-align:center;}
+.hd-stat-box-val{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;line-height:1;}
+.hd-stat-box-lbl{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);margin-top:4px;text-transform:uppercase;}
+
+/* Synergy section */
+.hd-syn-wrap{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:var(--border);}
+.hd-syn-col{border-right:var(--border);padding-bottom:4px;}
+.hd-syn-col:last-child{border-right:none;}
+.hd-syn-label{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);padding:10px 12px 8px;border-bottom:var(--border);text-transform:uppercase;}
+.hd-syn-row{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid rgba(42,42,42,0.4);}
+.hd-syn-row:last-child{border-bottom:none;}
+.hd-syn-rank{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);width:10px;flex-shrink:0;}
+.hd-syn-name{flex:1;min-width:0;font-size:10px;color:var(--grey-6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hd-syn-stats{display:flex;gap:5px;align-items:center;flex-shrink:0;}
+.hd-syn-games{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);}
+.hd-syn-wr{font-family:'DM Mono',monospace;font-size:9px;min-width:28px;text-align:right;}
+
+/* All time stats */
+.hd-alltime-header{display:flex;align-items:baseline;gap:8px;padding:12px 14px 8px;}
+.hd-alltime-title{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-5);text-transform:uppercase;}
+.hd-alltime-sub{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-4);}
+.hd-alltime-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--grey-3);margin:0 14px;}
+.hd-alltime-cell{background:var(--grey-1);padding:12px 8px;text-align:center;}
+.hd-alltime-val{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:0.5px;line-height:1;}
+.hd-alltime-lbl{font-family:'DM Mono',monospace;font-size:6px;letter-spacing:1.5px;color:var(--grey-5);margin-top:3px;text-transform:uppercase;}
+.hd-more-section{margin:0 14px;}
+.hd-more-section .hd-alltime-grid{margin:0;border-top:1px solid var(--grey-3);}
+.hd-show-more-btn{display:block;width:calc(100% - 28px);margin:8px 14px 16px;padding:9px;background:none;border:var(--border);color:var(--grey-5);font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1.5px;cursor:pointer;text-align:center;transition:all 0.15s;text-transform:uppercase;}
+.hd-show-more-btn:hover{color:var(--white);border-color:var(--grey-5);}
+
+/* Hero pool panel */
+.hp-header{padding:14px 14px 10px;border-bottom:var(--border);}
+.hp-header-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;line-height:1;}
+.hp-header-sub{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);margin-top:4px;text-transform:uppercase;}
+.hp-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:var(--border);cursor:pointer;transition:background 0.12s;border-left:2px solid transparent;}
+.hp-item:hover{background:var(--grey-1);}
+.hp-item.active{background:rgba(100,180,255,0.06);border-left-color:rgba(100,180,255,0.8);}
+.hp-item-img{width:44px;height:44px;flex-shrink:0;border-radius:3px;overflow:hidden;background:var(--grey-2);}
+.hp-item-body{flex:1;min-width:0;}
+.hp-item-name{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:0.5px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hp-item-meta{font-family:'DM Mono',monospace;font-size:7px;color:var(--grey-5);margin-top:3px;}
+.hp-item-wr-col{text-align:right;flex-shrink:0;min-width:36px;}
+.hp-item-wr{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;}
+.hp-item-wr-lbl{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);}
+.hp-item-rtg{text-align:center;min-width:32px;flex-shrink:0;}
+.hp-item-rtg-val{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;color:var(--grey-6);}
+.hp-item-rtg-lbl{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);}
+
+/* ── PROFILE GAMES TAB ── */
+.pgames-header{border-bottom:var(--border);}
+.pgame-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:var(--border);cursor:pointer;transition:background 0.1s;}
+.pgame-row:hover{background:var(--grey-1);}
+.pgame-result{width:22px;height:22px;border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;flex-shrink:0;}
+.pgame-win{background:rgba(68,255,136,0.15);color:var(--success);border:1px solid rgba(68,255,136,0.3);}
+.pgame-loss{background:rgba(255,68,68,0.12);color:var(--danger);border:1px solid rgba(255,68,68,0.25);}
+.pgame-hero{flex-shrink:0;}
+.pgame-info{flex:1;min-width:0;}
+.pgame-hero-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pgame-meta{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);margin-top:2px;}
+.pgame-kda{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-6);flex-shrink:0;min-width:54px;text-align:center;}
+.pgame-ratings{display:flex;gap:8px;flex-shrink:0;}
+.pgame-rating-cell{text-align:center;min-width:32px;}
+.pgame-rating-val{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;}
+.pgame-rating-lbl{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);}
