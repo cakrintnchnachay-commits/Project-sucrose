@@ -2343,12 +2343,12 @@ function _heroRadarTeamAvg(heroName){
 
 // ── Draw hero performance radar chart (6-pillar, position-capped) ──
 var _HD_PILLARS=[
-  {key:'kda',   label:'KDA',        fmt:function(v){return v.toFixed(2);}},
-  {key:'kp',    label:'Kill Part.', fmt:function(v){return v.toFixed(1)+'%';}},
-  {key:'gpm',   label:'Gold/Min',   fmt:function(v){return Math.round(v);}},
-  {key:'dd',    label:'DMG Dealt',  fmt:function(v){return v.toFixed(1)+'%';}},
-  {key:'dt',    label:'DMG Taken',  fmt:function(v){return v.toFixed(1)+'%';}},
-  {key:'igr',   label:'IGR',        fmt:function(v){return v.toFixed(1);}}
+  {key:'kda',   label:'KDA',         fmt:function(v){return v.toFixed(2);}},
+  {key:'kp',    label:'Kill Part %', fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'gpm',   label:'Gold Eff.',   fmt:function(v){return Math.round(v)+'gpm';}},
+  {key:'dd',    label:'DMG Dealt %', fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'dt',    label:'DMG Taken %', fmt:function(v){return v.toFixed(1)+'%';}},
+  {key:'igr',   label:'Rating',      fmt:function(v){return v.toFixed(1);}}
 ];
 function drawHeroRadar(canvasId,playerVals,teamVals,caps){
   var canvas=document.getElementById('hero-radar-'+canvasId);if(!canvas)return;
@@ -2356,7 +2356,7 @@ function drawHeroRadar(canvasId,playerVals,teamVals,caps){
   var dW=canvas.offsetWidth||canvas.width;var dH=canvas.offsetHeight||canvas.height;
   canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.width=dW+'px';canvas.style.height=dH+'px';
   var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
-  var W=dW,H=dH,cx=W/2,cy=H/2,R=Math.min(W,H)/2-58,n=_HD_PILLARS.length;
+  var W=dW,H=dH,cx=W/2,cy=H/2,R=Math.min(W,H)/2-66,n=_HD_PILLARS.length;
   ctx.clearRect(0,0,W,H);
   function ang(i){return(Math.PI*2*i/n)-Math.PI/2;}
   function pt(i,r){return{x:cx+r*Math.cos(ang(i)),y:cy+r*Math.sin(ang(i))};}
@@ -2392,18 +2392,18 @@ function drawHeroRadar(canvasId,playerVals,teamVals,caps){
       ctx.beginPath();ctx.arc(p.x,p.y,dotR,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();
     });
   }
-  // Team avg in blue (behind player)
-  if(teamVals)drawPoly(teamVals,'rgba(100,180,255,0.08)','rgba(100,180,255,0.45)','rgba(100,180,255,0.7)',3);
-  // Player polygon in green (matching reference design)
-  drawPoly(playerVals,'rgba(80,220,140,0.15)','rgba(80,220,140,0.95)','rgba(80,220,140,1)',4.5);
+  // Team avg in green (benchmark reference, drawn first/behind)
+  if(teamVals)drawPoly(teamVals,'rgba(80,220,140,0.08)','rgba(80,220,140,0.5)','rgba(80,220,140,0.75)',3);
+  // Player polygon in cyan (personal stats, drawn on top)
+  drawPoly(playerVals,'rgba(100,180,255,0.15)','rgba(100,180,255,0.95)','rgba(100,180,255,1)',4.5);
   // Labels
   _HD_PILLARS.forEach(function(pil,i){
-    var lR=R+36;var p=pt(i,lR);var val=playerVals[pil.key];
+    var lR=R+44;var p=pt(i,lR);var val=playerVals[pil.key];
     ctx.textAlign='center';
-    ctx.font='500 10px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.font='500 9.5px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.65)';
     ctx.fillText(pil.label,p.x,p.y);
     if(val!=null){
-      ctx.font='bold 11px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.font='bold 11px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(100,180,255,1)';
       ctx.fillText(pil.fmt(val),p.x,p.y+13);
     }
   });
@@ -2437,10 +2437,15 @@ function _setupHeroRadarEvents(canvasId){
     if(valEl)valEl.textContent=hit.fmt(hit.value);
     if(teamRow)teamRow.style.display=hit.teamVal!=null?'flex':'none';
     if(teamValEl&&hit.teamVal!=null)teamValEl.textContent=hit.teamFmt(hit.teamVal);
-    var pw=canvas.offsetWidth||300,ph=canvas.offsetHeight||300;
-    var tw=150,th=tip.offsetHeight||82;
-    var tx=ex+14,ty=ey-36;
-    if(tx+tw>pw-4)tx=ex-tw-14;if(tx<4)tx=4;
+    // Account for canvas offset within its flex-centered parent wrap
+    var wrapRect=tip.parentElement.getBoundingClientRect();
+    var canvasRect=canvas.getBoundingClientRect();
+    var offX=canvasRect.left-wrapRect.left;
+    var offY=canvasRect.top-wrapRect.top;
+    var pw=wrapRect.width||300,ph=wrapRect.height||300;
+    var tw=155,th=tip.offsetHeight||90;
+    var tx=ex+offX+14,ty=ey+offY-40;
+    if(tx+tw>pw-4)tx=ex+offX-tw-14;if(tx<4)tx=4;
     if(ty<4)ty=4;if(ty+th>ph-4)ty=Math.max(4,ph-th-4);
     tip.style.left=tx+'px';tip.style.top=ty+'px';tip.style.display='block';tip._lastHit=hit;
   }
@@ -2526,8 +2531,8 @@ function _renderHeroDetail(playerId){
         '</div>'+
       '</div>'+
       '<div class="hd-radar-legend">'+
-        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.9);"></div>'+heroName.split(' ')[0]+'</div>'+
-        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.7);"></div>Team Avg</div>'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>'+heroName.split(' ')[0]+'</div>'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>Team Avg</div>'+
       '</div>'
     :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:32px 0;flex:1;display:flex;align-items:center;justify-content:center;">No games with this hero yet</div>')+
   '</div>';
