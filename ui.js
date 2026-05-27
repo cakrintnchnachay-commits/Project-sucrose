@@ -2221,7 +2221,7 @@ function _heroDetailStats(playerId,heroName){
     if(s.dmg_dealt_pct!=null){ddS+=+s.dmg_dealt_pct;ddN++;}
     if(s.dmg_taken_pct!=null){dtS+=+s.dmg_taken_pct;dtN++;}
     var tk=g.team_total_kills;
-    if(tk&&tk>0){kpS+=(+(s.kills||0)++(s.assists||0))/tk*100;kpN++;}
+    if(tk&&tk>0){kpS+=((s.kills||0)+(s.assists||0))/tk*100;kpN++;}
     var cv=calcGameScore(s,player?player.role:'',g,playerId);
     if(cv>0){coachS+=cv;coachN++;}
     var durMin=g.duration_seconds?g.duration_seconds/60:null;
