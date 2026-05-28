@@ -707,6 +707,7 @@ var _scanFiles = []; // [{file, dataUrl, base64, mimeType, label}]
 var _scanResult = null; // {ourTeam, oppTeam, raw, _editMode?}
 var _scanChecked = {}; // fieldId → bool
 var _scanCancelled = false;
+var _scanPlayerOverrides = {}; // ign → playerId, for unrecognized substitute players
 
 var SHOT_LABELS = ['RESULT','DAMAGE','BUILD'];
 var SCAN_FIELDS_LIST = [
@@ -795,6 +796,7 @@ function openScanModal(){
   _scanResult=null;
   _scanChecked={};
   _scanCancelled=false;
+  _scanPlayerOverrides={};
   renderScanModal();
   document.getElementById('scan-modal').classList.add('open');
 }
@@ -1004,16 +1006,44 @@ function buildScanReviewHtml(){
   ourTeam.forEach(function(e){
     var p=e.player;var ex=e.extracted;
     var prows=buildPlayerScanRows(e,raw);
-    if(prows.length===0)return;
-    var init=p?(p.nick||p.ign||'?').substring(0,2).toUpperCase():'??';
-    var name=p?p.nick:(ex.ign||'Unknown');
     var heroName=(e.hero&&e.hero.name)||(ex.hero||'');
-    var isMvp=raw.mvpIgn&&p&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
+    // Unrecognized player (substitute): show assign-to UI even if prows is empty
+    if(!p){
+      var rosterPlayers=getPlayers()||[];
+      var escapedIgn=(ex.ign||'').replace(/'/g,"\\'");
+      var playerOpts='<option value="">— select player —</option>'+
+        rosterPlayers.map(function(rp){return '<option value="'+rp.id+'">'+rp.nick+' ('+rp.role+')</option>';}).join('');
+      html+='<div style="background:var(--grey-1);border:1px solid rgba(255,204,68,0.4);border-radius:2px;margin-bottom:8px;overflow:hidden;">';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,204,68,0.06);border-bottom:1px solid rgba(255,204,68,0.25);">'
+        +'<div style="width:28px;height:28px;border-radius:4px;background:rgba(255,204,68,0.15);display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:var(--warn);">?</div>'
+        +'<div style="flex:1;">'
+          +'<div style="font-weight:600;font-size:13px;color:var(--warn);">'+(ex.ign||'Unknown IGN')+'</div>'
+          +'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:2px;">NOT IN ROSTER · ASSIGN BELOW TO FILL DATA</div>'
+        +'</div>'
+        +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+heroName.toUpperCase()+'</div>'
+      +'</div>';
+      html+='<div style="padding:10px 12px;display:flex;align-items:center;gap:8px;">'
+        +'<label style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);white-space:nowrap;">ASSIGN TO</label>'
+        +'<select class="input" style="flex:1;font-size:11px;padding:4px 8px;" onchange="assignScanPlayer(\''+escapedIgn+'\',this.value)">'+playerOpts+'</select>'
+      +'</div>';
+      if(prows.length>0){
+        prows.forEach(function(r,i){
+          var ck=_scanChecked[r.id]!==false;
+          html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<prows.length-1,r.note,r.coachVal,r.gameVal);
+        });
+      }
+      html+='</div>';
+      return;
+    }
+    if(prows.length===0)return;
+    var init=(p.nick||p.ign||'?').substring(0,2).toUpperCase();
+    var name=p.nick;
+    var isMvp=raw.mvpIgn&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
     html+='<div style="background:var(--grey-1);border:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden;">';
     html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--grey-2);border-bottom:var(--border);">'
       +'<div style="width:28px;height:28px;border-radius:4px;background:var(--grey-3);display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:var(--grey-6);">'+init+'</div>'
       +'<div style="font-weight:600;font-size:13px;">'+name+(isMvp?' <span style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;background:rgba(255,204,68,0.12);color:var(--warn);border:1px solid rgba(255,204,68,0.3);padding:1px 6px;border-radius:2px;margin-left:4px;vertical-align:middle;">MVP</span>':'')+'</div>'
-      +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:auto;">'+(p?p.role:(ex.ign||''))+' · '+(heroName.toUpperCase())+'</div>'
+      +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:auto;">'+p.role+' · '+(heroName.toUpperCase())+'</div>'
       +'</div>';
     prows.forEach(function(r,i){
       var ck=_scanChecked[r.id]!==false;
@@ -1032,6 +1062,20 @@ function scanSectionLabel(text){
   return '<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin:14px 0 8px;display:flex;align-items:center;gap:8px;">'
     +'<span style="flex:0 0 10px;height:1px;background:var(--grey-3);display:inline-block;"></span>'+text
     +'<span style="flex:1;height:1px;background:var(--grey-2);display:inline-block;"></span></div>';
+}
+
+// Called when coach manually assigns an unrecognized scanned IGN to a roster player
+function assignScanPlayer(ign, playerId){
+  if(!_scanResult)return;
+  var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
+  if(!player)return;
+  _scanResult.ourTeam.forEach(function(entry){
+    if((entry.extracted.ign||'').toLowerCase()===ign.toLowerCase()){
+      entry.player=player;
+    }
+  });
+  // Re-render review so new player's rows/checkboxes use the real player ID
+  renderScanModal();
 }
 
 function getScanFieldVal(ex,field){
@@ -2586,6 +2630,7 @@ async function saveGame(){
     }
 
     showToast('✓ Game saved');
+    _restoreBtn();
     resetLog();
     if(_returnMatchId) showMatchDetail(_returnMatchId);
 
