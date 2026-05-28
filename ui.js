@@ -2312,14 +2312,18 @@ function _heroRadarCaps(role){
   return caps;
 }
 
-// ── Hero Radar: team average across ALL players who played this hero ──
-function _heroRadarTeamAvg(heroName){
+// ── Hero Radar: role-average overlay — same green shape for every hero in the same position ──
+function _heroRadarTeamAvg(role){
   var data=loadData();
   var games=data.games||[];
+  var players=getPlayers()||[];
+  var roleMap={};players.forEach(function(p){roleMap[p.id]=(p.role||'').toLowerCase();});
   var sums={kda:0,kp:0,gpm:0,dd:0,dt:0,igr:0},cnts={kda:0,kp:0,gpm:0,dd:0,dt:0,igr:0};
   games.forEach(function(g){
     Object.keys(g.playerScores||{}).forEach(function(pid){
-      var s=g.playerScores[pid];if(!s||s.skipped||s.hero!==heroName)return;
+      var s=g.playerScores[pid];if(!s||s.skipped)return;
+      var pr=((s.role)||roleMap[pid]||'').toLowerCase();
+      if(role&&pr!==role.toLowerCase())return;
       var kda=null;
       if(s.kills!=null&&s.deaths!=null&&s.assists!=null)kda=(+s.kills+ +s.assists)/Math.max(+s.deaths,1);
       else if(s.kda!=null)kda=+s.kda;
@@ -2598,7 +2602,7 @@ function _renderHeroDetail(playerId){
   if(stats.games>0){
     setTimeout(function(){
       var caps=_heroRadarCaps(role.toLowerCase());
-      var teamAvg=_heroRadarTeamAvg(heroName);
+      var teamAvg=_heroRadarTeamAvg(role.toLowerCase());
       var playerVals={kda:stats.kda,kp:stats.kp,gpm:stats.gpm,dd:stats.dd,dt:stats.dt,igr:stats.igr};
       drawHeroRadar(playerId,playerVals,teamAvg,caps);
       _setupHeroRadarEvents(playerId);
@@ -2624,7 +2628,7 @@ function renderProfileHeroesTab(playerId){
   var poolItemsHtml=pool.map(function(h){
     var wrColor=h.winRate>=60?'var(--success)':h.winRate>=50?'var(--white)':h.winRate>0?'var(--danger)':'var(--grey-5)';
     var isSelected=h.hero===selectedHero;
-    return '<div class="hp-item'+(isSelected?' active':'')+'" data-hero="'+h.hero+'" onclick="selectHeroPoolItem(\''+playerId+'\',\''+h.hero+'\')" style="cursor:pointer;">'+
+    return '<div class="hp-item'+(isSelected?' active':'')+'" data-hero="'+h.hero+'" onclick="selectHeroPoolItem(\''+playerId+'\',this.getAttribute(\'data-hero\'))" style="cursor:pointer;">'+
       '<div class="hp-item-img">'+heroPortraitHtml(h.hero,44,false)+'</div>'+
       '<div class="hp-item-body">'+
         '<div class="hp-item-name">'+h.hero.toUpperCase()+'</div>'+
