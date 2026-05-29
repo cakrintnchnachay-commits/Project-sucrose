@@ -2054,12 +2054,14 @@ function renderPlayerStep(){
     html += '<select class="input" style="width:110px;font-size:11px;" id="lp-role-'+i+'" onchange="onLogRoleChange('+i+')">';
     html += roleSelOpts;
     html += '</select>';
+    html += '<button type="button" id="lp-autoscore-btn-'+i+'" onclick="autoScorePlayer('+i+')" style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;padding:5px 10px;border:1px solid rgba(68,136,255,0.3);background:rgba(68,136,255,0.08);color:var(--auto);border-radius:2px;cursor:pointer;white-space:nowrap;flex-shrink:0;">⚡ Auto Score</button>';
     html += '</div>';
     html += '<div class="player-score-body">';
     html += '<div class="input-group" style="margin-bottom:10px;">';
     html += '<label class="input-label">Hero</label>';
     html += '<input class="input" id="lp-hero-'+i+'" placeholder="Hero name" value="'+preHero+'"/>';
     html += '</div>';
+    html += '<div id="lp-gpm-strip-'+i+'"></div>';
     html += '<div id="lp-pillars-'+i+'"></div>';
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
@@ -2177,6 +2179,7 @@ function updateComputedStats(slotIdx){
   container.innerHTML = html;
 
   _refreshPillarHints(slotIdx);
+  updateGPMStrip(slotIdx);
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -2409,6 +2412,227 @@ function _refreshPillarHints(i){
     span.textContent = hint || 'Stat-based — drag to override';
   }
 }
+
+// === GPM SCORING ENGINE ===
+
+var GPM_ANCHORS = {
+  raw: {
+    carry:   [[0,380],[1,450],[5,530],[15,640],[30,730],[50,840],[70,960],[85,1070],[95,1220],[99,1400],[100,1600]],
+    midlane: [[0,400],[1,470],[5,560],[15,670],[30,770],[50,890],[70,1020],[85,1140],[95,1290],[99,1500],[100,1700]],
+    offlane: [[0,300],[1,370],[5,440],[15,530],[30,620],[50,720],[70,840],[85,940],[95,1060],[99,1240],[100,1420]],
+    jungler: [[0,320],[1,390],[5,470],[15,560],[30,650],[50,760],[70,880],[85,980],[95,1110],[99,1300],[100,1480]],
+    support: [[0,200],[1,250],[5,300],[15,370],[30,440],[50,530],[70,630],[85,720],[95,830],[99,980],[100,1120]],
+  },
+  diff: {
+    carry:   [[0,-480],[1,-320],[5,-200],[15,-100],[30,-30],[50,20],[70,90],[85,170],[95,270],[99,400],[100,580]],
+    midlane: [[0,-500],[1,-340],[5,-210],[15,-110],[30,-35],[50,25],[70,100],[85,180],[95,290],[99,420],[100,600]],
+    offlane: [[0,-420],[1,-280],[5,-170],[15,-90],[30,-25],[50,15],[70,80],[85,150],[95,240],[99,360],[100,520]],
+    jungler: [[0,-440],[1,-290],[5,-180],[15,-95],[30,-28],[50,18],[70,85],[85,160],[95,255],[99,380],[100,540]],
+    support: [[0,-320],[1,-210],[5,-130],[15,-65],[30,-20],[50,12],[70,60],[85,115],[95,190],[99,290],[100,420]],
+  }
+};
+
+function getGPMPercentile(gpm, role, type) {
+  var table = GPM_ANCHORS[type] && GPM_ANCHORS[type][role.toLowerCase()];
+  if (!table) return 50;
+  if (gpm <= table[0][1]) return table[0][0];
+  if (gpm >= table[table.length - 1][1]) return table[table.length - 1][0];
+  for (var i = 1; i < table.length; i++) {
+    if (gpm <= table[i][1]) {
+      var lo = table[i - 1], hi = table[i];
+      var t = (gpm - lo[1]) / (hi[1] - lo[1]);
+      return lo[0] + t * (hi[0] - lo[0]);
+    }
+  }
+  return 50;
+}
+
+function pctToScore(pct) {
+  if (pct <= 1)  return 1;
+  if (pct <= 5)  return 2;
+  if (pct <= 15) return 3;
+  if (pct <= 30) return 4;
+  if (pct <= 50) return 5;
+  if (pct <= 70) return 6;
+  if (pct <= 85) return 7;
+  if (pct <= 95) return 8;
+  if (pct <= 99) return 9;
+  return 10;
+}
+
+function calcGPMScore(playerData, durationSeconds) {
+  if (!playerData || !playerData.gold || !durationSeconds) return null;
+  var role = (playerData.role_played || '').toLowerCase();
+  if (!role) return null;
+  var durMin = durationSeconds / 60;
+  var rawGPM = playerData.gold / durMin;
+
+  var enemyGold = playerData.enemy_gold && playerData.enemy_gold[role];
+  var diffGPM = null;
+  if (enemyGold) {
+    diffGPM = rawGPM - (enemyGold / durMin);
+  }
+
+  var rawPct  = getGPMPercentile(rawGPM, role, 'raw');
+  var rawScore = pctToScore(rawPct);
+
+  var diffPct  = null;
+  var diffScore = null;
+  if (diffGPM !== null) {
+    diffPct  = getGPMPercentile(diffGPM, role, 'diff');
+    diffScore = pctToScore(diffPct);
+  }
+
+  var finalRaw = diffScore !== null ? (rawScore + diffScore) / 2 : rawScore;
+  var finalScore = Math.round(finalRaw * 2) / 2;
+
+  return {
+    rawGPM:    Math.round(rawGPM),
+    diffGPM:   diffGPM !== null ? Math.round(diffGPM) : null,
+    rawPct:    Math.round(rawPct),
+    diffPct:   diffPct  !== null ? Math.round(diffPct)  : null,
+    rawScore:  rawScore,
+    diffScore: diffScore,
+    finalScore: finalScore,
+  };
+}
+
+function _gpmPillarIndex(role) {
+  var fields = BENCHMARK_FIELDS[role.toLowerCase()];
+  if (!fields) return -1;
+  for (var i = 0; i < Math.min(fields.length, 4); i++) {
+    if (fields[i].k === 'gpm') return i;
+  }
+  return -1;
+}
+
+function _gpmScoreColor(s) {
+  if (s >= 7) return '#44ff88';
+  if (s >= 5) return '#ffcc44';
+  return '#ff4444';
+}
+
+function _gpmOrdinal(n) {
+  n = Math.round(n);
+  var v = n % 100;
+  var sfx = ['th','st','nd','rd'];
+  return n + (sfx[(v - 20) % 10] || sfx[v] || sfx[0]);
+}
+
+function updateGPMStrip(slotIdx) {
+  var el = document.getElementById('lp-gpm-strip-' + slotIdx);
+  if (!el) return;
+
+  var gold   = parseFloat(document.getElementById('lp-gold-' + slotIdx) && document.getElementById('lp-gold-' + slotIdx).value) || 0;
+  var role   = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  var durSec = LS.matchInfo && LS.matchInfo.duration_seconds;
+
+  if (!gold || !durSec || !role) {
+    el.innerHTML = '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:8px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;font-size:9px;color:#555;">[ GPM ANALYSIS ]  Enter gold &amp; duration above</div>';
+    return;
+  }
+
+  var oppRow   = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  var enemyGold = oppRow ? (oppRow.gold || null) : null;
+  var pData = { gold: gold, role_played: role, enemy_gold: enemyGold ? {} : null };
+  if (enemyGold) pData.enemy_gold[role] = enemyGold;
+
+  var r = calcGPMScore(pData, durSec);
+  if (!r) {
+    el.innerHTML = '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:8px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;font-size:9px;color:#555;">[ GPM ANALYSIS ]  —</div>';
+    return;
+  }
+
+  var diffStr = r.diffGPM !== null ? ((r.diffGPM >= 0 ? '+' : '') + r.diffGPM + ' g/min') : '—';
+  var diffPctStr  = r.diffPct  !== null ? _gpmOrdinal(r.diffPct) + ' pct' : '—';
+  var diffScoreStr = r.diffScore !== null ? '→ ' + r.diffScore + '/10' : '—';
+
+  el.innerHTML =
+    '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:9px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;">' +
+      '<div style="font-size:9px;letter-spacing:2px;color:#888;margin-bottom:7px;">[ GPM ANALYSIS ]</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;font-size:9px;">' +
+        '<span style="color:#888;width:68px;flex-shrink:0;">Raw GPM</span>' +
+        '<span style="color:#f4f4f0;flex:1;">' + r.rawGPM + ' g/min</span>' +
+        '<span style="color:#888;margin-right:8px;">' + _gpmOrdinal(r.rawPct) + ' pct</span>' +
+        '<span style="font-weight:600;color:' + _gpmScoreColor(r.rawScore) + ';">→ ' + r.rawScore + '/10</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;margin-bottom:7px;font-size:9px;">' +
+        '<span style="color:#888;width:68px;flex-shrink:0;">Diff GPM</span>' +
+        '<span style="color:#f4f4f0;flex:1;">' + diffStr + '</span>' +
+        '<span style="color:#888;margin-right:8px;">' + diffPctStr + '</span>' +
+        '<span style="font-weight:600;color:' + (r.diffScore !== null ? _gpmScoreColor(r.diffScore) : '#555') + ';">' + diffScoreStr + '</span>' +
+      '</div>' +
+      '<div style="border-top:1px solid #2a2a2a;padding-top:5px;text-align:right;font-size:9px;">' +
+        '<span style="color:#888;">Gold score: </span>' +
+        '<span style="font-weight:600;font-size:11px;color:' + _gpmScoreColor(r.finalScore) + ';">' + r.finalScore + '</span>' +
+      '</div>' +
+    '</div>';
+}
+
+function autoScorePlayer(slotIdx) {
+  var role      = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  var gold      = parseFloat(document.getElementById('lp-gold-' + slotIdx) && document.getElementById('lp-gold-' + slotIdx).value) || 0;
+  var kills     = parseFloat(document.getElementById('lp-kills-' + slotIdx) && document.getElementById('lp-kills-' + slotIdx).value) || 0;
+  var deaths    = parseFloat(document.getElementById('lp-deaths-' + slotIdx) && document.getElementById('lp-deaths-' + slotIdx).value) || 0;
+  var assists   = parseFloat(document.getElementById('lp-assists-' + slotIdx) && document.getElementById('lp-assists-' + slotIdx).value) || 0;
+  var durSec    = LS.matchInfo && LS.matchInfo.duration_seconds;
+  var playerId  = document.getElementById('lp-player-' + slotIdx) ? document.getElementById('lp-player-' + slotIdx).value : null;
+
+  function _num(id){ var e=document.getElementById(id); var v=e?parseFloat(e.value):NaN; return isNaN(v)?null:v; }
+  var rawStats = {
+    kills: kills, deaths: deaths, assists: assists,
+    gold: gold || null,
+    gameRating:   _num('lp-in_game_rating-' + slotIdx),
+    dmgDealtPct:  _num('lp-dmg_dealt_pct-' + slotIdx),
+    dmgTakenPct:  _num('lp-dmg_taken_pct-' + slotIdx),
+    dmgDealt:     _num('lp-dmg_dealt_raw-' + slotIdx),
+    dmgTaken:     _num('lp-dmg_taken_raw-' + slotIdx),
+    _playerId: playerId
+  };
+
+  var gpmIdx = _gpmPillarIndex(role);
+  var oppRow = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
+  var enemyGold = oppRow ? (oppRow.gold || null) : null;
+  var gpmResult = null;
+  if (gpmIdx >= 0 && gold && durSec) {
+    var pData = { gold: gold, role_played: role, enemy_gold: enemyGold ? {} : null };
+    if (enemyGold) pData.enemy_gold[role] = enemyGold;
+    gpmResult = calcGPMScore(pData, durSec);
+  }
+
+  var pillars = PILLAR_MAP[role] || [];
+  for (var n = 0; n < pillars.length; n++) {
+    var sug = (n === gpmIdx && gpmResult) ? gpmResult.finalScore : calculateSuggestion(role, n, rawStats);
+    if (sug == null) continue;
+    var slEl = document.getElementById('lp-p' + n + '-' + slotIdx);
+    var dpEl = document.getElementById('lp-pv' + n + '-' + slotIdx);
+    if (slEl) slEl.value = sug;
+    if (dpEl) dpEl.textContent = Math.round(sug);
+  }
+
+  var btn = document.getElementById('lp-autoscore-btn-' + slotIdx);
+  if (btn) {
+    var orig = btn.innerHTML;
+    var origColor = btn.style.color;
+    btn.innerHTML = '✓ Scored';
+    btn.style.color = '#44ff88';
+    setTimeout(function(){ btn.innerHTML = orig; btn.style.color = origColor; }, 1500);
+  }
+}
+
+function autoScoreAll() {
+  for (var i = 0; i < 5; i++) { autoScorePlayer(i); }
+  var btn = document.getElementById('autoscore-all-btn');
+  if (btn) {
+    var orig = btn.innerHTML;
+    var origColor = btn.style.color;
+    btn.innerHTML = '✓ All Scored';
+    btn.style.color = '#44ff88';
+    setTimeout(function(){ btn.innerHTML = orig; btn.style.color = origColor; }, 1500);
+  }
+}
+
+// === END GPM SCORING ENGINE ===
 
 function _dbErr(err, table){
   var msg = (err && err.message) || String(err);
