@@ -1751,7 +1751,7 @@ function showProfile(playerId){
   var hpGrade=hp.pct>0?scoreToGrade(hp.pct/10):null;
 
   // ── Role setup ──
-  if(window._profilePid!==playerId){window._profilePid=playerId;window._profileRole=null;window._ptrend=null;window._profileTab='overall';}
+  if(window._profilePid!==playerId){window._profilePid=playerId;window._profileRole=null;window._ptrend=null;window._profileTab='overall';window._profileGameSelected=null;}
   var roleInfo=_profileRoleInfo(playerId);
   var selRole=(window._profileRole&&roleInfo.roles.indexOf(window._profileRole)>=0)?window._profileRole:roleInfo.def;
   window._profileRole=selRole;
@@ -2349,7 +2349,7 @@ function _heroRadarTeamAvg(role){
 var _HD_PILLARS=[
   {key:'kda',   label:'KDA',         fmt:function(v){return v.toFixed(2);}},
   {key:'kp',    label:'Kill Part %', fmt:function(v){return v.toFixed(1)+'%';}},
-  {key:'gpm',   label:'Gold Eff.',   fmt:function(v){return Math.round(v)+'gpm';}},
+  {key:'gpm',   label:'Gold Eff.',   fmt:function(v){return Math.round(v);}},
   {key:'dd',    label:'DMG Dealt %', fmt:function(v){return v.toFixed(1)+'%';}},
   {key:'dt',    label:'DMG Taken %', fmt:function(v){return v.toFixed(1)+'%';}},
   {key:'igr',   label:'Rating',      fmt:function(v){return v.toFixed(1);}}
@@ -2676,6 +2676,12 @@ function renderProfileGamesTab(playerId){
     box.innerHTML='<div class="empty"><div class="empty-icon">🎮</div><div class="empty-text">No games logged yet</div></div>';
     return;
   }
+  // Init selected game
+  window._profileGameSelected=window._profileGameSelected||{};
+  if(!window._profileGameSelected[playerId]&&allGames.length>0){
+    window._profileGameSelected[playerId]=allGames[0].id;
+  }
+  var selectedGameId=window._profileGameSelected[playerId];
   var wins=allGames.filter(function(g){return g.result==='Win';}).length;
   var rowsHtml=allGames.map(function(g){
     var s=g.playerScores[playerId];
@@ -2686,9 +2692,10 @@ function renderProfileGamesTab(playerId){
     var coachStr=coach>0?coach.toFixed(1):'—';
     var coachColor=coach>=7?'var(--success)':coach>=5?'var(--white)':coach>0?'var(--danger)':'var(--grey-5)';
     var isWin=g.result==='Win';
+    var isSelected=g.id===selectedGameId;
     var durStr='';
     if(g.duration_seconds){var m=Math.floor(g.duration_seconds/60);var sec=g.duration_seconds%60;durStr=' · '+m+':'+(sec<10?'0':'')+sec;}
-    return '<div class="pgame-row" onclick="openGameDetail(\''+g.id+'\')" style="cursor:pointer;">'+
+    return '<div class="pgame-row'+(isSelected?' pgame-selected':'')+'" data-gid="'+g.id+'" onclick="selectProfileGame(\''+playerId+'\',\''+g.id+'\')">'+
       '<div class="pgame-result '+(isWin?'pgame-win':'pgame-loss')+'">'+(isWin?'W':'L')+'</div>'+
       '<div class="pgame-hero">'+heroPortraitHtml(heroName,36,false)+'</div>'+
       '<div class="pgame-info">'+
@@ -2702,10 +2709,258 @@ function renderProfileGamesTab(playerId){
       '</div>'+
     '</div>';
   }).join('');
-  box.innerHTML='<div class="pgames-header">'+
-    '<div class="section-label">MATCH HISTORY '+
-      '<span style="font-size:8px;color:var(--grey-4);letter-spacing:1px;">· '+allGames.length+' GAMES · '+wins+'W '+(allGames.length-wins)+'L</span>'+
+  box.innerHTML='<div class="prof-heroes-split">'+
+    '<div class="prof-hero-detail" id="prof-game-detail-'+playerId+'"></div>'+
+    '<div class="prof-hero-pool">'+
+      '<div class="hp-header">'+
+        '<div class="hp-header-title">MATCH HISTORY</div>'+
+        '<div class="hp-header-sub">'+allGames.length+' GAMES · CLICK TO INSPECT</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:6px;">'+wins+'W · '+(allGames.length-wins)+'L · '+Math.round(wins/allGames.length*100)+'% WR</div>'+
+      '</div>'+
+      '<div class="hp-list">'+rowsHtml+'</div>'+
     '</div>'+
-  '</div>'+
-  '<div class="pgames-list">'+rowsHtml+'</div>';
+  '</div>';
+  _renderGameDetail(playerId);
+}
+
+function selectProfileGame(playerId,gameId){
+  window._profileGameSelected=window._profileGameSelected||{};
+  window._profileGameSelected[playerId]=gameId;
+  _renderGameDetail(playerId);
+  document.querySelectorAll('#prof-panel-games-'+playerId+' .pgame-row').forEach(function(el){
+    el.classList.toggle('pgame-selected',el.getAttribute('data-gid')===gameId);
+  });
+}
+
+function _playerOverallRawStats(playerId){
+  var games=_profilePlayerGames(playerId);
+  var k=0,d=0,a=0,gpmS=0,gpmN=0,igrS=0,igrN=0,ddS=0,ddN=0,dtS=0,dtN=0,kpS=0,kpN=0;
+  games.forEach(function(g){
+    var s=g.playerScores&&g.playerScores[playerId];if(!s||s.skipped)return;
+    k+=+(s.kills||0);d+=+(s.deaths||0);a+=+(s.assists||0);
+    if(s.gold_per_min!=null){gpmS+=+s.gold_per_min;gpmN++;}
+    if(s.in_game_rating!=null){igrS+=+s.in_game_rating;igrN++;}
+    if(s.dmg_dealt_pct!=null){ddS+=+s.dmg_dealt_pct;ddN++;}
+    if(s.dmg_taken_pct!=null){dtS+=+s.dmg_taken_pct;dtN++;}
+    var tk=g.team_total_kills;
+    if(tk&&tk>0){kpS+=((s.kills||0)+(s.assists||0))/tk*100;kpN++;}
+  });
+  return{
+    kda:games.length?(k+a)/Math.max(d,1):null,
+    gpm:gpmN?gpmS/gpmN:null,
+    igr:igrN?igrS/igrN:null,
+    dd:ddN?ddS/ddN:null,
+    dt:dtN?dtS/dtN:null,
+    kp:kpN?kpS/kpN:null
+  };
+}
+
+function _gameRawStats(game,playerId){
+  var s=game.playerScores&&game.playerScores[playerId];
+  if(!s)return{};
+  var kda=null;
+  if(s.kills!=null&&s.deaths!=null&&s.assists!=null)kda=(+s.kills+ +s.assists)/Math.max(+s.deaths,1);
+  else if(s.kda!=null)kda=+s.kda;
+  var kp=null;
+  var tk=game.team_total_kills;
+  if(tk&&tk>0)kp=((s.kills||0)+(s.assists||0))/tk*100;
+  return{
+    kda:kda,kp:kp,
+    gpm:s.gold_per_min!=null?+s.gold_per_min:null,
+    dd:s.dmg_dealt_pct!=null?+s.dmg_dealt_pct:null,
+    dt:s.dmg_taken_pct!=null?+s.dmg_taken_pct:null,
+    igr:s.in_game_rating!=null?+s.in_game_rating:null
+  };
+}
+
+function drawGameRadar(canvasId,currentVals,overallVals,caps){
+  var canvas=document.getElementById('game-radar-'+canvasId);if(!canvas)return;
+  var dpr=window.devicePixelRatio||1;
+  var dW=canvas.offsetWidth||canvas.width;var dH=canvas.offsetHeight||canvas.height;
+  canvas.width=dW*dpr;canvas.height=dH*dpr;canvas.style.width=dW+'px';canvas.style.height=dH+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  var W=dW,H=dH,cx=W/2,cy=H/2,R=Math.min(W,H)/2-66,n=_HD_PILLARS.length;
+  ctx.clearRect(0,0,W,H);
+  function ang(i){return(Math.PI*2*i/n)-Math.PI/2;}
+  function pt(i,r){return{x:cx+r*Math.cos(ang(i)),y:cy+r*Math.sin(ang(i))};}
+  [0.25,0.5,0.75,1].forEach(function(f){
+    ctx.beginPath();
+    for(var i=0;i<n;i++){var p=pt(i,R*f);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);}
+    ctx.closePath();ctx.strokeStyle=f===1?'rgba(255,255,255,0.14)':'rgba(255,255,255,0.06)';ctx.lineWidth=1;ctx.stroke();
+  });
+  for(var i=0;i<n;i++){var ep=pt(i,R);ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ep.x,ep.y);ctx.strokeStyle='rgba(255,255,255,0.1)';ctx.lineWidth=1;ctx.stroke();}
+  function norm(val,key){if(val==null)return 0;var cap=caps[key]||1;return Math.min(val/cap,1);}
+  function drawPoly(vals,fillCol,strokeCol,dotCol,dotR){
+    var hasData=_HD_PILLARS.some(function(p){return vals[p.key]!=null;});
+    ctx.beginPath();
+    _HD_PILLARS.forEach(function(pil,i){
+      var frac=hasData?norm(vals[pil.key],pil.key):0.04;if(vals[pil.key]==null)frac=0.04;
+      var p=pt(i,R*Math.max(frac,0.03));i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);
+    });
+    ctx.closePath();ctx.fillStyle=fillCol;ctx.fill();ctx.strokeStyle=strokeCol;ctx.lineWidth=2;ctx.stroke();
+    if(hasData)_HD_PILLARS.forEach(function(pil,i){
+      if(vals[pil.key]==null)return;
+      var frac=norm(vals[pil.key],pil.key);var p=pt(i,R*Math.max(frac,0.03));
+      ctx.beginPath();ctx.arc(p.x,p.y,dotR,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();
+    });
+  }
+  // Overall avg in green behind
+  if(overallVals)drawPoly(overallVals,'rgba(80,220,140,0.08)','rgba(80,220,140,0.5)','rgba(80,220,140,0.75)',3);
+  // Current game in blue on top
+  drawPoly(currentVals,'rgba(100,180,255,0.15)','rgba(100,180,255,0.95)','rgba(100,180,255,1)',4.5);
+  // Labels
+  _HD_PILLARS.forEach(function(pil,i){
+    var lR=R+44;var p=pt(i,lR);var val=currentVals[pil.key];
+    ctx.textAlign='center';
+    ctx.font='500 9.5px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.65)';ctx.fillText(pil.label,p.x,p.y);
+    if(val!=null){ctx.font='bold 11px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(100,180,255,1)';ctx.fillText(pil.fmt(val),p.x,p.y+13);}
+  });
+  if(!window._gameRadarHits)window._gameRadarHits={};
+  window._gameRadarHits[canvasId]=_HD_PILLARS.map(function(pil,i){
+    var val=currentVals[pil.key];if(val==null)return null;
+    var frac=norm(val,pil.key);var p=pt(i,R*Math.max(frac,0.03));
+    return{x:p.x,y:p.y,label:pil.label,value:val,fmt:pil.fmt,teamVal:overallVals?overallVals[pil.key]:null,teamFmt:pil.fmt};
+  }).filter(Boolean);
+}
+
+function _setupGameRadarEvents(canvasId){
+  var canvas=document.getElementById('game-radar-'+canvasId);
+  var tip=document.getElementById('game-radar-tip-'+canvasId);
+  if(!canvas||!tip)return;
+  function getHit(mx,my){
+    var hits=(window._gameRadarHits&&window._gameRadarHits[canvasId])||[];
+    var best=null,bestD=Infinity;
+    hits.forEach(function(h){var dist=Math.hypot(h.x-mx,h.y-my);if(dist<bestD&&dist<20){best=h;bestD=dist;}});
+    return best;
+  }
+  function showTip(ex,ey,hit){
+    var lblEl=document.getElementById('game-radar-tip-lbl-'+canvasId);
+    var valEl=document.getElementById('game-radar-tip-val-'+canvasId);
+    var teamRow=document.getElementById('game-radar-tip-team-'+canvasId);
+    var teamValEl=document.getElementById('game-radar-tip-teamval-'+canvasId);
+    if(lblEl)lblEl.textContent=hit.label;
+    if(valEl)valEl.textContent=hit.fmt(hit.value);
+    if(teamRow)teamRow.style.display=hit.teamVal!=null?'flex':'none';
+    if(teamValEl&&hit.teamVal!=null)teamValEl.textContent=hit.teamFmt(hit.teamVal);
+    var wrapRect=tip.parentElement.getBoundingClientRect();
+    var canvasRect=canvas.getBoundingClientRect();
+    var offX=canvasRect.left-wrapRect.left,offY=canvasRect.top-wrapRect.top;
+    var pw=wrapRect.width||300,ph=wrapRect.height||300,tw=155,th=tip.offsetHeight||90;
+    var tx=ex+offX+14,ty=ey+offY-40;
+    if(tx+tw>pw-4)tx=ex+offX-tw-14;if(tx<4)tx=4;if(ty<4)ty=4;if(ty+th>ph-4)ty=Math.max(4,ph-th-4);
+    tip.style.left=tx+'px';tip.style.top=ty+'px';tip.style.display='block';tip._lastHit=hit;
+  }
+  function hideTip(){tip.style.display='none';tip._lastHit=null;}
+  canvas.addEventListener('mousemove',function(e){
+    var r=canvas.getBoundingClientRect();var hit=getHit(e.clientX-r.left,e.clientY-r.top);
+    canvas.style.cursor=hit?'pointer':'default';
+    if(hit)showTip(e.clientX-r.left,e.clientY-r.top,hit);else hideTip();
+  });
+  canvas.addEventListener('mouseleave',function(){hideTip();canvas.style.cursor='default';});
+  canvas.addEventListener('click',function(e){
+    var r=canvas.getBoundingClientRect();var hx=e.clientX-r.left,hy=e.clientY-r.top;var hit=getHit(hx,hy);
+    if(hit){if(tip.style.display!=='none'&&tip._lastHit===hit)hideTip();else showTip(hx,hy,hit);}else hideTip();
+  });
+  canvas.addEventListener('touchstart',function(e){
+    e.preventDefault();var r=canvas.getBoundingClientRect();var t=e.touches[0];
+    var hx=t.clientX-r.left,hy=t.clientY-r.top;var hit=getHit(hx,hy);
+    if(hit){if(tip.style.display!=='none'&&tip._lastHit===hit)hideTip();else showTip(hx,hy,hit);}else hideTip();
+  },{passive:false});
+}
+
+function _renderGameDetail(playerId){
+  var box=document.getElementById('prof-game-detail-'+playerId);if(!box)return;
+  var gameId=(window._profileGameSelected||{})[playerId];
+  var data=loadData();
+  var game=gameId?(data.games||[]).find(function(g){return g.id===gameId;}):null;
+  if(!game){
+    box.innerHTML='<div class="gd-game-no-data">'+
+      '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;">SELECT A GAME FROM THE LIST</div>'+
+    '</div>';
+    return;
+  }
+  var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
+  var s=game.playerScores&&game.playerScores[playerId];if(!s){box.innerHTML='';return;}
+  var heroName=s.hero||'—';
+  var heroUrl=heroImgUrl(heroName);
+  var init=(heroName||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+  var isWin=game.result==='Win';
+  var k=s.kills!=null?s.kills:'?';var d=s.deaths!=null?s.deaths:'?';var a=s.assists!=null?s.assists:'?';
+  var role=player?(player.role||''):'';
+  var durStr='';
+  if(game.duration_seconds){var dm=Math.floor(game.duration_seconds/60);var dsec=game.duration_seconds%60;durStr=dm+':'+(dsec<10?'0':'')+dsec;}
+  // Left column
+  var leftHtml='<div class="hd-top-left">'+
+    '<div class="hd-square-portrait">'+
+      '<div class="hd-square-portrait-fallback">'+init+'</div>'+
+      (heroUrl?'<img class="hd-square-portrait-img" src="'+heroUrl+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>':'')+
+    '</div>'+
+    '<div class="hd-top-hero-name">'+heroName.toUpperCase()+'</div>'+
+    '<div class="hd-hdr-meta">'+k+' / '+d+' / '+a+'</div>'+
+    '<div class="hd-top-badges">'+
+      (isWin?'<span class="hd-badge-main">▲ WIN</span>':'<span class="hd-badge-pool" style="color:var(--danger);border-color:rgba(255,68,68,0.3);background:rgba(255,68,68,0.08);">▼ LOSS</span>')+
+      '<span class="hd-badge-pool">'+((game.type||'SCRIM').toUpperCase())+'</span>'+
+    '</div>'+
+    '<div class="hd-hdr-meta" style="margin-top:auto;">'+(game.opponent||'Unknown').toUpperCase()+'</div>'+
+    '<div class="hd-hdr-meta">'+_fmtDate(game.date)+(durStr?' · '+durStr:'')+'</div>'+
+    '<button class="hd-show-more-btn" style="margin:10px 0 0;" onclick="openGameDetail(\''+gameId+'\')">VIEW DETAILS →</button>'+
+  '</div>';
+  // Right column: radar
+  var currentStats=_gameRawStats(game,playerId);
+  var overallStats=_playerOverallRawStats(playerId);
+  var hasStats=_HD_PILLARS.some(function(pil){return currentStats[pil.key]!=null;});
+  var rightHtml='<div class="hd-top-right">'+
+    '<div class="hd-radar-section-hdr">'+
+      '<span class="hd-radar-section-title">PERFORMANCE</span>'+
+      '<span class="hd-radar-section-sub">· VS OVERALL AVG</span>'+
+    '</div>'+
+    (hasStats?
+      '<div class="hd-radar-canvas-wrap">'+
+        '<canvas id="game-radar-'+playerId+'" width="300" height="300" style="width:100%;max-width:300px;display:block;margin:0 auto;"></canvas>'+
+        '<div class="hd-radar-tip" id="game-radar-tip-'+playerId+'">'+
+          '<div class="hd-radar-tip-lbl" id="game-radar-tip-lbl-'+playerId+'"></div>'+
+          '<div class="hd-radar-tip-val" id="game-radar-tip-val-'+playerId+'"></div>'+
+          '<div class="hd-radar-tip-team" id="game-radar-tip-team-'+playerId+'" style="display:none;">'+
+            '<span class="hd-radar-tip-team-lbl">OVERALL AVG</span>'+
+            '<span class="hd-radar-tip-team-val" id="game-radar-tip-teamval-'+playerId+'"></span>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="hd-radar-legend">'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>THIS GAME</div>'+
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>OVERALL AVG</div>'+
+      '</div>'
+    :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:32px 0;flex:1;display:flex;align-items:center;justify-content:center;">No raw stats for this game</div>')+
+  '</div>';
+  var topHtml='<div class="hd-top-layout">'+leftHtml+rightHtml+'</div>';
+  // Lineup section
+  var allPlayers=getPlayers()||[];
+  var ourTeam=[];
+  Object.keys(game.playerScores||{}).forEach(function(pid){
+    var ps=game.playerScores[pid];if(!ps||ps.skipped)return;
+    var pl=allPlayers.find(function(p){return p.id===pid;});
+    ourTeam.push({hero:ps.hero||'?',nick:pl?pl.nick:'?',isPlayer:pid===playerId});
+  });
+  ourTeam.sort(function(a,b){return(b.isPlayer?1:0)-(a.isPlayer?1:0);});
+  var enemyTeam=(game.enemyPicks||[]).filter(function(ep){return ep&&ep.hero;}).slice(0,5);
+  function heroChip(hero,label){
+    return '<div class="gd-hero-chip">'+heroPortraitHtml(hero,44,false)+'<div class="gd-hero-chip-name">'+(label||hero).toUpperCase()+'</div></div>';
+  }
+  var ourHtml=ourTeam.length?ourTeam.map(function(t){return heroChip(t.hero,t.nick);}).join(''):
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">No data</div>';
+  var enemyHtml=enemyTeam.length?enemyTeam.map(function(ep){return heroChip(ep.hero,ep.role||'');}).join(''):
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">No data</div>';
+  var lineupHtml='<div class="gd-lineup-section">'+
+    '<div class="gd-team"><div class="gd-team-label">OUR TEAM</div><div class="gd-team-heroes">'+ourHtml+'</div></div>'+
+    '<div class="gd-team" style="border-left:var(--border);"><div class="gd-team-label">OPPONENT</div><div class="gd-team-heroes">'+enemyHtml+'</div></div>'+
+  '</div>';
+  box.innerHTML=topHtml+lineupHtml;
+  if(hasStats){
+    setTimeout(function(){
+      var caps=_heroRadarCaps(role.toLowerCase());
+      drawGameRadar(playerId,currentStats,overallStats,caps);
+      _setupGameRadarEvents(playerId);
+    },50);
+  }
 }

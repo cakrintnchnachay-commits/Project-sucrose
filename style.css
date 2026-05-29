@@ -1094,3 +1094,12 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .pgame-rating-cell{text-align:center;min-width:32px;}
 .pgame-rating-val{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;}
 .pgame-rating-lbl{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);}
+/* ── PROFILE GAMES TAB — split detail ── */
+.pgame-row.pgame-selected{background:rgba(100,180,255,0.06);border-left:2px solid rgba(100,180,255,0.8);}
+.gd-lineup-section{display:grid;grid-template-columns:1fr 1fr;border-bottom:var(--border);}
+.gd-team{padding:14px 12px 12px;}
+.gd-team-label{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:8px;text-transform:uppercase;}
+.gd-team-heroes{display:flex;flex-direction:row;gap:6px;flex-wrap:wrap;}
+.gd-hero-chip{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.gd-hero-chip-name{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);text-align:center;max-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gd-game-no-data{display:flex;flex-direction:column;align-items:center;justify-content:center;height:260px;gap:10px;}
