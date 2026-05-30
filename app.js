@@ -2424,10 +2424,10 @@ var DMG_ANCHORS = {
     carry:   [[0, 2.5], [1, 9.9], [5, 14.0], [15, 17.4], [30, 20.6], [50, 23.6], [70, 27.0], [85, 30.1], [95, 34.6], [99, 39.9], [100, 44.0]],
     midlane: [[0, 8.7], [1, 14.5], [5, 19.3], [15, 23.2], [30, 26.4], [50, 30.0], [70, 34.0], [85, 37.7], [95, 43.8], [99, 49.9], [100, 85.2]],
   },
-  // DPM proxy    ((dmg_pct / duration_min) × 10)
+  // DPM          (raw damage per minute — dmg_dealt_raw / duration_min)
   dpm: {
-    carry:   [[0, 1.57], [1, 5.51], [5, 7.54], [15, 10.15], [30, 12.19], [50, 14.83], [70, 17.81], [85, 21.06], [95, 26.59], [99, 31.59], [100, 48.92]],
-    midlane: [[0, 4.02], [1, 7.26], [5, 9.44], [15, 12.48], [30, 15.41], [50, 18.68], [70, 23.26], [85, 28.65], [95, 37.0],  [99, 48.91], [100, 68.06]],
+    carry:   [[0, 349], [1, 1333], [5, 2031], [15, 2800], [30, 3455], [50, 4282], [70, 5073], [85, 6186], [95, 7550], [99, 9143], [100, 14015]],
+    midlane: [[0, 769], [1, 2196], [5, 2849], [15, 3720], [30, 4548], [50, 5467], [70, 6423], [85, 7606], [95, 9005], [99, 11459], [100, 33831]],
   },
   // KP%          ((kills + assists) / team kills × 100)
   kp: {
@@ -2468,24 +2468,26 @@ function calcDMGScore(playerData) {
   var role = (playerData.role || playerData.role_played || '').toLowerCase();
   if (role !== 'carry' && role !== 'midlane') return null;
 
-  var dmgPct  = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
-  var kills   = parseFloat(playerData.kills)   || 0;
-  var assists = parseFloat(playerData.assists) || 0;
-  var teamK   = parseFloat(playerData.team_total_kills) || 0;
-  var durSec  = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+  var dmgPct     = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
+  var dmgRaw     = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
+  var kills      = parseFloat(playerData.kills)   || 0;
+  var assists    = parseFloat(playerData.assists) || 0;
+  var teamK      = parseFloat(playerData.team_total_kills) || 0;
+  var durSec     = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
 
-  var hasDmg = dmgPct != null && dmgPct > 0;
-  var hasDur = durSec != null && durSec > 0;
-  var hasKP  = teamK > 0;
+  var hasDmg    = dmgPct != null && dmgPct > 0;
+  var hasDmgRaw = dmgRaw != null && dmgRaw > 0;
+  var hasDur    = durSec != null && durSec > 0;
+  var hasKP     = teamK > 0;
 
   if (!hasDmg) return null;
 
-  var durationMin   = hasDur ? durSec / 60 : null;
-  var dpmProxy      = (hasDmg && hasDur) ? (dmgPct / durationMin) * 10 : null;
-  var kpPct         = hasKP ? (kills + assists) / teamK * 100 : null;
+  var durationMin = hasDur ? durSec / 60 : null;
+  var dpm         = (hasDmgRaw && hasDur) ? dmgRaw / durationMin : null;
+  var kpPct       = hasKP ? (kills + assists) / teamK * 100 : null;
 
   var dmgPercentile = getDMGPercentile(dmgPct, role, 'dmg');
-  var dpmPercentile = dpmProxy != null ? getDMGPercentile(dpmProxy, role, 'dpm') : null;
+  var dpmPercentile = dpm != null ? getDMGPercentile(dpm, role, 'dpm') : null;
   var kpPercentile  = kpPct   != null ? getDMGPercentile(kpPct,    role, 'kp')  : null;
 
   var dmgScore = pctToScore(dmgPercentile);
@@ -2506,7 +2508,7 @@ function calcDMGScore(playerData) {
 
   return {
     dmgPct:        dmgPct,
-    dpmProxy:      dpmProxy,
+    dpm:           dpm,
     kpPct:         kpPct,
     dmgPercentile: Math.round(dmgPercentile),
     dpmPercentile: dpmPercentile != null ? Math.round(dpmPercentile) : null,
@@ -2542,13 +2544,15 @@ function updateDTStrip(slotIdx) {
     return;
   }
 
-  var dmgPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-' + slotIdx) && document.getElementById('lp-dmg_dealt_pct-' + slotIdx).value) || 0;
-  var kills   = parseFloat(document.getElementById('lp-kills-' + slotIdx) && document.getElementById('lp-kills-' + slotIdx).value) || 0;
-  var assists = parseFloat(document.getElementById('lp-assists-' + slotIdx) && document.getElementById('lp-assists-' + slotIdx).value) || 0;
-  var teamK   = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0;
-  var durSec  = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+  function _readNum(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var dmgPct  = _readNum('lp-dmg_dealt_pct-' + slotIdx);
+  var dmgRaw  = _readNum('lp-dmg_dealt_raw-' + slotIdx);
+  var kills   = _readNum('lp-kills-'   + slotIdx) || 0;
+  var assists = _readNum('lp-assists-' + slotIdx) || 0;
+  var teamK   = (LS.matchInfo && LS.matchInfo.team_total_kills)  ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
+  var durSec  = (LS.matchInfo && LS.matchInfo.duration_seconds)  ? parseFloat(LS.matchInfo.duration_seconds)  : null;
 
-  var pData = { role: role, dmgDealtPct: dmgPct || null, kills: kills, assists: assists, team_total_kills: teamK, duration_seconds: durSec };
+  var pData = { role: role, dmgDealtPct: dmgPct, dmgDealtRaw: dmgRaw, kills: kills, assists: assists, team_total_kills: teamK, duration_seconds: durSec };
   var r = calcDMGScore(pData);
 
   function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
@@ -2567,8 +2571,8 @@ function updateDTStrip(slotIdx) {
     '</div>';
   }
 
-  var dmgVal  = (r && r.dmgPct   != null) ? r.dmgPct.toFixed(1)   + '%' : null;
-  var dpmVal  = (r && r.dpmProxy != null) ? r.dpmProxy.toFixed(1)       : null;
+  var dmgVal  = (r && r.dmgPct != null) ? r.dmgPct.toFixed(1) + '%'    : null;
+  var dpmVal  = (r && r.dpm   != null) ? Math.round(r.dpm).toString()  : null;
   var kpVal   = (r && r.kpPct    != null) ? r.kpPct.toFixed(1)    + '%' : null;
   var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)   : null;
   var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
@@ -2648,6 +2652,7 @@ function autoScorePlayer(slotIdx) {
     dtResult = calcDMGScore({
       role:             role,
       dmgDealtPct:      rawStats.dmgDealtPct,
+      dmgDealtRaw:      rawStats.dmgDealt,
       kills:            rawStats.kills,
       assists:          rawStats.assists,
       team_total_kills: teamK,
@@ -2824,7 +2829,7 @@ async function saveGame(){
         pillar_2_auto:         null,
         pillar_3_auto:         (function(){
           if (role !== 'carry' && role !== 'midlane') return null;
-          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills, duration_seconds: LS.matchInfo.duration_seconds });
+          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, dmgDealtRaw: dmgDealtRaw, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills, duration_seconds: LS.matchInfo.duration_seconds });
           return _r ? _r.finalScore : null;
         })(),
         pillar_4_auto:         null,
