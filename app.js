@@ -2441,37 +2441,43 @@ function _refreshPillarHints(i){
 
 // === DMG & TEAMFIGHT SCORING ENGINE ===
 
+// === DMG & TEAMFIGHT ANCHOR TABLES ===
+// Source: data_2.csv, 816 pro games. Format: [p10, p25, p50, p75, p90]
+// DMG% stays flat — bracket shift is <0.02 at median, not significant.
+// DMG/min median rises ~950-1100/min per bracket. KP% rises ~0.06-0.08 per bracket.
 var DMG_ANCHORS = {
-  // DMG dealt %  (player raw dmg / team total dmg × 100)
-  dmg: {
-    carry:   [[0, 2.5], [1, 9.9], [5, 14.0], [15, 17.4], [30, 20.6], [50, 23.6], [70, 27.0], [85, 30.1], [95, 34.6], [99, 39.9], [100, 44.0]],
-    midlane: [[0, 8.7], [1, 14.5], [5, 19.3], [15, 23.2], [30, 26.4], [50, 30.0], [70, 34.0], [85, 37.7], [95, 43.8], [99, 49.9], [100, 85.2]],
+  carry: {
+    dmg_pct: [0.1609, 0.1987, 0.2358, 0.2769, 0.3226],  // pooled, fraction
+    dmg_per_min: {
+      lt12:     [1909, 2672, 3392, 4526, 5764],
+      '12to20': [2598, 3411, 4341, 5338, 6749],
+      '20to35': [3052, 3911, 4956, 6287, 7366],
+    },
+    kp_pct: {
+      lt12:     [0.000, 0.394, 0.640, 0.800, 1.000],
+      '12to20': [0.333, 0.500, 0.667, 0.800, 1.000],
+      '20to35': [0.333, 0.538, 0.700, 0.833, 1.000],
+    },
   },
-  // DPM          (raw damage per minute — dmg_dealt_raw / duration_min)
-  dpm: {
-    carry:   [[0, 349], [1, 1333], [5, 2031], [15, 2800], [30, 3455], [50, 4282], [70, 5073], [85, 6186], [95, 7550], [99, 9143], [100, 14015]],
-    midlane: [[0, 769], [1, 2196], [5, 2849], [15, 3720], [30, 4548], [50, 5467], [70, 6423], [85, 7606], [95, 9005], [99, 11459], [100, 33831]],
-  },
-  // KP%          ((kills + assists) / team kills × 100)
-  kp: {
-    carry:   [[0, 0.0], [1, 0.0], [5, 20.0], [15, 40.0], [30, 54.5], [50, 66.7], [70, 80.0], [85, 88.9], [95, 100.0], [99, 100.0], [100, 100.0]],
-    midlane: [[0, 0.0], [1, 0.0], [5, 33.3], [15, 50.0], [30, 64.3], [50, 75.0], [70, 85.7], [85, 100.0], [95, 100.0], [99, 100.0], [100, 100.0]],
+  mage: {
+    dmg_pct: [0.2125, 0.2536, 0.2991, 0.3473, 0.3951],  // pooled, fraction
+    dmg_per_min: {
+      lt12:     [2869, 3879, 4989, 6279, 7560],
+      '12to20': [3485, 4334, 5501, 6761, 8294],
+      '20to35': [3806, 4709, 6074, 7455, 8736],
+    },
+    kp_pct: {
+      lt12:     [0.000, 0.500, 0.742, 0.911, 1.000],
+      '12to20': [0.429, 0.600, 0.750, 0.889, 1.000],
+      '20to35': [0.500, 0.625, 0.750, 0.857, 1.000],
+    },
   },
 };
 
-function getDMGPercentile(value, role, type) {
-  var table = DMG_ANCHORS[type] && DMG_ANCHORS[type][role.toLowerCase()];
-  if (!table) return 50;
-  if (value <= table[0][1]) return table[0][0];
-  if (value >= table[table.length - 1][1]) return table[table.length - 1][0];
-  for (var i = 1; i < table.length; i++) {
-    if (value <= table[i][1]) {
-      var lo = table[i - 1], hi = table[i];
-      var t = (value - lo[1]) / (hi[1] - lo[1]);
-      return lo[0] + t * (hi[0] - lo[0]);
-    }
-  }
-  return 50;
+function getGameBracket(duration_minutes) {
+  if (duration_minutes < 12) return 'lt12';
+  if (duration_minutes < 20) return '12to20';
+  return '20to35'; // covers 20-35 AND >35min (n=16 in data, too small for own bracket)
 }
 
 function pctToScore(pct) {
@@ -2489,7 +2495,8 @@ function pctToScore(pct) {
 
 function calcDMGScore(playerData) {
   var role = (playerData.role || playerData.role_played || '').toLowerCase();
-  if (role !== 'carry' && role !== 'midlane') return null;
+  var roleKey = role === 'carry' ? 'carry' : role === 'midlane' ? 'mage' : null;
+  if (!roleKey) return null;
 
   var dmgPct     = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
   var dmgRaw     = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
@@ -2506,12 +2513,16 @@ function calcDMGScore(playerData) {
   if (!hasDmg) return null;
 
   var durationMin = hasDur ? durSec / 60 : null;
-  var dpm         = (hasDmgRaw && hasDur) ? dmgRaw / durationMin : null;
-  var kpPct       = hasKP ? (kills + assists) / teamK * 100 : null;
+  var bracket     = durationMin != null ? getGameBracket(durationMin) : '12to20';
+  var anchors     = DMG_ANCHORS[roleKey];
 
-  var dmgPercentile = getDMGPercentile(dmgPct, role, 'dmg');
-  var dpmPercentile = dpm != null ? getDMGPercentile(dpm, role, 'dpm') : null;
-  var kpPercentile  = kpPct   != null ? getDMGPercentile(kpPct,    role, 'kp')  : null;
+  var dmgFrac  = dmgPct / 100;  // anchors use fractions (0-1)
+  var dpm      = (hasDmgRaw && hasDur) ? dmgRaw / durationMin : null;
+  var kpFrac   = hasKP ? Math.min((kills + assists) / teamK, 1.0) : null;  // clamp >1
+
+  var dmgPercentile = _interpolatePercentile(dmgFrac, anchors.dmg_pct);
+  var dpmPercentile = dpm    != null ? _interpolatePercentile(dpm,    anchors.dmg_per_min[bracket]) : null;
+  var kpPercentile  = kpFrac != null ? _interpolatePercentile(kpFrac, anchors.kp_pct[bracket])     : null;
 
   var dmgScore = pctToScore(dmgPercentile);
   var dpmScore = dpmPercentile != null ? pctToScore(dpmPercentile) : null;
@@ -2532,7 +2543,7 @@ function calcDMGScore(playerData) {
   return {
     dmgPct:        dmgPct,
     dpm:           dpm,
-    kpPct:         kpPct,
+    kpPct:         kpFrac != null ? kpFrac * 100 : null,  // back to % for display
     dmgPercentile: Math.round(dmgPercentile),
     dpmPercentile: dpmPercentile != null ? Math.round(dpmPercentile) : null,
     kpPercentile:  kpPercentile  != null ? Math.round(kpPercentile)  : null,
@@ -2618,20 +2629,58 @@ function updateDTStrip(slotIdx) {
 // === SURVIVAL / TANK / PROTECTION ANCHOR TABLES ===
 // Source: data_2.csv, 816 complete pro games
 // Format: [p10, p25, p50, p75, p90]
+
+// === SURVIVAL ANCHOR TABLES ===
+// deaths_pm: lower = better (inverted in scoring function)
+// dmg_dtk: higher = better
+// Carry deaths/min p50: 0.098 (<12min) → 0.074 (12-20) → 0.049 (20-35) — must bracket.
 var SURVIVAL_ANCHORS = {
   carry: {
-    dmg_dtk:   [1.0268, 1.3654, 1.8000, 2.4000, 3.2219],
-    deaths_pm: [0.0000, 0.0000, 0.0755, 0.1298, 0.1950],
+    deaths_pm: {
+      lt12:     [0.000, 0.000, 0.098, 0.194, 0.269],
+      '12to20': [0.000, 0.038, 0.074, 0.132, 0.174],
+      '20to35': [0.000, 0.036, 0.049, 0.095, 0.147],
+    },
+    dmg_dtk: {
+      lt12:     [0.758, 1.098, 1.593, 2.362, 3.160],
+      '12to20': [1.063, 1.383, 1.793, 2.335, 3.107],
+      '20to35': [1.208, 1.500, 1.951, 2.607, 3.454],
+    },
   },
   mage: {
-    dmg_dtk:   [0.9317, 1.2937, 1.8706, 3.0000, 4.5725],
-    deaths_pm: [0.0000, 0.0000, 0.0746, 0.1405, 0.2169],
+    deaths_pm: {
+      lt12:     [0.000, 0.000, 0.098, 0.199, 0.286],
+      '12to20': [0.000, 0.000, 0.074, 0.151, 0.220],
+      '20to35': [0.000, 0.036, 0.048, 0.098, 0.141],
+    },
+    dmg_dtk: {
+      lt12:     [0.767, 1.175, 1.746, 2.954, 4.409],
+      '12to20': [0.958, 1.279, 1.825, 2.951, 4.470],
+      '20to35': [1.032, 1.421, 2.128, 3.290, 5.039],
+    },
   },
 };
+// === TANK ANCHOR TABLES ===
+// Source: data_2.csv, 816 pro games, 1613 support observations
+// Short = END TIME < 15min (346 win, 346 loss). Long = >= 15min (pooled, 921 obs).
+// DTK% gap is negligible (<0.01) so same structure is kept for code consistency only.
+// DTK/min gap in short games: 1,249/min (loss vs win). death_adj gap: 0.177.
 var TANK_ANCHORS = {
-  dtk_pct:     [0.2039, 0.2477, 0.3005, 0.3515, 0.3976],
-  dtk_per_min: [3262.95, 4163.05, 5395.35, 6703.85, 8224.76],
-  death_adj:   [0.0000, 0.0694, 0.1700, 0.2899, 0.4386],
+  dtk_pct: {
+    short_win:  [0.2014, 0.2470, 0.2913, 0.3453, 0.3856],
+    short_loss: [0.1960, 0.2346, 0.2839, 0.3397, 0.3863],
+    long:       [0.2076, 0.2544, 0.3088, 0.3571, 0.4025],
+  },
+  dtk_per_min: {
+    short_win:  [2731.9, 3459.2, 4260.7, 5279.2, 6152.5],
+    short_loss: [3272.3, 4395.3, 5509.9, 6616.6, 7821.3],
+    long:       [3589.2, 4542.6, 5834.2, 7225.7, 8745.8],
+  },
+  death_adj: {
+    short_win:  [0.0000, 0.0000, 0.1172, 0.2555, 0.3658],
+    short_loss: [0.0980, 0.1814, 0.2941, 0.4330, 0.5996],
+    long:       [0.0000, 0.0769, 0.1531, 0.2469, 0.3529],
+  },
 };
 var PROTECTION_ANCHORS = {
   geo_mean: [0.00100, 0.00901, 0.06604, 0.11906, 0.17104],
@@ -2673,7 +2722,8 @@ function _survivalPillarIndex(role) {
 
 function calcSurvivalScore(playerData) {
   var role = (playerData.role || '').toLowerCase();
-  if (role !== 'carry' && role !== 'midlane') return null;
+  var roleKey = role === 'carry' ? 'carry' : role === 'midlane' ? 'mage' : null;
+  if (!roleKey) return null;
 
   var dmgDealtPct = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
   var dmgTakenPct = playerData.dmgTakenPct != null ? parseFloat(playerData.dmgTakenPct) : null;
@@ -2683,14 +2733,15 @@ function calcSurvivalScore(playerData) {
   if (!durSec || durSec <= 0) return null;
   if (dmgDealtPct == null)    return null;
 
-  var durMin     = durSec / 60;
-  var dtk        = Math.max(dmgTakenPct || 0, 0.1);
+  var durMin      = durSec / 60;
+  var bracket     = getGameBracket(durMin);
+  var dtk         = Math.max(dmgTakenPct || 0, 0.1);
   var dmgDtkRatio = dmgDealtPct / dtk;
-  var deathsPm   = deaths / durMin;
+  var deathsPm    = deaths / durMin;
 
-  var roleKey = (role === 'carry') ? 'carry' : 'mage';
-  var dmgDtkPct  = _interpolatePercentile(dmgDtkRatio, SURVIVAL_ANCHORS[roleKey].dmg_dtk);
-  var deathsPct  = _interpolatePercentile(deathsPm,    SURVIVAL_ANCHORS[roleKey].deaths_pm);
+  var anchors    = SURVIVAL_ANCHORS[roleKey];
+  var dmgDtkPct  = _interpolatePercentile(dmgDtkRatio, anchors.dmg_dtk[bracket]);
+  var deathsPct  = _interpolatePercentile(deathsPm,    anchors.deaths_pm[bracket]);
 
   var raw = pctToScore(dmgDtkPct) * 0.60 + pctToScore(100 - deathsPct) * 0.40;
 
@@ -2798,9 +2849,13 @@ function calcTankScore(playerData) {
     deathAdj = deaths / (dmgTakenPct + 0.1);
   }
 
-  var dtkPctPct    = _interpolatePercentile(dtkPct,    TANK_ANCHORS.dtk_pct);
-  var dtkPerMinPct = _interpolatePercentile(dtkPerMin, TANK_ANCHORS.dtk_per_min);
-  var deathAdjPct  = _interpolatePercentile(deathAdj,  TANK_ANCHORS.death_adj);
+  var isShort    = durMin < 15;
+  var playerWon  = playerData.playerWon != null ? playerData.playerWon : (typeof LS !== 'undefined' && LS.matchInfo && LS.matchInfo.result === 'Win');
+  var row        = isShort ? (playerWon ? 'short_win' : 'short_loss') : 'long';
+
+  var dtkPctPct    = _interpolatePercentile(dtkPct,    TANK_ANCHORS.dtk_pct[row]);
+  var dtkPerMinPct = _interpolatePercentile(dtkPerMin, TANK_ANCHORS.dtk_per_min[row]);
+  var deathAdjPct  = _interpolatePercentile(deathAdj,  TANK_ANCHORS.death_adj[row]);
 
   var raw = pctToScore(dtkPctPct) * 0.40 + pctToScore(dtkPerMinPct) * 0.40 + pctToScore(100 - deathAdjPct) * 0.20;
 
@@ -2831,6 +2886,7 @@ function updateTankStrip(slotIdx) {
     dmgTakenRaw:  _rn('lp-dmg_taken_raw-' + slotIdx),
     deaths:       _rn('lp-deaths-' + slotIdx) || 0,
     duration_seconds: durSec,
+    playerWon:    (LS.matchInfo && LS.matchInfo.result === 'Win'),
   });
 
   function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
@@ -3091,6 +3147,7 @@ function autoScorePlayer(slotIdx) {
       dmgTakenRaw:  rawStats.dmgTaken,
       deaths:       rawStats.deaths,
       duration_seconds: durSec,
+      playerWon:    (LS.matchInfo && LS.matchInfo.result === 'Win'),
     });
   }
 
