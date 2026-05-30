@@ -158,8 +158,8 @@ def main():
                     dmg_pct = raw_dmg / team_dmg * 100
                     data[role]["dmg"].append(dmg_pct)
 
-                    # 2. DPM proxy — matches engine formula: (dmg_pct / duration_min) * 10
-                    dpm = (raw_dmg / team_dmg * 100 / duration_min) * 10
+                    # 2. DPM — raw damage per minute
+                    dpm = raw_dmg / duration_min
                     data[role]["dpm"].append(dpm)
 
                     # 3. KP% — kill participation (capped at 100; values above are data errors)
@@ -175,7 +175,7 @@ def main():
 
     metric_meta = [
         ("dmg", "DMG dealt %  (player raw dmg / team total dmg × 100)", 1),
-        ("dpm", "DPM proxy    ((dmg_pct / duration_min) × 10)",           2),
+        ("dpm", "DPM          (raw damage per minute)",                    0),
         ("kp",  "KP%          ((kills + assists) / team kills × 100)",   1),
     ]
 
