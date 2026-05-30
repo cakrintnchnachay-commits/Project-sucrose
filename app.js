@@ -2188,6 +2188,8 @@ function updateComputedStats(slotIdx){
   updateSurvivalStrip(slotIdx);
   updateTankStrip(slotIdx);
   updateProtectionStrip(slotIdx);
+  updateGankStrip(slotIdx);
+  updateTeamfightStrip(slotIdx);
   _updateSupportContextDisplay();
   // Carry/midlane death changes affect the support protection strip
   if (slotIdx === 1 || slotIdx === 2) {
@@ -2226,6 +2228,12 @@ function renderPillarSliders(role, slotIdx){
     }
     if(pName === 'Protection'){
       html += '<div id="lp-protection-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Gank'){
+      html += '<div id="lp-gank-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Teamfight'){
+      html += '<div id="lp-teamfight-strip-'+slotIdx+'"></div>';
     }
     html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
     html += '</div>';
@@ -2686,6 +2694,48 @@ var PROTECTION_ANCHORS = {
   geo_mean: [0.00100, 0.00901, 0.06604, 0.11906, 0.17104],
 };
 
+// === GANK ANCHOR TABLES (Jungle) ===
+// KDA win/loss gap at median: 5.0 vs 1.25 — always split regardless of game length.
+// kill_share short-game split: winners 0.30 vs losers 0.20 median.
+var GANK_ANCHORS = {
+  jug: {
+    kp:        [0.3333, 0.5000, 0.6667, 0.8182, 1.0000],  // pooled
+    kda: {
+      win:  [2.0000, 3.0000, 5.0000,  8.0000, 10.0000],
+      loss: [0.2500, 0.6667, 1.2500,  2.2500,  4.0000],
+    },
+    kill_share: {
+      short_win:  [0.1000, 0.1818, 0.3000, 0.4000, 0.5394],
+      short_loss: [0.0000, 0.0000, 0.2000, 0.5000, 0.8000],
+      long:       [0.0000, 0.1538, 0.2667, 0.3846, 0.5000],
+    },
+    dmg_share: [0.0984, 0.1277, 0.1627, 0.2057, 0.2458],  // pooled
+  },
+};
+// === TEAMFIGHT ANCHOR TABLES (Offlane + Support) ===
+var TEAMFIGHT_ANCHORS = {
+  dsl: {
+    kp:        [0.2000, 0.4000, 0.5455, 0.7143, 0.8571],  // pooled
+    kda: {
+      win:  [2.0000, 3.0000, 4.5000, 7.0000, 8.0000],
+      loss: [0.0000, 0.5000, 1.0000, 2.0000, 4.0000],
+    },
+    dmg_share: [0.1023, 0.1269, 0.1614, 0.1985, 0.2405],  // pooled
+    kill_share: {
+      short_win:  [0.0000, 0.0909, 0.1818, 0.2857, 0.3750],
+      short_loss: [0.0000, 0.0000, 0.0000, 0.2500, 0.5000],
+      long:       [0.0000, 0.0000, 0.1818, 0.2857, 0.4286],
+    },
+  },
+  sup: {
+    kp:  [0.5000, 0.6667, 0.8000, 0.9333, 1.0000],  // pooled
+    kda: {
+      win:  [2.5667, 4.0000,  6.0000,  9.0000, 12.0000],
+      loss: [0.3333, 0.8000,  1.5000,  3.0000,  4.5000],
+    },
+  },
+};
+
 // Interpolates a value against a [p10,p25,p50,p75,p90] anchor array, returning 0–100 percentile.
 function _interpolatePercentile(value, anchors) {
   var pcts = [10, 25, 50, 75, 90];
@@ -3066,6 +3116,292 @@ function _updateSupportContextDisplay() {
 
 // === END PROTECTION SCORING ENGINE ===
 
+// === GANK SCORING ENGINE (JUG) ===
+
+function _gankPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Gank') return i;
+  }
+  return -1;
+}
+
+function calcGankScore(playerData) {
+  var role = (playerData.role || '').toLowerCase();
+  if (role !== 'jungler') return null;
+
+  var kills    = parseFloat(playerData.kills)   || 0;
+  var assists  = parseFloat(playerData.assists) || 0;
+  var deaths   = parseFloat(playerData.deaths)  || 0;
+  var teamK    = playerData.team_total_kills != null ? parseFloat(playerData.team_total_kills) : 0;
+  var durSec   = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+  var playerWon = !!playerData.playerWon;
+  var dmgDealtRaw = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
+  var teamDmg     = playerData.team_total_dmg != null ? parseFloat(playerData.team_total_dmg) : null;
+
+  if (!durSec || durSec <= 0) return null;
+  if (teamK <= 0) return null;
+
+  var durMin = durSec / 60;
+  var kp     = Math.min((kills + assists) / teamK, 1.0);
+  var kda    = (kills + assists) / Math.max(deaths, 1);
+  var kill_share = kills / teamK;
+  var dmg_share  = (dmgDealtRaw != null && dmgDealtRaw > 0 && teamDmg != null && teamDmg > 0) ? dmgDealtRaw / teamDmg : null;
+  var hasDmgShare = dmg_share != null;
+
+  var kdaRow = playerWon ? 'win' : 'loss';
+  var isShort = durMin < 15;
+  var ksRow   = isShort ? (playerWon ? 'short_win' : 'short_loss') : 'long';
+
+  var kpPct  = _interpolatePercentile(kp,         GANK_ANCHORS.jug.kp);
+  var kdaPct = _interpolatePercentile(kda,        GANK_ANCHORS.jug.kda[kdaRow]);
+  var ksPct  = _interpolatePercentile(kill_share, GANK_ANCHORS.jug.kill_share[ksRow]);
+  var dmgPct = hasDmgShare ? _interpolatePercentile(dmg_share, GANK_ANCHORS.jug.dmg_share) : null;
+
+  var finalRaw;
+  if (hasDmgShare) {
+    finalRaw = pctToScore(kpPct) * 0.35 + pctToScore(kdaPct) * 0.25 + pctToScore(ksPct) * 0.25 + pctToScore(dmgPct) * 0.15;
+  } else {
+    // dmg_share missing — redistribute: KP 42%, KDA 30%, KS 28%
+    finalRaw = pctToScore(kpPct) * 0.42 + pctToScore(kdaPct) * 0.30 + pctToScore(ksPct) * 0.28;
+  }
+
+  return {
+    kp:         kp,
+    kda:        kda,
+    kill_share: kill_share,
+    dmg_share:  dmg_share,
+    kpPct:      Math.round(kpPct),
+    kdaPct:     Math.round(kdaPct),
+    ksPct:      Math.round(ksPct),
+    dmgPct:     dmgPct != null ? Math.round(dmgPct) : null,
+    finalScore: Math.round(finalRaw * 2) / 2,
+  };
+}
+
+function updateGankStrip(slotIdx) {
+  var el = document.getElementById('lp-gank-strip-' + slotIdx);
+  if (!el) return;
+
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'jungler') { el.innerHTML = ''; return; }
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var durSec    = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+  var teamK     = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
+  var playerWon = (LS.matchInfo && LS.matchInfo.result === 'Win');
+
+  var teamDmg = 0, teamDmgOk = true;
+  for (var si = 0; si < 5; si++) {
+    var sd = _rn('lp-dmg_dealt_raw-' + si);
+    if (sd != null && sd > 0) { teamDmg += sd; } else { teamDmgOk = false; }
+  }
+
+  var r = calcGankScore({
+    role:             role,
+    kills:            _rn('lp-kills-'   + slotIdx) || 0,
+    deaths:           _rn('lp-deaths-'  + slotIdx) || 0,
+    assists:          _rn('lp-assists-' + slotIdx) || 0,
+    team_total_kills: teamK,
+    duration_seconds: durSec,
+    playerWon:        playerWon,
+    dmgDealtRaw:      _rn('lp-dmg_dealt_raw-' + slotIdx),
+    team_total_dmg:   (teamDmgOk && teamDmg > 0) ? teamDmg : null,
+  });
+
+  function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _row(label, val, ordinal, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:52px 44px 14px 46px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">' + label + '</span>' +
+      '<span style="color:var(--white);">'  + (val     != null ? val     : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="color:var(--grey-5);">' + (ordinal != null ? ordinal : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? score.toFixed(0) : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight + '</span>' +
+    '</div>';
+  }
+
+  var kpVal   = (r && r.kp         != null) ? (r.kp         * 100).toFixed(0) + '%' : null;
+  var kdaVal  = (r && r.kda        != null) ? r.kda.toFixed(2)                      : null;
+  var ksVal   = (r && r.kill_share != null) ? (r.kill_share * 100).toFixed(0) + '%' : null;
+  var dmgSVal = (r && r.dmg_share  != null) ? (r.dmg_share  * 100).toFixed(0) + '%' : null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)               : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+
+  var kpScore  = (r) ? pctToScore(r.kpPct)                              : null;
+  var kdaScore = (r) ? pctToScore(r.kdaPct)                             : null;
+  var ksScore  = (r) ? pctToScore(r.ksPct)                              : null;
+  var dmgScore = (r && r.dmgPct != null) ? pctToScore(r.dmgPct)         : null;
+
+  el.innerHTML =
+    '<div class="dt-strip">' +
+      _row('KP%',      kpVal,   _ord(r && r.kpPct),  kpScore,  '×0.35') +
+      _row('KDA',      kdaVal,  _ord(r && r.kdaPct), kdaScore, '×0.25') +
+      _row('Kill shr', ksVal,   _ord(r && r.ksPct),  ksScore,  '×0.25') +
+      _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct), dmgScore, '×0.15') +
+      '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+        '<span style="color:var(--grey-5);">Gank  </span>' +
+        '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+        '<span style="color:var(--grey-5);"> / 10</span>' +
+      '</div>' +
+    '</div>';
+}
+
+// === END GANK SCORING ENGINE ===
+
+// === TEAMFIGHT SCORING ENGINE (DSL / SUP) ===
+
+function _teamfightPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Teamfight') return i;
+  }
+  return -1;
+}
+
+function calcTeamfightScore(playerData) {
+  var role = (playerData.role || '').toLowerCase();
+  if (role !== 'offlane' && role !== 'support') return null;
+
+  var kills    = parseFloat(playerData.kills)   || 0;
+  var assists  = parseFloat(playerData.assists) || 0;
+  var deaths   = parseFloat(playerData.deaths)  || 0;
+  var teamK    = playerData.team_total_kills != null ? parseFloat(playerData.team_total_kills) : 0;
+  var durSec   = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+  var playerWon = !!playerData.playerWon;
+  var dmgDealtRaw = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
+  var teamDmg     = playerData.team_total_dmg != null ? parseFloat(playerData.team_total_dmg) : null;
+
+  if (!durSec || durSec <= 0) return null;
+  if (teamK <= 0) return null;
+
+  var durMin = durSec / 60;
+  var kp     = Math.min((kills + assists) / teamK, 1.0);
+  var kda    = (kills + assists) / Math.max(deaths, 1);
+
+  var kdaRow = playerWon ? 'win' : 'loss';
+
+  if (role === 'support') {
+    var kpPct  = _interpolatePercentile(kp,  TEAMFIGHT_ANCHORS.sup.kp);
+    var kdaPct = _interpolatePercentile(kda, TEAMFIGHT_ANCHORS.sup.kda[kdaRow]);
+    var finalRaw = pctToScore(kpPct) * 0.60 + pctToScore(kdaPct) * 0.40;
+    return {
+      role: 'support', kp: kp, kda: kda, kill_share: null, dmg_share: null,
+      kpPct: Math.round(kpPct), kdaPct: Math.round(kdaPct), ksPct: null, dmgPct: null,
+      finalScore: Math.round(finalRaw * 2) / 2,
+    };
+  }
+
+  // Offlane
+  var isShort    = durMin < 15;
+  var ksRow      = isShort ? (playerWon ? 'short_win' : 'short_loss') : 'long';
+  var kill_share = kills / teamK;
+  var dmg_share  = (dmgDealtRaw != null && dmgDealtRaw > 0 && teamDmg != null && teamDmg > 0) ? dmgDealtRaw / teamDmg : null;
+  var hasDmgShare = dmg_share != null;
+
+  var kpPctD  = _interpolatePercentile(kp,         TEAMFIGHT_ANCHORS.dsl.kp);
+  var kdaPctD = _interpolatePercentile(kda,        TEAMFIGHT_ANCHORS.dsl.kda[kdaRow]);
+  var ksPctD  = _interpolatePercentile(kill_share, TEAMFIGHT_ANCHORS.dsl.kill_share[ksRow]);
+  var dmgPctD = hasDmgShare ? _interpolatePercentile(dmg_share, TEAMFIGHT_ANCHORS.dsl.dmg_share) : null;
+
+  var finalRawD;
+  if (hasDmgShare) {
+    finalRawD = pctToScore(kpPctD) * 0.35 + pctToScore(kdaPctD) * 0.30 + pctToScore(dmgPctD) * 0.25 + pctToScore(ksPctD) * 0.10;
+  } else {
+    // dmg_share missing: KP 47%, KDA 40%, KS 13%
+    finalRawD = pctToScore(kpPctD) * 0.47 + pctToScore(kdaPctD) * 0.40 + pctToScore(ksPctD) * 0.13;
+  }
+
+  return {
+    role: 'offlane', kp: kp, kda: kda, kill_share: kill_share, dmg_share: dmg_share,
+    kpPct: Math.round(kpPctD), kdaPct: Math.round(kdaPctD),
+    ksPct: Math.round(ksPctD), dmgPct: dmgPctD != null ? Math.round(dmgPctD) : null,
+    finalScore: Math.round(finalRawD * 2) / 2,
+  };
+}
+
+function updateTeamfightStrip(slotIdx) {
+  var el = document.getElementById('lp-teamfight-strip-' + slotIdx);
+  if (!el) return;
+
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'offlane' && role !== 'support') { el.innerHTML = ''; return; }
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var durSec    = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+  var teamK     = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
+  var playerWon = (LS.matchInfo && LS.matchInfo.result === 'Win');
+
+  var teamDmg = 0, teamDmgOk = true;
+  for (var si = 0; si < 5; si++) {
+    var sd = _rn('lp-dmg_dealt_raw-' + si);
+    if (sd != null && sd > 0) { teamDmg += sd; } else { teamDmgOk = false; }
+  }
+
+  var r = calcTeamfightScore({
+    role:             role,
+    kills:            _rn('lp-kills-'   + slotIdx) || 0,
+    deaths:           _rn('lp-deaths-'  + slotIdx) || 0,
+    assists:          _rn('lp-assists-' + slotIdx) || 0,
+    team_total_kills: teamK,
+    duration_seconds: durSec,
+    playerWon:        playerWon,
+    dmgDealtRaw:      _rn('lp-dmg_dealt_raw-' + slotIdx),
+    team_total_dmg:   (teamDmgOk && teamDmg > 0) ? teamDmg : null,
+  });
+
+  function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _row(label, val, ordinal, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:52px 44px 14px 46px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">' + label + '</span>' +
+      '<span style="color:var(--white);">'  + (val     != null ? val     : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="color:var(--grey-5);">' + (ordinal != null ? ordinal : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? score.toFixed(0) : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight + '</span>' +
+    '</div>';
+  }
+
+  var kpVal   = (r && r.kp         != null) ? (r.kp         * 100).toFixed(0) + '%' : null;
+  var kdaVal  = (r && r.kda        != null) ? r.kda.toFixed(2)                      : null;
+  var dmgSVal = (r && r.dmg_share  != null) ? (r.dmg_share  * 100).toFixed(0) + '%' : null;
+  var ksVal   = (r && r.kill_share != null) ? (r.kill_share * 100).toFixed(0) + '%' : null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)               : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+
+  var kpScore  = (r) ? pctToScore(r.kpPct)                              : null;
+  var kdaScore = (r) ? pctToScore(r.kdaPct)                             : null;
+  var dmgScore = (r && r.dmgPct != null) ? pctToScore(r.dmgPct)         : null;
+  var ksScore  = (r && r.ksPct  != null) ? pctToScore(r.ksPct)          : null;
+
+  var html = '<div class="dt-strip">';
+  if (r && r.role === 'support') {
+    html += _row('KP%', kpVal,  _ord(r && r.kpPct),  kpScore,  '×0.60');
+    html += _row('KDA', kdaVal, _ord(r && r.kdaPct), kdaScore, '×0.40');
+  } else {
+    html += _row('KP%',      kpVal,   _ord(r && r.kpPct),   kpScore,  '×0.35');
+    html += _row('KDA',      kdaVal,  _ord(r && r.kdaPct),  kdaScore, '×0.30');
+    html += _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct),  dmgScore, '×0.25');
+    html += _row('Kill shr', ksVal,   _ord(r && r.ksPct),   ksScore,  '×0.10');
+  }
+  html +=
+    '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+      '<span style="color:var(--grey-5);">TF  </span>' +
+      '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+      '<span style="color:var(--grey-5);"> / 10</span>' +
+    '</div>' +
+  '</div>';
+  el.innerHTML = html;
+}
+
+// === END TEAMFIGHT SCORING ENGINE ===
+
 // === GPM SCORING ENGINE — DISABLED (no individual gold in source data) ===
 // TODO: Re-enable when individual gold data is available
 /*
@@ -3184,13 +3520,59 @@ function autoScorePlayer(slotIdx) {
     });
   }
 
+  // === GANK SCORING ENGINE ===
+  var gankIdx = _gankPillarIndex(role);
+  var gankResult = null;
+  if (gankIdx >= 0) {
+    var gTeamDmg = 0, gTeamDmgOk = true;
+    for (var gsi = 0; gsi < 5; gsi++) {
+      var gsd = _num('lp-dmg_dealt_raw-' + gsi);
+      if (gsd != null && gsd > 0) { gTeamDmg += gsd; } else { gTeamDmgOk = false; }
+    }
+    gankResult = calcGankScore({
+      role:             role,
+      kills:            rawStats.kills,
+      deaths:           rawStats.deaths,
+      assists:          rawStats.assists,
+      team_total_kills: (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0,
+      duration_seconds: durSec,
+      playerWon:        (LS.matchInfo && LS.matchInfo.result === 'Win'),
+      dmgDealtRaw:      rawStats.dmgDealt,
+      team_total_dmg:   (gTeamDmgOk && gTeamDmg > 0) ? gTeamDmg : null,
+    });
+  }
+
+  // === TEAMFIGHT SCORING ENGINE ===
+  var teamfightIdx = _teamfightPillarIndex(role);
+  var teamfightResult = null;
+  if (teamfightIdx >= 0) {
+    var tfTeamDmg = 0, tfTeamDmgOk = true;
+    for (var tfsi = 0; tfsi < 5; tfsi++) {
+      var tfsd = _num('lp-dmg_dealt_raw-' + tfsi);
+      if (tfsd != null && tfsd > 0) { tfTeamDmg += tfsd; } else { tfTeamDmgOk = false; }
+    }
+    teamfightResult = calcTeamfightScore({
+      role:             role,
+      kills:            rawStats.kills,
+      deaths:           rawStats.deaths,
+      assists:          rawStats.assists,
+      team_total_kills: (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0,
+      duration_seconds: durSec,
+      playerWon:        (LS.matchInfo && LS.matchInfo.result === 'Win'),
+      dmgDealtRaw:      rawStats.dmgDealt,
+      team_total_dmg:   (tfTeamDmgOk && tfTeamDmg > 0) ? tfTeamDmg : null,
+    });
+  }
+
   var pillars = PILLAR_MAP[role] || [];
   for (var n = 0; n < pillars.length; n++) {
     var sug;
-    if (n === dtIdx && dtResult)             sug = dtResult.finalScore;
-    else if (n === survivalIdx && survivalResult) sug = survivalResult.finalScore;
-    else if (n === tankIdx && tankResult)         sug = tankResult.finalScore;
-    else if (n === protectionIdx && protectionResult) sug = protectionResult.finalScore;
+    if (n === dtIdx && dtResult)                           sug = dtResult.finalScore;
+    else if (n === survivalIdx && survivalResult)          sug = survivalResult.finalScore;
+    else if (n === tankIdx && tankResult)                  sug = tankResult.finalScore;
+    else if (n === protectionIdx && protectionResult)      sug = protectionResult.finalScore;
+    else if (n === gankIdx && gankResult)                  sug = gankResult.finalScore;
+    else if (n === teamfightIdx && teamfightResult)        sug = teamfightResult.finalScore;
     else sug = calculateSuggestion(role, n, rawStats);
     if (sug == null) continue;
     var slEl = document.getElementById('lp-p' + n + '-' + slotIdx);
