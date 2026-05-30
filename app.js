@@ -2461,11 +2461,6 @@ var DMG_ANCHORS = {
       '12to20': [2598, 3411, 4341, 5338, 6749],
       '20to35': [3052, 3911, 4956, 6287, 7366],
     },
-    kp_pct: {
-      lt12:     [0.000, 0.394, 0.640, 0.800, 1.000],
-      '12to20': [0.333, 0.500, 0.667, 0.800, 1.000],
-      '20to35': [0.333, 0.538, 0.700, 0.833, 1.000],
-    },
   },
   mage: {
     dmg_pct: [0.2125, 0.2536, 0.2991, 0.3473, 0.3951],  // pooled, fraction
@@ -2473,11 +2468,6 @@ var DMG_ANCHORS = {
       lt12:     [2869, 3879, 4989, 6279, 7560],
       '12to20': [3485, 4334, 5501, 6761, 8294],
       '20to35': [3806, 4709, 6074, 7455, 8736],
-    },
-    kp_pct: {
-      lt12:     [0.000, 0.500, 0.742, 0.911, 1.000],
-      '12to20': [0.429, 0.600, 0.750, 0.889, 1.000],
-      '20to35': [0.500, 0.625, 0.750, 0.857, 1.000],
     },
   },
 };
@@ -2501,17 +2491,40 @@ function pctToScore(pct) {
   return 10;
 }
 
+// === PARTICIPATION SCORE HELPER ===
+// Blends KP% (efficiency) with KA/min (volume) to fix KP zero-sum problem.
+// Returns an object: { score (1–10), kpPercentile, kaPercentile, kpScore, kaScore }
+function calcParticipationScore(kp, ka_per_min, player_won, bracket, role) {
+  var kpAnchors = KA_ANCHORS[role].kp;
+  var kaRow     = player_won ? 'win' : 'loss';
+  var kaAnchors = KA_ANCHORS[role].ka_pm[bracket][kaRow];
+  var kpPct     = _interpolatePercentile(Math.min(kp, 1.0), kpAnchors);
+  var kaPct     = _interpolatePercentile(ka_per_min, kaAnchors);
+  var kpScr     = pctToScore(kpPct);
+  var kaScr     = pctToScore(kaPct);
+  return {
+    score:        (kpScr + kaScr) / 2,
+    kpPercentile: Math.round(kpPct),
+    kaPercentile: Math.round(kaPct),
+    kpScore:      kpScr,
+    kaScore:      kaScr,
+  };
+}
+
 function calcDMGScore(playerData) {
   var role = (playerData.role || playerData.role_played || '').toLowerCase();
-  var roleKey = role === 'carry' ? 'carry' : role === 'midlane' ? 'mage' : null;
+  var roleKey   = role === 'carry' ? 'carry' : role === 'midlane' ? 'mage' : null;
+  var roleKaKey = role === 'carry' ? 'adl'   : role === 'midlane' ? 'mid'  : null;
   if (!roleKey) return null;
 
-  var dmgPct     = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
-  var dmgRaw     = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
-  var kills      = parseFloat(playerData.kills)   || 0;
-  var assists    = parseFloat(playerData.assists) || 0;
-  var teamK      = parseFloat(playerData.team_total_kills) || 0;
-  var durSec     = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+  var dmgPct    = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
+  var dmgRaw    = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
+  var kills     = parseFloat(playerData.kills)   || 0;
+  var assists   = parseFloat(playerData.assists) || 0;
+  var teamK     = parseFloat(playerData.team_total_kills) || 0;
+  var durSec    = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+  var playerWon = playerData.playerWon != null ? !!playerData.playerWon
+                  : (typeof LS !== 'undefined' && LS.matchInfo && LS.matchInfo.result === 'Win');
 
   var hasDmg    = dmgPct != null && dmgPct > 0;
   var hasDmgRaw = dmgRaw != null && dmgRaw > 0;
@@ -2524,17 +2537,19 @@ function calcDMGScore(playerData) {
   var bracket     = durationMin != null ? getGameBracket(durationMin) : '12to20';
   var anchors     = DMG_ANCHORS[roleKey];
 
-  var dmgFrac  = dmgPct / 100;  // anchors use fractions (0-1)
-  var dpm      = (hasDmgRaw && hasDur) ? dmgRaw / durationMin : null;
-  var kpFrac   = hasKP ? Math.min((kills + assists) / teamK, 1.0) : null;  // clamp >1
+  var dmgFrac = dmgPct / 100;
+  var dpm     = (hasDmgRaw && hasDur) ? dmgRaw / durationMin : null;
+  var kpFrac  = hasKP ? Math.min((kills + assists) / teamK, 1.0) : null;
+  var kaPm    = (hasDur && durationMin > 0) ? (kills + assists) / durationMin : null;
 
   var dmgPercentile = _interpolatePercentile(dmgFrac, anchors.dmg_pct);
-  var dpmPercentile = dpm    != null ? _interpolatePercentile(dpm,    anchors.dmg_per_min[bracket]) : null;
-  var kpPercentile  = kpFrac != null ? _interpolatePercentile(kpFrac, anchors.kp_pct[bracket])     : null;
+  var dpmPercentile = dpm != null ? _interpolatePercentile(dpm, anchors.dmg_per_min[bracket]) : null;
 
   var dmgScore = pctToScore(dmgPercentile);
   var dpmScore = dpmPercentile != null ? pctToScore(dpmPercentile) : null;
-  var kpScore  = kpPercentile  != null ? pctToScore(kpPercentile)  : null;
+  var partResult = (kpFrac != null && kaPm != null)
+    ? calcParticipationScore(kpFrac, kaPm, playerWon, bracket, roleKaKey) : null;
+  var kpScore = partResult ? partResult.score : null;
 
   var finalRaw;
   if (dpmScore !== null && kpScore !== null) {
@@ -2549,16 +2564,20 @@ function calcDMGScore(playerData) {
   var finalScore = Math.round(finalRaw * 2) / 2;
 
   return {
-    dmgPct:        dmgPct,
-    dpm:           dpm,
-    kpPct:         kpFrac != null ? kpFrac * 100 : null,  // back to % for display
-    dmgPercentile: Math.round(dmgPercentile),
-    dpmPercentile: dpmPercentile != null ? Math.round(dpmPercentile) : null,
-    kpPercentile:  kpPercentile  != null ? Math.round(kpPercentile)  : null,
-    dmgScore:      dmgScore,
-    dpmScore:      dpmScore,
-    kpScore:       kpScore,
-    finalScore:    finalScore,
+    dmgPct:           dmgPct,
+    dpm:              dpm,
+    kpPct:            kpFrac != null ? kpFrac * 100 : null,
+    kaPm:             kaPm,
+    dmgPercentile:    Math.round(dmgPercentile),
+    dpmPercentile:    dpmPercentile != null ? Math.round(dpmPercentile) : null,
+    kpPercentile:     partResult ? partResult.kpPercentile : null,
+    kaPercentile:     partResult ? partResult.kaPercentile : null,
+    dmgScore:         dmgScore,
+    dpmScore:         dpmScore,
+    kpScore:          kpScore,                                   // blended participation score
+    kpComponentScore: partResult ? partResult.kpScore : null,   // KP% half
+    kaScore:          partResult ? partResult.kaScore : null,   // KA/min half
+    finalScore:       finalScore,
   };
 }
 
@@ -2594,7 +2613,9 @@ function updateDTStrip(slotIdx) {
   var teamK   = (LS.matchInfo && LS.matchInfo.team_total_kills)  ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
   var durSec  = (LS.matchInfo && LS.matchInfo.duration_seconds)  ? parseFloat(LS.matchInfo.duration_seconds)  : null;
 
-  var pData = { role: role, dmgDealtPct: dmgPct, dmgDealtRaw: dmgRaw, kills: kills, assists: assists, team_total_kills: teamK, duration_seconds: durSec };
+  var pData = { role: role, dmgDealtPct: dmgPct, dmgDealtRaw: dmgRaw, kills: kills, assists: assists,
+    team_total_kills: teamK, duration_seconds: durSec,
+    playerWon: (LS.matchInfo && LS.matchInfo.result === 'Win') };
   var r = calcDMGScore(pData);
 
   function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
@@ -2613,17 +2634,21 @@ function updateDTStrip(slotIdx) {
     '</div>';
   }
 
-  var dmgVal  = (r && r.dmgPct != null) ? r.dmgPct.toFixed(1) + '%'    : null;
-  var dpmVal  = (r && r.dpm   != null) ? Math.round(r.dpm).toString()  : null;
-  var kpVal   = (r && r.kpPct    != null) ? r.kpPct.toFixed(1)    + '%' : null;
-  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)   : null;
+  var dmgVal  = (r && r.dmgPct != null) ? r.dmgPct.toFixed(1) + '%'        : null;
+  var dpmVal  = (r && r.dpm   != null) ? Math.round(r.dpm).toString()      : null;
+  var kpVal   = (r && r.kpPct != null) ? r.kpPct.toFixed(1) + '%'          : null;
+  var kaVal   = (r && r.kaPm  != null) ? r.kaPm.toFixed(2)                 : null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)       : null;
   var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+  var kpComponentScore = r ? r.kpComponentScore : null;
+  var kaComponentScore = r ? r.kaScore : null;
 
   el.innerHTML =
     '<div class="dt-strip">' +
-      _row('DMG%', dmgVal, _ord(r && r.dmgPercentile), r && r.dmgScore, '×0.25') +
-      _row('DPM',  dpmVal, _ord(r && r.dpmPercentile), r && r.dpmScore, '×0.25') +
-      _row('KP%',  kpVal,  _ord(r && r.kpPercentile),  r && r.kpScore,  '×0.50') +
+      _row('DMG%',   dmgVal, _ord(r && r.dmgPercentile),  r && r.dmgScore,      '×0.25') +
+      _row('DPM',    dpmVal, _ord(r && r.dpmPercentile),  r && r.dpmScore,      '×0.25') +
+      _row('KP%',    kpVal,  _ord(r && r.kpPercentile),   kpComponentScore,     '×0.25') +
+      _row('KA/min', kaVal,  _ord(r && r.kaPercentile),   kaComponentScore,     '×0.25') +
       '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
         '<span style="color:var(--grey-5);">D&amp;T  </span>' +
         '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
@@ -2694,12 +2719,73 @@ var PROTECTION_ANCHORS = {
   geo_mean: [0.00100, 0.00901, 0.06604, 0.11906, 0.17104],
 };
 
+// === KA/min + KP% ANCHOR TABLES ===
+// KP% is pooled — zero-sum stat, no bracket needed.
+// KA/min split by game length bracket AND win/loss.
+// Win/loss gap: 0.46 in short games, shrinks to 0.12 in long games.
+var KA_ANCHORS = {
+  jug: {
+    kp: [0.3333, 0.5000, 0.6667, 0.8182, 1.0000],
+    ka_pm: {
+      lt12:    { win:  [0.2652, 0.4306, 0.6349, 0.7749, 1.0880],
+                 loss: [0.0000, 0.0871, 0.1732, 0.2653, 0.4197] },
+      '12to20':{ win:  [0.2160, 0.3144, 0.4320, 0.5719, 0.7294],
+                 loss: [0.0572, 0.1046, 0.1762, 0.2924, 0.4094] },
+      '20to35':{ win:  [0.1439, 0.2203, 0.2984, 0.3965, 0.5419],
+                 loss: [0.0773, 0.1139, 0.1774, 0.2465, 0.3275] },
+    },
+  },
+  dsl: {
+    kp: [0.2000, 0.4000, 0.5455, 0.7143, 0.8600],
+    ka_pm: {
+      lt12:    { win:  [0.2019, 0.3249, 0.4969, 0.6476, 0.8639],
+                 loss: [0.0000, 0.0000, 0.1060, 0.2094, 0.3206] },
+      '12to20':{ win:  [0.1632, 0.2602, 0.3759, 0.4945, 0.6104],
+                 loss: [0.0000, 0.0743, 0.1561, 0.2410, 0.3470] },
+      '20to35':{ win:  [0.0928, 0.1665, 0.2480, 0.3434, 0.4412],
+                 loss: [0.0444, 0.0862, 0.1424, 0.2229, 0.2910] },
+    },
+  },
+  sup: {
+    kp: [0.5000, 0.6667, 0.8000, 0.9333, 1.0000],
+    ka_pm: {
+      lt12:    { win:  [0.4208, 0.5280, 0.6979, 0.9603, 1.2501],
+                 loss: [0.0000, 0.0951, 0.1732, 0.2882, 0.4344] },
+      '12to20':{ win:  [0.2820, 0.3885, 0.5253, 0.6805, 0.8397],
+                 loss: [0.0624, 0.1249, 0.2181, 0.3307, 0.4671] },
+      '20to35':{ win:  [0.1767, 0.2523, 0.3547, 0.4880, 0.5872],
+                 loss: [0.0714, 0.1267, 0.1898, 0.2921, 0.3746] },
+    },
+  },
+  adl: {
+    kp: [0.3088, 0.5000, 0.6667, 0.8000, 1.0000],
+    ka_pm: {
+      lt12:    { win:  [0.2989, 0.4088, 0.5525, 0.7590, 0.9747],
+                 loss: [0.0000, 0.0000, 0.1080, 0.2605, 0.3524] },
+      '12to20':{ win:  [0.2088, 0.3187, 0.4519, 0.5855, 0.7187],
+                 loss: [0.0583, 0.1028, 0.1688, 0.2831, 0.4024] },
+      '20to35':{ win:  [0.1644, 0.2323, 0.3265, 0.4199, 0.5229],
+                 loss: [0.0451, 0.0897, 0.1648, 0.2474, 0.3467] },
+    },
+  },
+  mid: {
+    kp: [0.4000, 0.6000, 0.7500, 0.8889, 1.0000],
+    ka_pm: {
+      lt12:    { win:  [0.3671, 0.4909, 0.6790, 0.8969, 1.2113],
+                 loss: [0.0000, 0.0868, 0.1381, 0.2855, 0.4153] },
+      '12to20':{ win:  [0.2430, 0.3464, 0.4812, 0.6432, 0.7713],
+                 loss: [0.0615, 0.1237, 0.2132, 0.3075, 0.4268] },
+      '20to35':{ win:  [0.1788, 0.2482, 0.3292, 0.4733, 0.5668],
+                 loss: [0.0493, 0.0991, 0.1883, 0.2779, 0.3722] },
+    },
+  },
+};
+
 // === GANK ANCHOR TABLES (Jungle) ===
 // KDA win/loss gap at median: 5.0 vs 1.25 — always split regardless of game length.
 // kill_share short-game split: winners 0.30 vs losers 0.20 median.
 var GANK_ANCHORS = {
   jug: {
-    kp:        [0.3333, 0.5000, 0.6667, 0.8182, 1.0000],  // pooled
     kda: {
       win:  [2.0000, 3.0000, 5.0000,  8.0000, 10.0000],
       loss: [0.2500, 0.6667, 1.2500,  2.2500,  4.0000],
@@ -2715,7 +2801,6 @@ var GANK_ANCHORS = {
 // === TEAMFIGHT ANCHOR TABLES (Offlane + Support) ===
 var TEAMFIGHT_ANCHORS = {
   dsl: {
-    kp:        [0.2000, 0.4000, 0.5455, 0.7143, 0.8571],  // pooled
     kda: {
       win:  [2.0000, 3.0000, 4.5000, 7.0000, 8.0000],
       loss: [0.0000, 0.5000, 1.0000, 2.0000, 4.0000],
@@ -2728,7 +2813,6 @@ var TEAMFIGHT_ANCHORS = {
     },
   },
   sup: {
-    kp:  [0.5000, 0.6667, 0.8000, 0.9333, 1.0000],  // pooled
     kda: {
       win:  [2.5667, 4.0000,  6.0000,  9.0000, 12.0000],
       loss: [0.3333, 0.8000,  1.5000,  3.0000,  4.5000],
@@ -3142,40 +3226,47 @@ function calcGankScore(playerData) {
   if (!durSec || durSec <= 0) return null;
   if (teamK <= 0) return null;
 
-  var durMin = durSec / 60;
-  var kp     = Math.min((kills + assists) / teamK, 1.0);
-  var kda    = (kills + assists) / Math.max(deaths, 1);
+  var durMin     = durSec / 60;
+  var kp         = Math.min((kills + assists) / teamK, 1.0);
+  var kda        = (kills + assists) / Math.max(deaths, 1);
+  var kaPm       = (kills + assists) / durMin;
   var kill_share = kills / teamK;
   var dmg_share  = (dmgDealtRaw != null && dmgDealtRaw > 0 && teamDmg != null && teamDmg > 0) ? dmgDealtRaw / teamDmg : null;
   var hasDmgShare = dmg_share != null;
 
-  var kdaRow = playerWon ? 'win' : 'loss';
+  var bracket = getGameBracket(durMin);
+  var kdaRow  = playerWon ? 'win' : 'loss';
   var isShort = durMin < 15;
   var ksRow   = isShort ? (playerWon ? 'short_win' : 'short_loss') : 'long';
 
-  var kpPct  = _interpolatePercentile(kp,         GANK_ANCHORS.jug.kp);
-  var kdaPct = _interpolatePercentile(kda,        GANK_ANCHORS.jug.kda[kdaRow]);
-  var ksPct  = _interpolatePercentile(kill_share, GANK_ANCHORS.jug.kill_share[ksRow]);
-  var dmgPct = hasDmgShare ? _interpolatePercentile(dmg_share, GANK_ANCHORS.jug.dmg_share) : null;
+  var partResult = calcParticipationScore(kp, kaPm, playerWon, bracket, 'jug');
+  var kdaPct     = _interpolatePercentile(kda,        GANK_ANCHORS.jug.kda[kdaRow]);
+  var ksPct      = _interpolatePercentile(kill_share, GANK_ANCHORS.jug.kill_share[ksRow]);
+  var dmgPct     = hasDmgShare ? _interpolatePercentile(dmg_share, GANK_ANCHORS.jug.dmg_share) : null;
 
   var finalRaw;
   if (hasDmgShare) {
-    finalRaw = pctToScore(kpPct) * 0.35 + pctToScore(kdaPct) * 0.25 + pctToScore(ksPct) * 0.25 + pctToScore(dmgPct) * 0.15;
+    finalRaw = partResult.score * 0.35 + pctToScore(kdaPct) * 0.25 + pctToScore(ksPct) * 0.25 + pctToScore(dmgPct) * 0.15;
   } else {
     // dmg_share missing — redistribute: KP 42%, KDA 30%, KS 28%
-    finalRaw = pctToScore(kpPct) * 0.42 + pctToScore(kdaPct) * 0.30 + pctToScore(ksPct) * 0.28;
+    finalRaw = partResult.score * 0.42 + pctToScore(kdaPct) * 0.30 + pctToScore(ksPct) * 0.28;
   }
 
   return {
-    kp:         kp,
-    kda:        kda,
-    kill_share: kill_share,
-    dmg_share:  dmg_share,
-    kpPct:      Math.round(kpPct),
-    kdaPct:     Math.round(kdaPct),
-    ksPct:      Math.round(ksPct),
-    dmgPct:     dmgPct != null ? Math.round(dmgPct) : null,
-    finalScore: Math.round(finalRaw * 2) / 2,
+    kp:           kp,
+    kda:          kda,
+    kaPm:         kaPm,
+    kill_share:   kill_share,
+    dmg_share:    dmg_share,
+    kpPct:        partResult.kpPercentile,
+    kaPercentile: partResult.kaPercentile,
+    kpScore:      partResult.kpScore,
+    kaScore:      partResult.kaScore,
+    partScore:    partResult.score,
+    kdaPct:       Math.round(kdaPct),
+    ksPct:        Math.round(ksPct),
+    dmgPct:       dmgPct != null ? Math.round(dmgPct) : null,
+    finalScore:   Math.round(finalRaw * 2) / 2,
   };
 }
 
@@ -3225,23 +3316,26 @@ function updateGankStrip(slotIdx) {
   }
 
   var kpVal   = (r && r.kp         != null) ? (r.kp         * 100).toFixed(0) + '%' : null;
-  var kdaVal  = (r && r.kda        != null) ? r.kda.toFixed(2)                      : null;
-  var ksVal   = (r && r.kill_share != null) ? (r.kill_share * 100).toFixed(0) + '%' : null;
-  var dmgSVal = (r && r.dmg_share  != null) ? (r.dmg_share  * 100).toFixed(0) + '%' : null;
-  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)               : null;
+  var kaVal   = (r && r.kaPm       != null) ? r.kaPm.toFixed(2)                    : null;
+  var kdaVal  = (r && r.kda        != null) ? r.kda.toFixed(2)                     : null;
+  var ksVal   = (r && r.kill_share != null) ? (r.kill_share * 100).toFixed(0) + '%': null;
+  var dmgSVal = (r && r.dmg_share  != null) ? (r.dmg_share  * 100).toFixed(0) + '%': null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)              : null;
   var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
 
-  var kpScore  = (r) ? pctToScore(r.kpPct)                              : null;
-  var kdaScore = (r) ? pctToScore(r.kdaPct)                             : null;
-  var ksScore  = (r) ? pctToScore(r.ksPct)                              : null;
+  var kpScore  = r ? r.kpScore                                          : null;
+  var kaScore  = r ? r.kaScore                                          : null;
+  var kdaScore = r ? pctToScore(r.kdaPct)                               : null;
+  var ksScore  = r ? pctToScore(r.ksPct)                                : null;
   var dmgScore = (r && r.dmgPct != null) ? pctToScore(r.dmgPct)         : null;
 
   el.innerHTML =
     '<div class="dt-strip">' +
-      _row('KP%',      kpVal,   _ord(r && r.kpPct),  kpScore,  '×0.35') +
-      _row('KDA',      kdaVal,  _ord(r && r.kdaPct), kdaScore, '×0.25') +
-      _row('Kill shr', ksVal,   _ord(r && r.ksPct),  ksScore,  '×0.25') +
-      _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct), dmgScore, '×0.15') +
+      _row('KP%',      kpVal,   _ord(r && r.kpPct),         kpScore,  '×0.18') +
+      _row('KA/min',   kaVal,   _ord(r && r.kaPercentile),  kaScore,  '×0.18') +
+      _row('KDA',      kdaVal,  _ord(r && r.kdaPct),        kdaScore, '×0.25') +
+      _row('Kill shr', ksVal,   _ord(r && r.ksPct),         ksScore,  '×0.25') +
+      _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct),        dmgScore, '×0.15') +
       '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
         '<span style="color:var(--grey-5);">Gank  </span>' +
         '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
@@ -3281,16 +3375,20 @@ function calcTeamfightScore(playerData) {
   var durMin = durSec / 60;
   var kp     = Math.min((kills + assists) / teamK, 1.0);
   var kda    = (kills + assists) / Math.max(deaths, 1);
+  var kaPm   = (kills + assists) / durMin;
 
-  var kdaRow = playerWon ? 'win' : 'loss';
+  var bracket = getGameBracket(durMin);
+  var kdaRow  = playerWon ? 'win' : 'loss';
 
   if (role === 'support') {
-    var kpPct  = _interpolatePercentile(kp,  TEAMFIGHT_ANCHORS.sup.kp);
+    var partS  = calcParticipationScore(kp, kaPm, playerWon, bracket, 'sup');
     var kdaPct = _interpolatePercentile(kda, TEAMFIGHT_ANCHORS.sup.kda[kdaRow]);
-    var finalRaw = pctToScore(kpPct) * 0.60 + pctToScore(kdaPct) * 0.40;
+    var finalRaw = partS.score * 0.60 + pctToScore(kdaPct) * 0.40;
     return {
-      role: 'support', kp: kp, kda: kda, kill_share: null, dmg_share: null,
-      kpPct: Math.round(kpPct), kdaPct: Math.round(kdaPct), ksPct: null, dmgPct: null,
+      role: 'support', kp: kp, kda: kda, kaPm: kaPm, kill_share: null, dmg_share: null,
+      kpPct: partS.kpPercentile, kaPercentile: partS.kaPercentile,
+      kpScore: partS.kpScore, kaScore: partS.kaScore, partScore: partS.score,
+      kdaPct: Math.round(kdaPct), ksPct: null, dmgPct: null,
       finalScore: Math.round(finalRaw * 2) / 2,
     };
   }
@@ -3302,23 +3400,25 @@ function calcTeamfightScore(playerData) {
   var dmg_share  = (dmgDealtRaw != null && dmgDealtRaw > 0 && teamDmg != null && teamDmg > 0) ? dmgDealtRaw / teamDmg : null;
   var hasDmgShare = dmg_share != null;
 
-  var kpPctD  = _interpolatePercentile(kp,         TEAMFIGHT_ANCHORS.dsl.kp);
+  var partD   = calcParticipationScore(kp, kaPm, playerWon, bracket, 'dsl');
   var kdaPctD = _interpolatePercentile(kda,        TEAMFIGHT_ANCHORS.dsl.kda[kdaRow]);
   var ksPctD  = _interpolatePercentile(kill_share, TEAMFIGHT_ANCHORS.dsl.kill_share[ksRow]);
   var dmgPctD = hasDmgShare ? _interpolatePercentile(dmg_share, TEAMFIGHT_ANCHORS.dsl.dmg_share) : null;
 
   var finalRawD;
   if (hasDmgShare) {
-    finalRawD = pctToScore(kpPctD) * 0.35 + pctToScore(kdaPctD) * 0.30 + pctToScore(dmgPctD) * 0.25 + pctToScore(ksPctD) * 0.10;
+    finalRawD = partD.score * 0.35 + pctToScore(kdaPctD) * 0.30 + pctToScore(dmgPctD) * 0.25 + pctToScore(ksPctD) * 0.10;
   } else {
     // dmg_share missing: KP 47%, KDA 40%, KS 13%
-    finalRawD = pctToScore(kpPctD) * 0.47 + pctToScore(kdaPctD) * 0.40 + pctToScore(ksPctD) * 0.13;
+    finalRawD = partD.score * 0.47 + pctToScore(kdaPctD) * 0.40 + pctToScore(ksPctD) * 0.13;
   }
 
   return {
-    role: 'offlane', kp: kp, kda: kda, kill_share: kill_share, dmg_share: dmg_share,
-    kpPct: Math.round(kpPctD), kdaPct: Math.round(kdaPctD),
-    ksPct: Math.round(ksPctD), dmgPct: dmgPctD != null ? Math.round(dmgPctD) : null,
+    role: 'offlane', kp: kp, kda: kda, kaPm: kaPm, kill_share: kill_share, dmg_share: dmg_share,
+    kpPct: partD.kpPercentile, kaPercentile: partD.kaPercentile,
+    kpScore: partD.kpScore, kaScore: partD.kaScore, partScore: partD.score,
+    kdaPct: Math.round(kdaPctD), ksPct: Math.round(ksPctD),
+    dmgPct: dmgPctD != null ? Math.round(dmgPctD) : null,
     finalScore: Math.round(finalRawD * 2) / 2,
   };
 }
@@ -3368,27 +3468,31 @@ function updateTeamfightStrip(slotIdx) {
     '</div>';
   }
 
-  var kpVal   = (r && r.kp         != null) ? (r.kp         * 100).toFixed(0) + '%' : null;
+  var kpVal   = (r && r.kp         != null) ? (r.kp         * 100).toFixed(0) + '%'  : null;
+  var kaVal   = (r && r.kaPm       != null) ? r.kaPm.toFixed(2)                     : null;
   var kdaVal  = (r && r.kda        != null) ? r.kda.toFixed(2)                      : null;
   var dmgSVal = (r && r.dmg_share  != null) ? (r.dmg_share  * 100).toFixed(0) + '%' : null;
   var ksVal   = (r && r.kill_share != null) ? (r.kill_share * 100).toFixed(0) + '%' : null;
   var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)               : null;
   var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
 
-  var kpScore  = (r) ? pctToScore(r.kpPct)                              : null;
-  var kdaScore = (r) ? pctToScore(r.kdaPct)                             : null;
-  var dmgScore = (r && r.dmgPct != null) ? pctToScore(r.dmgPct)         : null;
-  var ksScore  = (r && r.ksPct  != null) ? pctToScore(r.ksPct)          : null;
+  var kpScore  = r ? r.kpScore                                    : null;
+  var kaScore  = r ? r.kaScore                                    : null;
+  var kdaScore = r ? pctToScore(r.kdaPct)                         : null;
+  var dmgScore = (r && r.dmgPct != null) ? pctToScore(r.dmgPct)  : null;
+  var ksScore  = (r && r.ksPct  != null) ? pctToScore(r.ksPct)   : null;
 
   var html = '<div class="dt-strip">';
   if (r && r.role === 'support') {
-    html += _row('KP%', kpVal,  _ord(r && r.kpPct),  kpScore,  '×0.60');
-    html += _row('KDA', kdaVal, _ord(r && r.kdaPct), kdaScore, '×0.40');
+    html += _row('KP%',    kpVal,  _ord(r && r.kpPct),        kpScore,  '×0.30');
+    html += _row('KA/min', kaVal,  _ord(r && r.kaPercentile), kaScore,  '×0.30');
+    html += _row('KDA',    kdaVal, _ord(r && r.kdaPct),       kdaScore, '×0.40');
   } else {
-    html += _row('KP%',      kpVal,   _ord(r && r.kpPct),   kpScore,  '×0.35');
-    html += _row('KDA',      kdaVal,  _ord(r && r.kdaPct),  kdaScore, '×0.30');
-    html += _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct),  dmgScore, '×0.25');
-    html += _row('Kill shr', ksVal,   _ord(r && r.ksPct),   ksScore,  '×0.10');
+    html += _row('KP%',      kpVal,   _ord(r && r.kpPct),        kpScore,  '×0.18');
+    html += _row('KA/min',   kaVal,   _ord(r && r.kaPercentile), kaScore,  '×0.18');
+    html += _row('KDA',      kdaVal,  _ord(r && r.kdaPct),       kdaScore, '×0.30');
+    html += _row('Dmg shr',  dmgSVal, _ord(r && r.dmgPct),       dmgScore, '×0.25');
+    html += _row('Kill shr', ksVal,   _ord(r && r.ksPct),        ksScore,  '×0.10');
   }
   html +=
     '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
@@ -3468,6 +3572,7 @@ function autoScorePlayer(slotIdx) {
       assists:          rawStats.assists,
       team_total_kills: teamK,
       duration_seconds: durSec,
+      playerWon:        (LS.matchInfo && LS.matchInfo.result === 'Win'),
     });
   }
 
@@ -3740,7 +3845,7 @@ async function saveGame(){
         pillar_2_auto:         null,
         pillar_3_auto:         (function(){
           if (role !== 'carry' && role !== 'midlane') return null;
-          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, dmgDealtRaw: dmgDealtRaw, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills, duration_seconds: LS.matchInfo.duration_seconds });
+          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, dmgDealtRaw: dmgDealtRaw, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills, duration_seconds: LS.matchInfo.duration_seconds, playerWon: (LS.matchInfo.result === 'Win') });
           return _r ? _r.finalScore : null;
         })(),
         pillar_4_auto:         null,
