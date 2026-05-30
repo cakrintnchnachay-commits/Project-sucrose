@@ -2725,18 +2725,27 @@ function calcSurvivalScore(playerData) {
   var roleKey = role === 'carry' ? 'carry' : role === 'midlane' ? 'mage' : null;
   if (!roleKey) return null;
 
+  var dmgDealtRaw = playerData.dmgDealtRaw != null ? parseFloat(playerData.dmgDealtRaw) : null;
+  var dmgTakenRaw = playerData.dmgTakenRaw != null ? parseFloat(playerData.dmgTakenRaw) : null;
   var dmgDealtPct = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
   var dmgTakenPct = playerData.dmgTakenPct != null ? parseFloat(playerData.dmgTakenPct) : null;
   var deaths      = parseFloat(playerData.deaths) || 0;
   var durSec      = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
 
   if (!durSec || durSec <= 0) return null;
-  if (dmgDealtPct == null)    return null;
+
+  // Prefer raw/raw ratio; fall back to pct/pct when raw is unavailable
+  var dmgDtkRatio;
+  if (dmgDealtRaw != null && dmgDealtRaw > 0 && dmgTakenRaw != null && dmgTakenRaw > 0) {
+    dmgDtkRatio = dmgDealtRaw / dmgTakenRaw;
+  } else if (dmgDealtPct != null && dmgDealtPct > 0) {
+    dmgDtkRatio = dmgDealtPct / Math.max(dmgTakenPct || 0, 0.1);
+  } else {
+    return null;
+  }
 
   var durMin      = durSec / 60;
   var bracket     = getGameBracket(durMin);
-  var dtk         = Math.max(dmgTakenPct || 0, 0.1);
-  var dmgDtkRatio = dmgDealtPct / dtk;
   var deathsPm    = deaths / durMin;
 
   var anchors    = SURVIVAL_ANCHORS[roleKey];
@@ -2766,6 +2775,8 @@ function updateSurvivalStrip(slotIdx) {
 
   var r = calcSurvivalScore({
     role:             role,
+    dmgDealtRaw:      _rn('lp-dmg_dealt_raw-' + slotIdx),
+    dmgTakenRaw:      _rn('lp-dmg_taken_raw-' + slotIdx),
     dmgDealtPct:      _rn('lp-dmg_dealt_pct-' + slotIdx),
     dmgTakenPct:      _rn('lp-dmg_taken_pct-' + slotIdx),
     deaths:           _rn('lp-deaths-' + slotIdx) || 0,
@@ -3130,6 +3141,8 @@ function autoScorePlayer(slotIdx) {
   if (survivalIdx >= 0) {
     survivalResult = calcSurvivalScore({
       role:             role,
+      dmgDealtRaw:      rawStats.dmgDealt,
+      dmgTakenRaw:      rawStats.dmgTaken,
       dmgDealtPct:      rawStats.dmgDealtPct,
       dmgTakenPct:      rawStats.dmgTakenPct,
       deaths:           rawStats.deaths,
