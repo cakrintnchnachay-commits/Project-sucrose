@@ -2061,7 +2061,8 @@ function renderPlayerStep(){
     html += '<label class="input-label">Hero</label>';
     html += '<input class="input" id="lp-hero-'+i+'" placeholder="Hero name" value="'+preHero+'"/>';
     html += '</div>';
-    html += '<div id="lp-gpm-strip-'+i+'"></div>';
+    html += '<div id="lp-gpm-strip-'+i+'" style="display:none"></div>';
+    html += '<div id="lp-dt-strip-'+i+'"></div>';
     html += '<div id="lp-pillars-'+i+'"></div>';
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
@@ -2179,7 +2180,7 @@ function updateComputedStats(slotIdx){
   container.innerHTML = html;
 
   _refreshPillarHints(slotIdx);
-  updateGPMStrip(slotIdx);
+  updateDTStrip(slotIdx);
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -2413,34 +2414,30 @@ function _refreshPillarHints(i){
   }
 }
 
-// === GPM SCORING ENGINE ===
+// === DMG & TEAMFIGHT SCORING ENGINE ===
 
-var GPM_ANCHORS = {
-  raw: {
-    carry:   [[0,380],[1,450],[5,530],[15,640],[30,730],[50,840],[70,960],[85,1070],[95,1220],[99,1400],[100,1600]],
-    midlane: [[0,400],[1,470],[5,560],[15,670],[30,770],[50,890],[70,1020],[85,1140],[95,1290],[99,1500],[100,1700]],
-    offlane: [[0,300],[1,370],[5,440],[15,530],[30,620],[50,720],[70,840],[85,940],[95,1060],[99,1240],[100,1420]],
-    jungler: [[0,320],[1,390],[5,470],[15,560],[30,650],[50,760],[70,880],[85,980],[95,1110],[99,1300],[100,1480]],
-    support: [[0,200],[1,250],[5,300],[15,370],[30,440],[50,530],[70,630],[85,720],[95,830],[99,980],[100,1120]],
+var DMG_ANCHORS = {
+  // DMG dealt % — how much of the team's total damage this player dealt
+  dmg: {
+    carry:   [[0,12],[1,15],[5,18],[15,22],[30,26],[50,30],[70,34],[85,38],[95,42],[99,46],[100,52]],
+    midlane: [[0,10],[1,13],[5,16],[15,20],[30,24],[50,28],[70,32],[85,36],[95,40],[99,44],[100,50]],
   },
-  diff: {
-    carry:   [[0,-480],[1,-320],[5,-200],[15,-100],[30,-30],[50,20],[70,90],[85,170],[95,270],[99,400],[100,580]],
-    midlane: [[0,-500],[1,-340],[5,-210],[15,-110],[30,-35],[50,25],[70,100],[85,180],[95,290],[99,420],[100,600]],
-    offlane: [[0,-420],[1,-280],[5,-170],[15,-90],[30,-25],[50,15],[70,80],[85,150],[95,240],[99,360],[100,520]],
-    jungler: [[0,-440],[1,-290],[5,-180],[15,-95],[30,-28],[50,18],[70,85],[85,160],[95,255],[99,380],[100,540]],
-    support: [[0,-320],[1,-210],[5,-130],[15,-65],[30,-20],[50,12],[70,60],[85,115],[95,190],[99,290],[100,420]],
+  // Kill participation % — (kills+assists) / team_total_kills × 100
+  kp: {
+    carry:   [[0,20],[1,25],[5,30],[15,36],[30,42],[50,48],[70,55],[85,61],[95,68],[99,75],[100,85]],
+    midlane: [[0,22],[1,27],[5,32],[15,38],[30,44],[50,50],[70,57],[85,63],[95,70],[99,77],[100,88]],
   }
 };
 
-function getGPMPercentile(gpm, role, type) {
-  var table = GPM_ANCHORS[type] && GPM_ANCHORS[type][role.toLowerCase()];
+function getDMGPercentile(value, role, type) {
+  var table = DMG_ANCHORS[type] && DMG_ANCHORS[type][role.toLowerCase()];
   if (!table) return 50;
-  if (gpm <= table[0][1]) return table[0][0];
-  if (gpm >= table[table.length - 1][1]) return table[table.length - 1][0];
+  if (value <= table[0][1]) return table[0][0];
+  if (value >= table[table.length - 1][1]) return table[table.length - 1][0];
   for (var i = 1; i < table.length; i++) {
-    if (gpm <= table[i][1]) {
+    if (value <= table[i][1]) {
       var lo = table[i - 1], hi = table[i];
-      var t = (gpm - lo[1]) / (hi[1] - lo[1]);
+      var t = (value - lo[1]) / (hi[1] - lo[1]);
       return lo[0] + t * (hi[0] - lo[0]);
     }
   }
@@ -2460,149 +2457,178 @@ function pctToScore(pct) {
   return 10;
 }
 
-function calcGPMScore(playerData, durationSeconds) {
-  if (!playerData || !playerData.gold || !durationSeconds) return null;
-  var role = (playerData.role_played || '').toLowerCase();
-  if (!role) return null;
-  var durMin = durationSeconds / 60;
-  var rawGPM = playerData.gold / durMin;
+function calcDMGScore(playerData) {
+  var role = (playerData.role || playerData.role_played || '').toLowerCase();
+  if (role !== 'carry' && role !== 'midlane') return null;
 
-  var enemyGold = playerData.enemy_gold && playerData.enemy_gold[role];
-  var diffGPM = null;
-  if (enemyGold) {
-    diffGPM = rawGPM - (enemyGold / durMin);
+  var dmgPct  = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
+  var kills   = parseFloat(playerData.kills)   || 0;
+  var assists = parseFloat(playerData.assists) || 0;
+  var teamK   = parseFloat(playerData.team_total_kills) || 0;
+
+  var hasDmg = dmgPct != null && dmgPct > 0;
+  var hasKP  = teamK > 0;
+
+  if (!hasDmg && !hasKP) return null;
+
+  var kpPct         = hasKP ? (kills + assists) / teamK * 100 : null;
+  var dmgPercentile = hasDmg ? getDMGPercentile(dmgPct, role, 'dmg') : null;
+  var kpPercentile  = kpPct  != null ? getDMGPercentile(kpPct, role, 'kp') : null;
+  var dmgScore      = dmgPercentile != null ? pctToScore(dmgPercentile) : null;
+  var kpScore       = kpPercentile  != null ? pctToScore(kpPercentile)  : null;
+
+  var finalRaw;
+  if (dmgScore !== null && kpScore !== null) {
+    finalRaw = (dmgScore + kpScore) / 2;
+  } else {
+    finalRaw = dmgScore !== null ? dmgScore : kpScore;
   }
-
-  var rawPct  = getGPMPercentile(rawGPM, role, 'raw');
-  var rawScore = pctToScore(rawPct);
-
-  var diffPct  = null;
-  var diffScore = null;
-  if (diffGPM !== null) {
-    diffPct  = getGPMPercentile(diffGPM, role, 'diff');
-    diffScore = pctToScore(diffPct);
-  }
-
-  var finalRaw = diffScore !== null ? (rawScore + diffScore) / 2 : rawScore;
   var finalScore = Math.round(finalRaw * 2) / 2;
 
   return {
-    rawGPM:    Math.round(rawGPM),
-    diffGPM:   diffGPM !== null ? Math.round(diffGPM) : null,
-    rawPct:    Math.round(rawPct),
-    diffPct:   diffPct  !== null ? Math.round(diffPct)  : null,
-    rawScore:  rawScore,
-    diffScore: diffScore,
-    finalScore: finalScore,
+    dmgPct:        dmgPct,
+    kpPct:         kpPct,
+    dmgPercentile: dmgPercentile != null ? Math.round(dmgPercentile) : null,
+    kpPercentile:  kpPercentile  != null ? Math.round(kpPercentile)  : null,
+    dmgScore:      dmgScore,
+    kpScore:       kpScore,
+    finalScore:    finalScore,
   };
 }
 
-function _gpmPillarIndex(role) {
-  var fields = BENCHMARK_FIELDS[role.toLowerCase()];
-  if (!fields) return -1;
-  for (var i = 0; i < Math.min(fields.length, 4); i++) {
-    if (fields[i].k === 'gpm') return i;
-  }
-  return -1;
-}
-
-function _gpmScoreColor(s) {
+function _dtScoreColor(s) {
   if (s >= 7) return '#44ff88';
   if (s >= 5) return '#ffcc44';
   return '#ff4444';
 }
 
-function _gpmOrdinal(n) {
-  n = Math.round(n);
-  var v = n % 100;
-  var sfx = ['th','st','nd','rd'];
-  return n + (sfx[(v - 20) % 10] || sfx[v] || sfx[0]);
+function _dtPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Teamfight & Dmg') return i;
+  }
+  return -1;
 }
 
-function updateGPMStrip(slotIdx) {
-  var el = document.getElementById('lp-gpm-strip-' + slotIdx);
+function updateDTStrip(slotIdx) {
+  var el = document.getElementById('lp-dt-strip-' + slotIdx);
   if (!el) return;
 
-  var gold   = parseFloat(document.getElementById('lp-gold-' + slotIdx) && document.getElementById('lp-gold-' + slotIdx).value) || 0;
-  var role   = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
-  var durSec = LS.matchInfo && LS.matchInfo.duration_seconds;
-
-  if (!gold || !durSec || !role) {
-    el.innerHTML = '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:8px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;font-size:9px;color:#555;">[ GPM ANALYSIS ]  Enter gold &amp; duration above</div>';
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'carry' && role !== 'midlane') {
+    el.innerHTML = '';
     return;
   }
 
-  var oppRow   = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
-  var enemyGold = oppRow ? (oppRow.gold || null) : null;
-  var pData = { gold: gold, role_played: role, enemy_gold: enemyGold ? {} : null };
-  if (enemyGold) pData.enemy_gold[role] = enemyGold;
+  var dmgPct  = parseFloat(document.getElementById('lp-dmg_dealt_pct-' + slotIdx) && document.getElementById('lp-dmg_dealt_pct-' + slotIdx).value) || 0;
+  var kills   = parseFloat(document.getElementById('lp-kills-' + slotIdx) && document.getElementById('lp-kills-' + slotIdx).value) || 0;
+  var assists = parseFloat(document.getElementById('lp-assists-' + slotIdx) && document.getElementById('lp-assists-' + slotIdx).value) || 0;
+  var teamK   = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0;
 
-  var r = calcGPMScore(pData, durSec);
-  if (!r) {
-    el.innerHTML = '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:8px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;font-size:9px;color:#555;">[ GPM ANALYSIS ]  —</div>';
-    return;
+  var pData = { role: role, dmgDealtPct: dmgPct || null, kills: kills, assists: assists, team_total_kills: teamK };
+  var r = calcDMGScore(pData);
+
+  function _na() { return '<span style="color:#555;">—</span>'; }
+  function _row(label, val, pctStr, score) {
+    var scStr   = score != null ? '→ ' + score + '/10' : null;
+    var scColor = score != null ? _dtScoreColor(score) : '#555';
+    return '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;font-size:9px;">' +
+      '<span style="color:#888;width:74px;flex-shrink:0;">' + label + '</span>' +
+      '<span style="color:#f4f4f0;flex:1;">' + (val != null ? val : _na()) + '</span>' +
+      '<span style="color:#888;margin-right:8px;">' + (pctStr != null ? pctStr : _na()) + '</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (scStr != null ? scStr : _na()) + '</span>' +
+    '</div>';
   }
 
-  var diffStr = r.diffGPM !== null ? ((r.diffGPM >= 0 ? '+' : '') + r.diffGPM + ' g/min') : '—';
-  var diffPctStr  = r.diffPct  !== null ? _gpmOrdinal(r.diffPct) + ' pct' : '—';
-  var diffScoreStr = r.diffScore !== null ? '→ ' + r.diffScore + '/10' : '—';
+  var dmgVal  = (r && r.dmgPct  != null) ? r.dmgPct.toFixed(1) + '%'  : null;
+  var kpVal   = (r && r.kpPct   != null) ? r.kpPct.toFixed(1)  + '%'  : null;
+  var dmgPctS = (r && r.dmgPercentile != null) ? r.dmgPercentile + 'th pct' : null;
+  var kpPctS  = (r && r.kpPercentile  != null) ? r.kpPercentile  + 'th pct' : null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1) : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : '#888';
 
   el.innerHTML =
     '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:9px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;">' +
-      '<div style="font-size:9px;letter-spacing:2px;color:#888;margin-bottom:7px;">[ GPM ANALYSIS ]</div>' +
-      '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;font-size:9px;">' +
-        '<span style="color:#888;width:68px;flex-shrink:0;">Raw GPM</span>' +
-        '<span style="color:#f4f4f0;flex:1;">' + r.rawGPM + ' g/min</span>' +
-        '<span style="color:#888;margin-right:8px;">' + _gpmOrdinal(r.rawPct) + ' pct</span>' +
-        '<span style="font-weight:600;color:' + _gpmScoreColor(r.rawScore) + ';">→ ' + r.rawScore + '/10</span>' +
-      '</div>' +
-      '<div style="display:flex;align-items:center;gap:4px;margin-bottom:7px;font-size:9px;">' +
-        '<span style="color:#888;width:68px;flex-shrink:0;">Diff GPM</span>' +
-        '<span style="color:#f4f4f0;flex:1;">' + diffStr + '</span>' +
-        '<span style="color:#888;margin-right:8px;">' + diffPctStr + '</span>' +
-        '<span style="font-weight:600;color:' + (r.diffScore !== null ? _gpmScoreColor(r.diffScore) : '#555') + ';">' + diffScoreStr + '</span>' +
-      '</div>' +
+      '<div style="font-size:9px;letter-spacing:2px;color:#888;margin-bottom:7px;">[ DMG &amp; TEAMFIGHT ]</div>' +
+      _row('DMG dealt %', dmgVal, dmgPctS, r ? r.dmgScore : null) +
+      _row('Kill part.',  kpVal,  kpPctS,  r ? r.kpScore  : null) +
       '<div style="border-top:1px solid #2a2a2a;padding-top:5px;text-align:right;font-size:9px;">' +
-        '<span style="color:#888;">Gold score: </span>' +
-        '<span style="font-weight:600;font-size:11px;color:' + _gpmScoreColor(r.finalScore) + ';">' + r.finalScore + '</span>' +
+        '<span style="color:#888;">D&amp;T score: </span>' +
+        '<span style="font-weight:600;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '<span style="color:#555;">—</span>') + '</span>' +
       '</div>' +
     '</div>';
 }
 
+// === END DMG & TEAMFIGHT SCORING ENGINE ===
+
+// === GPM SCORING ENGINE — DISABLED (no individual gold in source data) ===
+// TODO: Re-enable when individual gold data is available
+/*
+var GPM_ANCHORS = {
+  raw: {
+    carry:   [[0,380],[1,450],[5,530],[15,640],[30,730],[50,840],[70,960],[85,1070],[95,1220],[99,1400],[100,1600]],
+    midlane: [[0,400],[1,470],[5,560],[15,670],[30,770],[50,890],[70,1020],[85,1140],[95,1290],[99,1500],[100,1700]],
+    offlane: [[0,300],[1,370],[5,440],[15,530],[30,620],[50,720],[70,840],[85,940],[95,1060],[99,1240],[100,1420]],
+    jungler: [[0,320],[1,390],[5,470],[15,560],[30,650],[50,760],[70,880],[85,980],[95,1110],[99,1300],[100,1480]],
+    support: [[0,200],[1,250],[5,300],[15,370],[30,440],[50,530],[70,630],[85,720],[95,830],[99,980],[100,1120]],
+  },
+  diff: {
+    carry:   [[0,-480],[1,-320],[5,-200],[15,-100],[30,-30],[50,20],[70,90],[85,170],[95,270],[99,400],[100,580]],
+    midlane: [[0,-500],[1,-340],[5,-210],[15,-110],[30,-35],[50,25],[70,100],[85,180],[95,290],[99,420],[100,600]],
+    offlane: [[0,-420],[1,-280],[5,-170],[15,-90],[30,-25],[50,15],[70,80],[85,150],[95,240],[99,360],[100,520]],
+    jungler: [[0,-440],[1,-290],[5,-180],[15,-95],[30,-28],[50,18],[70,85],[85,160],[95,255],[99,380],[100,540]],
+    support: [[0,-320],[1,-210],[5,-130],[15,-65],[30,-20],[50,12],[70,60],[85,115],[95,190],[99,290],[100,420]],
+  }
+};
+
+function getGPMPercentile(gpm, role, type) { ... }
+function pctToScore(pct) { ... }  // moved out above — shared with DMG engine
+function calcGPMScore(playerData, durationSeconds) { ... }
+function _gpmPillarIndex(role) { ... }
+function _gpmScoreColor(s) { ... }
+function _gpmOrdinal(n) { ... }
+function updateGPMStrip(slotIdx) { ... }
+function autoScorePlayer(slotIdx) { ... }  // moved out below with DMG integration
+function autoScoreAll() { ... }            // moved out below
+*/
+// === END GPM SCORING ENGINE — DISABLED ===
+
+function updateGPMStrip(slotIdx) { /* GPM disabled */ }
+
 function autoScorePlayer(slotIdx) {
-  var role      = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
-  var gold      = parseFloat(document.getElementById('lp-gold-' + slotIdx) && document.getElementById('lp-gold-' + slotIdx).value) || 0;
-  var kills     = parseFloat(document.getElementById('lp-kills-' + slotIdx) && document.getElementById('lp-kills-' + slotIdx).value) || 0;
-  var deaths    = parseFloat(document.getElementById('lp-deaths-' + slotIdx) && document.getElementById('lp-deaths-' + slotIdx).value) || 0;
-  var assists   = parseFloat(document.getElementById('lp-assists-' + slotIdx) && document.getElementById('lp-assists-' + slotIdx).value) || 0;
-  var durSec    = LS.matchInfo && LS.matchInfo.duration_seconds;
-  var playerId  = document.getElementById('lp-player-' + slotIdx) ? document.getElementById('lp-player-' + slotIdx).value : null;
+  var role     = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  var playerId = document.getElementById('lp-player-' + slotIdx) ? document.getElementById('lp-player-' + slotIdx).value : null;
 
   function _num(id){ var e=document.getElementById(id); var v=e?parseFloat(e.value):NaN; return isNaN(v)?null:v; }
   var rawStats = {
-    kills: kills, deaths: deaths, assists: assists,
-    gold: gold || null,
-    gameRating:   _num('lp-in_game_rating-' + slotIdx),
-    dmgDealtPct:  _num('lp-dmg_dealt_pct-' + slotIdx),
-    dmgTakenPct:  _num('lp-dmg_taken_pct-' + slotIdx),
-    dmgDealt:     _num('lp-dmg_dealt_raw-' + slotIdx),
-    dmgTaken:     _num('lp-dmg_taken_raw-' + slotIdx),
+    kills:       _num('lp-kills-'        + slotIdx) || 0,
+    deaths:      _num('lp-deaths-'       + slotIdx) || 0,
+    assists:     _num('lp-assists-'      + slotIdx) || 0,
+    gold:        _num('lp-gold-'         + slotIdx),
+    gameRating:  _num('lp-in_game_rating-' + slotIdx),
+    dmgDealtPct: _num('lp-dmg_dealt_pct-'  + slotIdx),
+    dmgTakenPct: _num('lp-dmg_taken_pct-'  + slotIdx),
+    dmgDealt:    _num('lp-dmg_dealt_raw-'  + slotIdx),
+    dmgTaken:    _num('lp-dmg_taken_raw-'  + slotIdx),
     _playerId: playerId
   };
 
-  var gpmIdx = _gpmPillarIndex(role);
-  var oppRow = LS.enemyRoles ? LS.enemyRoles.find(function(e){ return e.role && e.role.toLowerCase() === role; }) : null;
-  var enemyGold = oppRow ? (oppRow.gold || null) : null;
-  var gpmResult = null;
-  if (gpmIdx >= 0 && gold && durSec) {
-    var pData = { gold: gold, role_played: role, enemy_gold: enemyGold ? {} : null };
-    if (enemyGold) pData.enemy_gold[role] = enemyGold;
-    gpmResult = calcGPMScore(pData, durSec);
+  var dtIdx = _dtPillarIndex(role);
+  var dtResult = null;
+  if (dtIdx >= 0) {
+    var teamK = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0;
+    dtResult = calcDMGScore({
+      role:             role,
+      dmgDealtPct:      rawStats.dmgDealtPct,
+      kills:            rawStats.kills,
+      assists:          rawStats.assists,
+      team_total_kills: teamK
+    });
   }
 
   var pillars = PILLAR_MAP[role] || [];
   for (var n = 0; n < pillars.length; n++) {
-    var sug = (n === gpmIdx && gpmResult) ? gpmResult.finalScore : calculateSuggestion(role, n, rawStats);
+    var sug = (n === dtIdx && dtResult) ? dtResult.finalScore : calculateSuggestion(role, n, rawStats);
     if (sug == null) continue;
     var slEl = document.getElementById('lp-p' + n + '-' + slotIdx);
     var dpEl = document.getElementById('lp-pv' + n + '-' + slotIdx);
@@ -2631,8 +2657,6 @@ function autoScoreAll() {
     setTimeout(function(){ btn.innerHTML = orig; btn.style.color = origColor; }, 1500);
   }
 }
-
-// === END GPM SCORING ENGINE ===
 
 function _dbErr(err, table){
   var msg = (err && err.message) || String(err);
@@ -2769,7 +2793,11 @@ async function saveGame(){
         pillar_4_score:        p4,
         pillar_1_auto:         null,
         pillar_2_auto:         null,
-        pillar_3_auto:         null,
+        pillar_3_auto:         (function(){
+          if (role !== 'carry' && role !== 'midlane') return null;
+          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills });
+          return _r ? _r.finalScore : null;
+        })(),
         pillar_4_auto:         null,
         coach_note:            note,
         kda:                   kda,
