@@ -2065,6 +2065,12 @@ function renderPlayerStep(){
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
     html += '<div class="raw-stats-grid">'+statsHtml+'</div>';
+    if(role === 'Support'){
+      html += '<div class="raw-stats-grid" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--grey-2);">';
+      html += '<div class="raw-stat-cell"><div class="raw-stat-label" style="color:var(--grey-4);">ADL Deaths</div><div id="lp-adl_deaths-'+i+'" style="font-family:\'DM Mono\',monospace;font-size:12px;color:var(--grey-5);padding:6px 8px;background:var(--grey-1);border-radius:2px;">—</div></div>';
+      html += '<div class="raw-stat-cell"><div class="raw-stat-label" style="color:var(--grey-4);">MID Deaths</div><div id="lp-mid_deaths-'+i+'" style="font-family:\'DM Mono\',monospace;font-size:12px;color:var(--grey-5);padding:6px 8px;background:var(--grey-1);border-radius:2px;">—</div></div>';
+      html += '</div>';
+    }
     html += '<div id="lp-computed-'+i+'"></div>';
     html += '</details>';
     html += '<div class="input-group" style="margin-top:12px;margin-bottom:0;">';
@@ -2179,6 +2185,14 @@ function updateComputedStats(slotIdx){
 
   _refreshPillarHints(slotIdx);
   updateDTStrip(slotIdx);
+  updateSurvivalStrip(slotIdx);
+  updateTankStrip(slotIdx);
+  updateProtectionStrip(slotIdx);
+  _updateSupportContextDisplay();
+  // Carry/midlane death changes affect the support protection strip
+  if (slotIdx === 1 || slotIdx === 2) {
+    updateProtectionStrip(0);
+  }
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -2203,6 +2217,15 @@ function renderPillarSliders(role, slotIdx){
     }
     if(isDT){
       html += '<div id="lp-dt-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Survival'){
+      html += '<div id="lp-survival-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Tank'){
+      html += '<div id="lp-tank-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Protection'){
+      html += '<div id="lp-protection-strip-'+slotIdx+'"></div>';
     }
     html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
     html += '</div>';
@@ -2592,6 +2615,390 @@ function updateDTStrip(slotIdx) {
 
 // === END DMG & TEAMFIGHT SCORING ENGINE ===
 
+// === SURVIVAL / TANK / PROTECTION ANCHOR TABLES ===
+// Source: data_2.csv, 816 complete pro games
+// Format: [p10, p25, p50, p75, p90]
+var SURVIVAL_ANCHORS = {
+  carry: {
+    dmg_dtk:   [1.0268, 1.3654, 1.8000, 2.4000, 3.2219],
+    deaths_pm: [0.0000, 0.0000, 0.0755, 0.1298, 0.1950],
+  },
+  mage: {
+    dmg_dtk:   [0.9317, 1.2937, 1.8706, 3.0000, 4.5725],
+    deaths_pm: [0.0000, 0.0000, 0.0746, 0.1405, 0.2169],
+  },
+};
+var TANK_ANCHORS = {
+  dtk_pct:     [0.2039, 0.2477, 0.3005, 0.3515, 0.3976],
+  dtk_per_min: [3262.95, 4163.05, 5395.35, 6703.85, 8224.76],
+  death_adj:   [0.0000, 0.0694, 0.1700, 0.2899, 0.4386],
+};
+var PROTECTION_ANCHORS = {
+  geo_mean: [0.00100, 0.00901, 0.06604, 0.11906, 0.17104],
+};
+
+// Interpolates a value against a [p10,p25,p50,p75,p90] anchor array, returning 0–100 percentile.
+function _interpolatePercentile(value, anchors) {
+  var pcts = [10, 25, 50, 75, 90];
+  // Below p10: extrapolate linearly towards 0, or return 10 if anchor is 0
+  if (value <= anchors[0]) {
+    if (anchors[0] <= 0) return 10;
+    return Math.max(0, (value / anchors[0]) * 10);
+  }
+  // Between anchor pairs
+  for (var i = 0; i < 4; i++) {
+    if (value <= anchors[i + 1]) {
+      if (anchors[i + 1] <= anchors[i]) return pcts[i + 1];
+      var t = (value - anchors[i]) / (anchors[i + 1] - anchors[i]);
+      return pcts[i] + t * (pcts[i + 1] - pcts[i]);
+    }
+  }
+  // Above p90: extrapolate linearly up, clamp at 100
+  if (anchors[4] > anchors[3]) {
+    var slope = 15 / (anchors[4] - anchors[3]);
+    return Math.min(100, 90 + slope * (value - anchors[4]));
+  }
+  return 100;
+}
+
+// === SURVIVAL SCORING ENGINE ===
+
+function _survivalPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Survival') return i;
+  }
+  return -1;
+}
+
+function calcSurvivalScore(playerData) {
+  var role = (playerData.role || '').toLowerCase();
+  if (role !== 'carry' && role !== 'midlane') return null;
+
+  var dmgDealtPct = playerData.dmgDealtPct != null ? parseFloat(playerData.dmgDealtPct) : null;
+  var dmgTakenPct = playerData.dmgTakenPct != null ? parseFloat(playerData.dmgTakenPct) : null;
+  var deaths      = parseFloat(playerData.deaths) || 0;
+  var durSec      = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+
+  if (!durSec || durSec <= 0) return null;
+  if (dmgDealtPct == null)    return null;
+
+  var durMin     = durSec / 60;
+  var dtk        = Math.max(dmgTakenPct || 0, 0.1);
+  var dmgDtkRatio = dmgDealtPct / dtk;
+  var deathsPm   = deaths / durMin;
+
+  var roleKey = (role === 'carry') ? 'carry' : 'mage';
+  var dmgDtkPct  = _interpolatePercentile(dmgDtkRatio, SURVIVAL_ANCHORS[roleKey].dmg_dtk);
+  var deathsPct  = _interpolatePercentile(deathsPm,    SURVIVAL_ANCHORS[roleKey].deaths_pm);
+
+  var raw = pctToScore(dmgDtkPct) * 0.60 + pctToScore(100 - deathsPct) * 0.40;
+
+  return {
+    dmgDtkRatio:  dmgDtkRatio,
+    deathsPm:     deathsPm,
+    dmgDtkPct:    Math.round(dmgDtkPct),
+    deathsPct:    Math.round(deathsPct),
+    finalScore:   Math.round(raw * 2) / 2,
+  };
+}
+
+function updateSurvivalStrip(slotIdx) {
+  var el = document.getElementById('lp-survival-strip-' + slotIdx);
+  if (!el) return;
+
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'carry' && role !== 'midlane') { el.innerHTML = ''; return; }
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+
+  var r = calcSurvivalScore({
+    role:             role,
+    dmgDealtPct:      _rn('lp-dmg_dealt_pct-' + slotIdx),
+    dmgTakenPct:      _rn('lp-dmg_taken_pct-' + slotIdx),
+    deaths:           _rn('lp-deaths-' + slotIdx) || 0,
+    duration_seconds: durSec,
+  });
+
+  function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _row(label, val, ordinal, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:56px 44px 14px 46px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">' + label + '</span>' +
+      '<span style="color:var(--white);">'  + (val     != null ? val     : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="color:var(--grey-5);">' + (ordinal != null ? ordinal : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? score.toFixed(0) : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight + '</span>' +
+    '</div>';
+  }
+
+  var ratioVal = (r && r.dmgDtkRatio != null) ? r.dmgDtkRatio.toFixed(2) + '×' : null;
+  var dpmVal   = (r && r.deathsPm    != null) ? r.deathsPm.toFixed(3)          : null;
+  var final    = (r && r.finalScore  != null) ? r.finalScore.toFixed(1)        : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+  var dmgDtkScore  = (r) ? pctToScore(r.dmgDtkPct)       : null;
+  var deathsScore  = (r) ? pctToScore(100 - r.deathsPct) : null;
+
+  el.innerHTML =
+    '<div class="dt-strip">' +
+      _row('DMG/DTK', ratioVal, _ord(r && r.dmgDtkPct),  dmgDtkScore,  '×0.60') +
+      _row('Dth/min', dpmVal,   _ord(r && (100 - r.deathsPct)), deathsScore, '×0.40') +
+      '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+        '<span style="color:var(--grey-5);">Surv  </span>' +
+        '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+        '<span style="color:var(--grey-5);"> / 10</span>' +
+      '</div>' +
+    '</div>';
+}
+
+// === END SURVIVAL SCORING ENGINE ===
+
+// === TANK SCORING ENGINE ===
+
+function _tankPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Tank') return i;
+  }
+  return -1;
+}
+
+function calcTankScore(playerData) {
+  var role = (playerData.role || '').toLowerCase();
+  if (role !== 'support') return null;
+
+  var dmgTakenPct = playerData.dmgTakenPct != null ? parseFloat(playerData.dmgTakenPct) : null;
+  var dmgTakenRaw = playerData.dmgTakenRaw != null ? parseFloat(playerData.dmgTakenRaw) : null;
+  var deaths      = parseFloat(playerData.deaths) || 0;
+  var durSec      = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+
+  if (!durSec || durSec <= 0) return null;
+  if (dmgTakenPct == null)    return null;
+
+  var durMin  = durSec / 60;
+  var dtkPct  = dmgTakenPct / 100;  // fraction for anchor comparison
+
+  var rawDtk, dtkPerMin;
+  if (dmgTakenRaw != null && dmgTakenRaw > 0) {
+    rawDtk    = dmgTakenRaw;
+    dtkPerMin = rawDtk / durMin;
+  } else {
+    rawDtk    = null;
+    dtkPerMin = dmgTakenPct / durMin * 1000;
+  }
+
+  var deathAdj;
+  if (rawDtk != null && rawDtk > 0) {
+    deathAdj = deaths / (rawDtk / 10000);
+  } else {
+    deathAdj = deaths / (dmgTakenPct + 0.1);
+  }
+
+  var dtkPctPct    = _interpolatePercentile(dtkPct,    TANK_ANCHORS.dtk_pct);
+  var dtkPerMinPct = _interpolatePercentile(dtkPerMin, TANK_ANCHORS.dtk_per_min);
+  var deathAdjPct  = _interpolatePercentile(deathAdj,  TANK_ANCHORS.death_adj);
+
+  var raw = pctToScore(dtkPctPct) * 0.40 + pctToScore(dtkPerMinPct) * 0.40 + pctToScore(100 - deathAdjPct) * 0.20;
+
+  return {
+    dtkPct:       dmgTakenPct,
+    dtkPerMin:    dtkPerMin,
+    deathAdj:     deathAdj,
+    dtkPctPct:    Math.round(dtkPctPct),
+    dtkPerMinPct: Math.round(dtkPerMinPct),
+    deathAdjPct:  Math.round(deathAdjPct),
+    finalScore:   Math.round(raw * 2) / 2,
+  };
+}
+
+function updateTankStrip(slotIdx) {
+  var el = document.getElementById('lp-tank-strip-' + slotIdx);
+  if (!el) return;
+
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'support') { el.innerHTML = ''; return; }
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+
+  var r = calcTankScore({
+    role:         role,
+    dmgTakenPct:  _rn('lp-dmg_taken_pct-' + slotIdx),
+    dmgTakenRaw:  _rn('lp-dmg_taken_raw-' + slotIdx),
+    deaths:       _rn('lp-deaths-' + slotIdx) || 0,
+    duration_seconds: durSec,
+  });
+
+  function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _row(label, val, ordinal, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:56px 52px 14px 46px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">' + label + '</span>' +
+      '<span style="color:var(--white);">'  + (val     != null ? val     : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="color:var(--grey-5);">' + (ordinal != null ? ordinal : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? score.toFixed(0) : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight + '</span>' +
+    '</div>';
+  }
+
+  var dtkPctScore    = (r) ? pctToScore(r.dtkPctPct)          : null;
+  var dtkPerMinScore = (r) ? pctToScore(r.dtkPerMinPct)        : null;
+  var deathAdjScore  = (r) ? pctToScore(100 - r.deathAdjPct)  : null;
+
+  var dtkPctVal    = (r && r.dtkPct    != null) ? r.dtkPct.toFixed(1) + '%'          : null;
+  var dtkPerMinVal = (r && r.dtkPerMin != null) ? Math.round(r.dtkPerMin).toLocaleString() : null;
+  var deathAdjVal  = (r && r.deathAdj  != null) ? r.deathAdj.toFixed(2)              : null;
+  var final        = (r && r.finalScore != null) ? r.finalScore.toFixed(1)            : null;
+  var finalColor   = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+
+  el.innerHTML =
+    '<div class="dt-strip">' +
+      _row('DTK%',    dtkPctVal,    _ord(r && r.dtkPctPct),        dtkPctScore,    '×0.40') +
+      _row('DTK/min', dtkPerMinVal, _ord(r && r.dtkPerMinPct),     dtkPerMinScore, '×0.40') +
+      _row('Dth adj', deathAdjVal,  _ord(r && (100 - r.deathAdjPct)), deathAdjScore, '×0.20') +
+      '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+        '<span style="color:var(--grey-5);">Tank  </span>' +
+        '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+        '<span style="color:var(--grey-5);"> / 10</span>' +
+      '</div>' +
+    '</div>';
+}
+
+// === END TANK SCORING ENGINE ===
+
+// === PROTECTION SCORING ENGINE ===
+
+function _protectionPillarIndex(role) {
+  var pillars = PILLAR_MAP[(role || '').toLowerCase()] || [];
+  for (var i = 0; i < pillars.length; i++) {
+    if (pillars[i] === 'Protection') return i;
+  }
+  return -1;
+}
+
+function calcProtectionScore(playerData) {
+  var role = (playerData.role || '').toLowerCase();
+  if (role !== 'support') return null;
+
+  var adlDeaths = playerData.adlDeaths != null ? parseFloat(playerData.adlDeaths) : null;
+  var midDeaths = playerData.midDeaths != null ? parseFloat(playerData.midDeaths) : null;
+  var durSec    = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
+
+  if (!durSec || durSec <= 0)            return null;
+  if (adlDeaths == null || midDeaths == null) return null;
+
+  var durMin  = durSec / 60;
+  var EPS     = 0.001;
+  var adlDpm  = adlDeaths / durMin;
+  var midDpm  = midDeaths / durMin;
+  var geoMean = Math.sqrt((adlDpm + EPS) * (midDpm + EPS));
+
+  var geoMeanPct = _interpolatePercentile(geoMean, PROTECTION_ANCHORS.geo_mean);
+  var raw        = pctToScore(100 - geoMeanPct);
+
+  return {
+    adlDpm:     adlDpm,
+    midDpm:     midDpm,
+    geoMean:    geoMean,
+    geoMeanPct: Math.round(geoMeanPct),
+    finalScore: Math.round(raw * 2) / 2,
+  };
+}
+
+function updateProtectionStrip(slotIdx) {
+  var el = document.getElementById('lp-protection-strip-' + slotIdx);
+  if (!el) return;
+
+  var role = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  if (role !== 'support') { el.innerHTML = ''; return; }
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+
+  // Find carry and midlane deaths from their respective slots
+  var adlDeaths = null, midDeaths = null;
+  for (var si = 0; si < 5; si++) {
+    var sRole = (document.getElementById('lp-role-' + si) ? document.getElementById('lp-role-' + si).value : '').toLowerCase();
+    var sd = _rn('lp-deaths-' + si);
+    if (sRole === 'carry')   adlDeaths = sd != null ? sd : 0;
+    if (sRole === 'midlane') midDeaths = sd != null ? sd : 0;
+  }
+
+  var r = calcProtectionScore({
+    role:         role,
+    adlDeaths:    adlDeaths,
+    midDeaths:    midDeaths,
+    duration_seconds: durSec,
+  });
+
+  function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _row(label, val, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:56px 60px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">' + label + '</span>' +
+      '<span style="color:var(--white);">'  + (val   != null ? val   : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? score.toFixed(0) : _na()) + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight + '</span>' +
+    '</div>';
+  }
+
+  var adlDpmVal  = (r && r.adlDpm  != null) ? r.adlDpm.toFixed(3)  : null;
+  var midDpmVal  = (r && r.midDpm  != null) ? r.midDpm.toFixed(3)  : null;
+  var geoMeanVal = (r && r.geoMean != null) ? r.geoMean.toFixed(3) : null;
+  var final      = (r && r.finalScore != null) ? r.finalScore.toFixed(1) : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
+  var protScore  = (r) ? pctToScore(100 - r.geoMeanPct) : null;
+
+  el.innerHTML =
+    '<div class="dt-strip">' +
+      _row('ADL dpm', adlDpmVal, null, '') +
+      _row('MID dpm', midDpmVal, null, '') +
+      _row('Geo-mean', geoMeanVal, protScore, '×1.00') +
+      '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+        '<span style="color:var(--grey-5);">Prot  </span>' +
+        '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+        '<span style="color:var(--grey-5);"> / 10</span>' +
+      '</div>' +
+    '</div>';
+}
+
+// Update the support card's read-only adl_deaths / mid_deaths display fields
+function _updateSupportContextDisplay() {
+  // Find the support slot
+  var supSlot = -1;
+  var adlSlot = -1, midSlot = -1;
+  for (var si = 0; si < 5; si++) {
+    var sRole = (document.getElementById('lp-role-' + si) ? document.getElementById('lp-role-' + si).value : '').toLowerCase();
+    if (sRole === 'support') supSlot = si;
+    if (sRole === 'carry')   adlSlot = si;
+    if (sRole === 'midlane') midSlot = si;
+  }
+  if (supSlot < 0) return;
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  var adlEl = document.getElementById('lp-adl_deaths-' + supSlot);
+  var midEl = document.getElementById('lp-mid_deaths-' + supSlot);
+  if (adlEl) {
+    var adlD = adlSlot >= 0 ? _rn('lp-deaths-' + adlSlot) : null;
+    adlEl.textContent = adlD != null ? adlD : '—';
+  }
+  if (midEl) {
+    var midD = midSlot >= 0 ? _rn('lp-deaths-' + midSlot) : null;
+    midEl.textContent = midD != null ? midD : '—';
+  }
+}
+
+// === END PROTECTION SCORING ENGINE ===
+
 // === GPM SCORING ENGINE — DISABLED (no individual gold in source data) ===
 // TODO: Re-enable when individual gold data is available
 /*
@@ -2644,11 +3051,12 @@ function autoScorePlayer(slotIdx) {
     _playerId: playerId
   };
 
+  var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+
   var dtIdx = _dtPillarIndex(role);
   var dtResult = null;
   if (dtIdx >= 0) {
     var teamK  = (LS.matchInfo && LS.matchInfo.team_total_kills)  ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
-    var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
     dtResult = calcDMGScore({
       role:             role,
       dmgDealtPct:      rawStats.dmgDealtPct,
@@ -2660,9 +3068,60 @@ function autoScorePlayer(slotIdx) {
     });
   }
 
+  // === SURVIVAL SCORING ENGINE ===
+  var survivalIdx = _survivalPillarIndex(role);
+  var survivalResult = null;
+  if (survivalIdx >= 0) {
+    survivalResult = calcSurvivalScore({
+      role:             role,
+      dmgDealtPct:      rawStats.dmgDealtPct,
+      dmgTakenPct:      rawStats.dmgTakenPct,
+      deaths:           rawStats.deaths,
+      duration_seconds: durSec,
+    });
+  }
+
+  // === TANK SCORING ENGINE ===
+  var tankIdx = _tankPillarIndex(role);
+  var tankResult = null;
+  if (tankIdx >= 0) {
+    tankResult = calcTankScore({
+      role:         role,
+      dmgTakenPct:  rawStats.dmgTakenPct,
+      dmgTakenRaw:  rawStats.dmgTaken,
+      deaths:       rawStats.deaths,
+      duration_seconds: durSec,
+    });
+  }
+
+  // === PROTECTION SCORING ENGINE ===
+  var protectionIdx = _protectionPillarIndex(role);
+  var protectionResult = null;
+  if (protectionIdx >= 0) {
+    // Find carry and midlane deaths from their slots
+    var adlDeaths = null, midDeaths = null;
+    for (var si = 0; si < 5; si++) {
+      var sRole = (document.getElementById('lp-role-' + si) ? document.getElementById('lp-role-' + si).value : '').toLowerCase();
+      var sDeaths = _num('lp-deaths-' + si);
+      if (sRole === 'carry')   adlDeaths = sDeaths != null ? sDeaths : 0;
+      if (sRole === 'midlane') midDeaths = sDeaths != null ? sDeaths : 0;
+    }
+    protectionResult = calcProtectionScore({
+      role:         role,
+      adlDeaths:    adlDeaths,
+      midDeaths:    midDeaths,
+      duration_seconds: durSec,
+    });
+  }
+
   var pillars = PILLAR_MAP[role] || [];
   for (var n = 0; n < pillars.length; n++) {
-    var sug = (n === dtIdx && dtResult) ? dtResult.finalScore : calculateSuggestion(role, n, rawStats);
+    var sug;
+    if (n === dtIdx && dtResult)             sug = dtResult.finalScore;
+    else if (n === survivalIdx && survivalResult) sug = survivalResult.finalScore;
+    else if (n === tankIdx && tankResult)         sug = tankResult.finalScore;
+    else if (n === protectionIdx && protectionResult) sug = protectionResult.finalScore;
+    else sug = calculateSuggestion(role, n, rawStats);
     if (sug == null) continue;
     var slEl = document.getElementById('lp-p' + n + '-' + slotIdx);
     var dpEl = document.getElementById('lp-pv' + n + '-' + slotIdx);
