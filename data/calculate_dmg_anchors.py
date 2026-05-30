@@ -162,9 +162,9 @@ def main():
                     dpm = (raw_dmg / team_dmg * 100 / duration_min) * 10
                     data[role]["dpm"].append(dpm)
 
-                    # 3. KP% — kill participation
+                    # 3. KP% — kill participation (capped at 100; values above are data errors)
                     if kills is not None and assists is not None and team_kills > 0:
-                        kp = (kills + assists) / team_kills * 100
+                        kp = min((kills + assists) / team_kills * 100, 100.0)
                         data[role]["kp"].append(kp)
 
         print(f"Rows: {row_count}  |  Skipped (no duration): {skipped}  |  Player-game samples: {used}\n")
