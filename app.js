@@ -2001,11 +2001,12 @@ function renderPlayerStep(){
     return '<option value="'+r+'">'+r+'</option>';
   }).join('');
 
-  var playerOpts = function(defaultRole){
+  var playerOpts = function(defaultRole, overrideId){
     var active   = PLAYERS.filter(function(p){ return p.status !== 'Inactive'; });
     var inactive = PLAYERS.filter(function(p){ return p.status === 'Inactive'; });
     var all = active.concat(inactive);
-    var defaultP = PLAYERS.find(function(p){ return p.role === defaultRole && p.status !== 'Inactive'; }) ||
+    var defaultP = (overrideId ? PLAYERS.find(function(p){ return p.id === overrideId; }) : null) ||
+                   PLAYERS.find(function(p){ return p.role === defaultRole && p.status !== 'Inactive'; }) ||
                    PLAYERS.find(function(p){ return p.role === defaultRole; });
     return all.map(function(p){
       return '<option value="'+p.id+'"'+(defaultP&&p.id===defaultP.id?' selected':'')+'>'+p.nick+' ('+p.role+')</option>';
@@ -2030,7 +2031,10 @@ function renderPlayerStep(){
     var roleLower = role.toLowerCase();
     var defaultP  = PLAYERS.find(function(p){ return p.role === role && p.status !== 'Inactive'; }) ||
                     PLAYERS.find(function(p){ return p.role === role; });
-    var preScore = (defaultP && LS.scores[defaultP.id]) ? LS.scores[defaultP.id] : null;
+    // Prefer a player who actually has scanned data for this role slot (e.g. a substitute was scanned)
+    var scannedForRole = PLAYERS.find(function(p){ return p.role === role && LS.scores[p.id]; });
+    var effectiveP = scannedForRole || defaultP;
+    var preScore = (effectiveP && LS.scores[effectiveP.id]) ? LS.scores[effectiveP.id] : null;
     var preHero  = (preScore && preScore.hero) ? preScore.hero : '';
     // Inferred hero role pre-selects the picker; null (Flowborn/unknown) falls back to slot role
     var prefRole = (preScore && preScore.role) ? preScore.role : role;
@@ -2049,7 +2053,7 @@ function renderPlayerStep(){
     html += '<div class="player-score-section" id="log-player-section-'+i+'">';
     html += '<div class="player-score-header">';
     html += '<select class="input" style="flex:1;font-size:12px;" id="lp-player-'+i+'">';
-    html += playerOpts(role);
+    html += playerOpts(role, effectiveP ? effectiveP.id : null);
     html += '</select>';
     html += '<select class="input" style="width:110px;font-size:11px;" id="lp-role-'+i+'" onchange="onLogRoleChange('+i+')">';
     html += roleSelOpts;
@@ -2086,10 +2090,12 @@ function renderPlayerStep(){
   for(var j = 0; j < 5; j++){
     var dp = PLAYERS.find(function(p){ return p.role === GAME_ROLES[j] && p.status !== 'Inactive'; }) ||
              PLAYERS.find(function(p){ return p.role === GAME_ROLES[j]; });
-    var sc = (dp && LS.scores[dp.id]) ? LS.scores[dp.id] : null;
+    var scannedDp = PLAYERS.find(function(p){ return p.role === GAME_ROLES[j] && LS.scores[p.id]; });
+    var effectiveDp = scannedDp || dp;
+    var sc = (effectiveDp && LS.scores[effectiveDp.id]) ? LS.scores[effectiveDp.id] : null;
     var rEl = document.getElementById('lp-role-'+j);
     var rl  = (rEl ? rEl.value : GAME_ROLES[j]).toLowerCase();
-    if(sc){ if(dp) sc._playerId = dp.id; _prefillRawStats(j, sc); }
+    if(sc){ if(effectiveDp) sc._playerId = effectiveDp.id; _prefillRawStats(j, sc); }
     renderPillarSliders(rl, j);
     if(sc) _prefillPillarSuggestions(j, rl, sc);
     updateComputedStats(j);
