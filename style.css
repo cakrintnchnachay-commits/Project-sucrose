@@ -1103,3 +1103,5 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .gd-hero-chip{display:flex;flex-direction:column;align-items:center;gap:3px;}
 .gd-hero-chip-name{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);text-align:center;max-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .gd-game-no-data{display:flex;flex-direction:column;align-items:center;justify-content:center;height:260px;gap:10px;}
+
+.dt-strip{font-family:"DM Mono",monospace;font-size:9px;background:rgba(68,136,255,0.06);border-left:2px solid rgba(68,136,255,0.3);padding:6px 10px;margin-bottom:6px;}

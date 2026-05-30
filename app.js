@@ -2061,8 +2061,6 @@ function renderPlayerStep(){
     html += '<label class="input-label">Hero</label>';
     html += '<input class="input" id="lp-hero-'+i+'" placeholder="Hero name" value="'+preHero+'"/>';
     html += '</div>';
-    html += '<div id="lp-gpm-strip-'+i+'" style="display:none"></div>';
-    html += '<div id="lp-dt-strip-'+i+'"></div>';
     html += '<div id="lp-pillars-'+i+'"></div>';
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
@@ -2194,6 +2192,7 @@ function renderPillarSliders(role, slotIdx){
     var isManual = MANUAL_PILLARS.has(pName);
     var dispId   = 'lp-pv'+n+'-'+slotIdx;
     var inpId    = 'lp-p'+n+'-'+slotIdx;
+    var isDT     = (pName === 'Teamfight & Dmg');
     html += '<div class="pillar-row">';
     html += '<div class="pillar-label-row">';
     html += '<span class="pillar-label">'+pName+'</span>';
@@ -2201,6 +2200,9 @@ function renderPillarSliders(role, slotIdx){
     html += '</div>';
     if(!isManual){
       html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;" id="lp-phint'+n+'-'+slotIdx+'">Stat-based — drag to override</div>';
+    }
+    if(isDT){
+      html += '<div id="lp-dt-strip-'+slotIdx+'"></div>';
     }
     html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
     html += '</div>';
@@ -2417,12 +2419,17 @@ function _refreshPillarHints(i){
 // === DMG & TEAMFIGHT SCORING ENGINE ===
 
 var DMG_ANCHORS = {
-  // DMG dealt % — how much of the team's total damage this player dealt
+  // DMG dealt % — player's share of team damage
   dmg: {
     carry:   [[0,12],[1,15],[5,18],[15,22],[30,26],[50,30],[70,34],[85,38],[95,42],[99,46],[100,52]],
     midlane: [[0,10],[1,13],[5,16],[15,20],[30,24],[50,28],[70,32],[85,36],[95,40],[99,44],[100,50]],
   },
-  // Kill participation % — (kills+assists) / team_total_kills × 100
+  // DMG per minute proxy = (dmg_pct / duration_min) × 10
+  dpm: {
+    carry:   [[0,1.2],[1,1.5],[5,1.9],[15,2.4],[30,2.9],[50,3.5],[70,4.1],[85,4.7],[95,5.4],[99,6.2],[100,7.5]],
+    midlane: [[0,1.0],[1,1.3],[5,1.7],[15,2.2],[30,2.7],[50,3.3],[70,3.9],[85,4.5],[95,5.2],[99,6.0],[100,7.2]],
+  },
+  // Kill participation % = (kills + assists) / team_total_kills × 100
   kp: {
     carry:   [[0,20],[1,25],[5,30],[15,36],[30,42],[50,48],[70,55],[85,61],[95,68],[99,75],[100,85]],
     midlane: [[0,22],[1,27],[5,32],[15,38],[30,44],[50,50],[70,57],[85,63],[95,70],[99,77],[100,88]],
@@ -2465,32 +2472,47 @@ function calcDMGScore(playerData) {
   var kills   = parseFloat(playerData.kills)   || 0;
   var assists = parseFloat(playerData.assists) || 0;
   var teamK   = parseFloat(playerData.team_total_kills) || 0;
+  var durSec  = playerData.duration_seconds ? parseFloat(playerData.duration_seconds) : null;
 
   var hasDmg = dmgPct != null && dmgPct > 0;
+  var hasDur = durSec != null && durSec > 0;
   var hasKP  = teamK > 0;
 
-  if (!hasDmg && !hasKP) return null;
+  if (!hasDmg) return null;
 
+  var durationMin   = hasDur ? durSec / 60 : null;
+  var dpmProxy      = (hasDmg && hasDur) ? (dmgPct / durationMin) * 10 : null;
   var kpPct         = hasKP ? (kills + assists) / teamK * 100 : null;
-  var dmgPercentile = hasDmg ? getDMGPercentile(dmgPct, role, 'dmg') : null;
-  var kpPercentile  = kpPct  != null ? getDMGPercentile(kpPct, role, 'kp') : null;
-  var dmgScore      = dmgPercentile != null ? pctToScore(dmgPercentile) : null;
-  var kpScore       = kpPercentile  != null ? pctToScore(kpPercentile)  : null;
+
+  var dmgPercentile = getDMGPercentile(dmgPct, role, 'dmg');
+  var dpmPercentile = dpmProxy != null ? getDMGPercentile(dpmProxy, role, 'dpm') : null;
+  var kpPercentile  = kpPct   != null ? getDMGPercentile(kpPct,    role, 'kp')  : null;
+
+  var dmgScore = pctToScore(dmgPercentile);
+  var dpmScore = dpmPercentile != null ? pctToScore(dpmPercentile) : null;
+  var kpScore  = kpPercentile  != null ? pctToScore(kpPercentile)  : null;
 
   var finalRaw;
-  if (dmgScore !== null && kpScore !== null) {
-    finalRaw = (dmgScore + kpScore) / 2;
+  if (dpmScore !== null && kpScore !== null) {
+    finalRaw = (dmgScore * 0.25) + (dpmScore * 0.25) + (kpScore * 0.50);
+  } else if (dpmScore !== null) {
+    finalRaw = (dmgScore * 0.50) + (dpmScore * 0.50);
+  } else if (kpScore !== null) {
+    finalRaw = (dmgScore * (1/3)) + (kpScore * (2/3));
   } else {
-    finalRaw = dmgScore !== null ? dmgScore : kpScore;
+    finalRaw = dmgScore;
   }
   var finalScore = Math.round(finalRaw * 2) / 2;
 
   return {
     dmgPct:        dmgPct,
+    dpmProxy:      dpmProxy,
     kpPct:         kpPct,
-    dmgPercentile: dmgPercentile != null ? Math.round(dmgPercentile) : null,
+    dmgPercentile: Math.round(dmgPercentile),
+    dpmPercentile: dpmPercentile != null ? Math.round(dpmPercentile) : null,
     kpPercentile:  kpPercentile  != null ? Math.round(kpPercentile)  : null,
     dmgScore:      dmgScore,
+    dpmScore:      dpmScore,
     kpScore:       kpScore,
     finalScore:    finalScore,
   };
@@ -2524,37 +2546,42 @@ function updateDTStrip(slotIdx) {
   var kills   = parseFloat(document.getElementById('lp-kills-' + slotIdx) && document.getElementById('lp-kills-' + slotIdx).value) || 0;
   var assists = parseFloat(document.getElementById('lp-assists-' + slotIdx) && document.getElementById('lp-assists-' + slotIdx).value) || 0;
   var teamK   = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0;
+  var durSec  = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
 
-  var pData = { role: role, dmgDealtPct: dmgPct || null, kills: kills, assists: assists, team_total_kills: teamK };
+  var pData = { role: role, dmgDealtPct: dmgPct || null, kills: kills, assists: assists, team_total_kills: teamK, duration_seconds: durSec };
   var r = calcDMGScore(pData);
 
-  function _na() { return '<span style="color:#555;">—</span>'; }
-  function _row(label, val, pctStr, score) {
-    var scStr   = score != null ? '→ ' + score + '/10' : null;
-    var scColor = score != null ? _dtScoreColor(score) : '#555';
-    return '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;font-size:9px;">' +
-      '<span style="color:#888;width:74px;flex-shrink:0;">' + label + '</span>' +
-      '<span style="color:#f4f4f0;flex:1;">' + (val != null ? val : _na()) + '</span>' +
-      '<span style="color:#888;margin-right:8px;">' + (pctStr != null ? pctStr : _na()) + '</span>' +
-      '<span style="font-weight:600;color:' + scColor + ';">' + (scStr != null ? scStr : _na()) + '</span>' +
+  function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null) return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+  function _sc(s) { return s != null ? s.toFixed(0) : null; }
+  function _row(label, val, ordinal, score, weight) {
+    var scColor = score != null ? _dtScoreColor(score) : 'var(--grey-4)';
+    return '<div style="display:grid;grid-template-columns:42px 44px 14px 46px 14px 22px 30px;align-items:center;gap:2px;margin-bottom:3px;">' +
+      '<span style="color:var(--grey-5);">'  + label                                                             + '</span>' +
+      '<span style="color:var(--white);">'   + (val     != null ? val     : _na())                              + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="color:var(--grey-5);">'  + (ordinal != null ? ordinal : _na())                              + '</span>' +
+      '<span style="color:var(--grey-4);">→</span>' +
+      '<span style="font-weight:600;color:' + scColor + ';">' + (score != null ? _sc(score) : _na())            + '</span>' +
+      '<span style="color:var(--grey-4);">'  + weight                                                            + '</span>' +
     '</div>';
   }
 
-  var dmgVal  = (r && r.dmgPct  != null) ? r.dmgPct.toFixed(1) + '%'  : null;
-  var kpVal   = (r && r.kpPct   != null) ? r.kpPct.toFixed(1)  + '%'  : null;
-  var dmgPctS = (r && r.dmgPercentile != null) ? r.dmgPercentile + 'th pct' : null;
-  var kpPctS  = (r && r.kpPercentile  != null) ? r.kpPercentile  + 'th pct' : null;
-  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1) : null;
-  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : '#888';
+  var dmgVal  = (r && r.dmgPct   != null) ? r.dmgPct.toFixed(1)   + '%' : null;
+  var dpmVal  = (r && r.dpmProxy != null) ? r.dpmProxy.toFixed(1)       : null;
+  var kpVal   = (r && r.kpPct    != null) ? r.kpPct.toFixed(1)    + '%' : null;
+  var final   = (r && r.finalScore != null) ? r.finalScore.toFixed(1)   : null;
+  var finalColor = (r && r.finalScore != null) ? _dtScoreColor(r.finalScore) : 'var(--grey-4)';
 
   el.innerHTML =
-    '<div style="background:#1e1e1e;border:1px solid #2a2a2a;border-radius:3px;padding:9px 12px;margin-bottom:10px;font-family:\'DM Mono\',monospace;">' +
-      '<div style="font-size:9px;letter-spacing:2px;color:#888;margin-bottom:7px;">[ DMG &amp; TEAMFIGHT ]</div>' +
-      _row('DMG dealt %', dmgVal, dmgPctS, r ? r.dmgScore : null) +
-      _row('Kill part.',  kpVal,  kpPctS,  r ? r.kpScore  : null) +
-      '<div style="border-top:1px solid #2a2a2a;padding-top:5px;text-align:right;font-size:9px;">' +
-        '<span style="color:#888;">D&amp;T score: </span>' +
-        '<span style="font-weight:600;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '<span style="color:#555;">—</span>') + '</span>' +
+    '<div class="dt-strip">' +
+      _row('DMG%', dmgVal, _ord(r && r.dmgPercentile), r && r.dmgScore, '×0.25') +
+      _row('DPM',  dpmVal, _ord(r && r.dpmPercentile), r && r.dpmScore, '×0.25') +
+      _row('KP%',  kpVal,  _ord(r && r.kpPercentile),  r && r.kpScore,  '×0.50') +
+      '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:4px;margin-top:3px;">' +
+        '<span style="color:var(--grey-5);">D&amp;T  </span>' +
+        '<span style="font-weight:700;font-size:11px;color:' + finalColor + ';">' + (final != null ? final : '—') + '</span>' +
+        '<span style="color:var(--grey-5);"> / 10</span>' +
       '</div>' +
     '</div>';
 }
@@ -2616,13 +2643,15 @@ function autoScorePlayer(slotIdx) {
   var dtIdx = _dtPillarIndex(role);
   var dtResult = null;
   if (dtIdx >= 0) {
-    var teamK = (LS.matchInfo && LS.matchInfo.team_total_kills) ? parseFloat(LS.matchInfo.team_total_kills) : 0;
+    var teamK  = (LS.matchInfo && LS.matchInfo.team_total_kills)  ? parseFloat(LS.matchInfo.team_total_kills)  : 0;
+    var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
     dtResult = calcDMGScore({
       role:             role,
       dmgDealtPct:      rawStats.dmgDealtPct,
       kills:            rawStats.kills,
       assists:          rawStats.assists,
-      team_total_kills: teamK
+      team_total_kills: teamK,
+      duration_seconds: durSec,
     });
   }
 
@@ -2795,7 +2824,7 @@ async function saveGame(){
         pillar_2_auto:         null,
         pillar_3_auto:         (function(){
           if (role !== 'carry' && role !== 'midlane') return null;
-          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills });
+          var _r = calcDMGScore({ role: role, dmgDealtPct: dmgDealtPct, kills: kills, assists: assists, team_total_kills: LS.matchInfo.team_total_kills, duration_seconds: LS.matchInfo.duration_seconds });
           return _r ? _r.finalScore : null;
         })(),
         pillar_4_auto:         null,
