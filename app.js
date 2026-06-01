@@ -447,7 +447,7 @@ function buildHeroStats(cutoff){
       var hobj=allH.find(function(h){return h.name===hname;})||{name:hname,cls:'Custom',roles:[]};
       if(!heroMap[hname]){
         heroMap[hname]={name:hname,cls:hobj.cls,roles:hobj.roles,picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
-          rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],byRole:{}};
+          rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],rawKP:[],facedAgainst:{},byRole:{}};
       }
       var entry=heroMap[hname];
       entry.picks++;
@@ -464,7 +464,7 @@ function buildHeroStats(cutoff){
       var _rawRole=(s.role||p.role||'').trim();
       var playedRole=GAME_ROLES.find(function(r){return r.toLowerCase()===_rawRole.toLowerCase();})||(_rawRole||null);
       if(playedRole){
-        if(!entry.byRole[playedRole]) entry.byRole[playedRole]={picks:0,wins:0,losses:0,scores:[],rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
+        if(!entry.byRole[playedRole]) entry.byRole[playedRole]={picks:0,wins:0,losses:0,scores:[],rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],rawKP:[]};
         var re=entry.byRole[playedRole];
         re.picks++;if(isWin)re.wins++;else re.losses++;
         if(score>0)re.scores.push(score);
@@ -475,6 +475,14 @@ function buildHeroStats(cutoff){
         if(s.in_game_rating!=null)re.rawRating.push(+s.in_game_rating);
         if(s.dmg_dealt_pct!=null)re.rawDmgDealt.push(+s.dmg_dealt_pct);
         if(s.dmg_taken_pct!=null)re.rawDmgTaken.push(+s.dmg_taken_pct);
+      }
+      if(s.kills!=null&&s.assists!=null){
+        var tk=g.team_total_kills;
+        if(tk&&tk>0){
+          var kpVal=((+s.kills+ +s.assists)/tk)*100;
+          entry.rawKP.push(kpVal);
+          if(playedRole&&entry.byRole[playedRole]){entry.byRole[playedRole].rawKP=entry.byRole[playedRole].rawKP||[];entry.byRole[playedRole].rawKP.push(kpVal);}
+        }
       }
       if(!entry.players[p.id]){
         entry.players[p.id]={nick:p.nick,role:p.role,picks:0,wins:0,losses:0,scores:[]};
@@ -489,13 +497,22 @@ function buildHeroStats(cutoff){
         entry.pairsWith[th.hero].picks++;
         if(isWin) entry.pairsWith[th.hero].wins++;
       });
+      if(g.enemyPicks){
+        g.enemyPicks.forEach(function(ep){
+          if(!ep||!ep.hero) return;
+          var en=ep.hero;
+          if(!entry.facedAgainst[en]) entry.facedAgainst[en]={hero:en,picks:0,wins:0};
+          entry.facedAgainst[en].picks++;
+          if(isWin) entry.facedAgainst[en].wins++;
+        });
+      }
     });
   });
   // Include all DB heroes so the full roster is visible even before any games are logged
   getLiveHeroes().concat(_cache.customHeroes||[]).forEach(function(hobj){
     if(!heroMap[hobj.name]){
       heroMap[hobj.name]={name:hobj.name,cls:hobj.cls||'Unknown',roles:hobj.roles||[],picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
-        rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],byRole:{}};
+        rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],rawKP:[],facedAgainst:{},byRole:{}};
     }
   });
   var result=Object.values(heroMap);
@@ -512,18 +529,18 @@ function renderHeroes(){
   var q=(document.getElementById('hero-search-inp')?.value||'').trim().toLowerCase();
   // Role tabs
   var roles=['All'].concat(GAME_ROLES);
-  document.getElementById('heroes-role-tabs').innerHTML=roles.map(function(r){
-    return '<button class="hero-role-tab '+(role===r?'active':'')+'" onclick="setHeroRole(\''+r+'\')">'+r+'</button>';
-  }).join('');
+  document.getElementById('heroes-role-tabs').innerHTML='<div style="display:flex;flex-wrap:wrap;gap:4px;">'+roles.map(function(r){
+    return '<button class="tier-mode-btn '+(role===r?'active':'')+'" onclick="setHeroRole(\''+r+'\')">'+r+'</button>';
+  }).join('')+'</div>';
   // Sort bar
   var sorts=[{k:'picks',l:'Pick Rate'},{k:'wr',l:'Win Rate'},{k:'score',l:'Avg Score'},{k:'name',l:'Name'}];
   document.getElementById('heroes-sort-bar').innerHTML=sorts.map(function(s){
-    return '<button class="hero-sort-btn '+(sort===s.k?'active':'')+'" onclick="setHeroSort(\''+s.k+'\')">'+s.l+'</button>';
+    return '<button class="tier-mode-btn '+(sort===s.k?'active':'')+'" onclick="setHeroSort(\''+s.k+'\')">'+s.l+'</button>';
   }).join('');
   // Date window bar
   var win=_heroState.window||'All';
   document.getElementById('heroes-window-bar').innerHTML=HERO_WINDOWS.map(function(w){
-    return '<button class="hero-sort-btn '+(win===w.k?'active':'')+'" onclick="setHeroWindow(\''+w.k+'\')">'+w.l+'</button>';
+    return '<button class="tier-mode-btn '+(win===w.k?'active':'')+'" onclick="setHeroWindow(\''+w.k+'\')">'+w.l+'</button>';
   }).join('');
   // Filter — position filter uses actual plays, not registered roles
   var filtered=heroes.filter(function(h){
@@ -599,7 +616,7 @@ function renderHeroes(){
 
 function selectHeroInList(heroName){
   _heroState.selectedHero=heroName;
-  _heroState.heroDetailPos='All';
+  _heroState.heroDetailPos=(_heroState.role!=='All')?_heroState.role:'All';
   document.querySelectorAll('#heroes-list .hp-item').forEach(function(el){
     el.classList.toggle('active',el.getAttribute('data-hero')===heroName);
   });
@@ -671,6 +688,7 @@ function _renderHeroesDetailPanel(){
   function _avg(arr){return arr.length?arr.reduce(function(a,b){return a+b;},0)/arr.length:null;}
   var avgK=_avg(D.rawKills),avgD2=_avg(D.rawDeaths),avgA=_avg(D.rawAssists);
   var avgGpm=_avg(D.rawGpm),avgRating=_avg(D.rawRating),avgDmgDealt=_avg(D.rawDmgDealt),avgDmgTaken=_avg(D.rawDmgTaken);
+  var avgKP=_avg(D.rawKP||[]);
   // Top layout: portrait left, radar right
   var topHtml='<div class="hd-top-layout">'+
     '<div class="hd-top-left">'+
@@ -750,6 +768,19 @@ function _renderHeroesDetailPanel(){
   }).join('')+
   '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);padding:5px 14px 8px;">Win rate when picked together (min 2 games)</div>'
   :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px;">Need 2+ games together to show synergy</div>';
+  var enemies=Object.values(h.facedAgainst||{}).filter(function(e){return e.picks>=2;}).sort(function(a,b){return b.picks-a.picks;}).slice(0,5);
+  var enemiesHtml=enemies.length?enemies.map(function(e){
+    var ewr=e.picks?Math.round(e.wins/e.picks*100):0;
+    var ec=ewr>=60?'var(--success)':ewr>=50?'var(--white)':'var(--danger)';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:var(--border);">'+
+      heroPortraitHtml(e.hero,28,false)+
+      '<div style="flex:1;font-size:11px;font-weight:600;">'+e.hero+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+e.picks+'G</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:'+ec+';">'+ewr+'%</div>'+
+    '</div>';
+  }).join('')+
+  '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);padding:5px 14px 8px;">Win rate against each enemy (min 2 games)</div>'
+  :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px;">Need 2+ games vs same hero to show</div>';
   // All-time stats grid
   function sCell(val,lbl){return '<div class="hd-alltime-cell"><div class="hd-alltime-val">'+(val!=null?val:'—')+'</div><div class="hd-alltime-lbl">'+lbl+'</div></div>';}
   var kdaVal=avgK!=null&&avgD2!=null&&avgA!=null?((avgK+avgA)/Math.max(avgD2,1)).toFixed(2):null;
@@ -757,6 +788,7 @@ function _renderHeroesDetailPanel(){
     '<div class="hd-alltime-header"><span class="hd-alltime-title">STATISTICS</span><span class="hd-alltime-sub">· '+D.picks+' GAMES · '+(detailPos==='All'?'ALL POSITIONS':detailPos)+'</span></div>'+
     '<div class="hd-alltime-grid">'+
       sCell(kdaVal!=null?kdaVal+' ('+avgK.toFixed(1)+'/'+avgD2.toFixed(1)+'/'+avgA.toFixed(1)+')':null,'KDA')+
+      sCell(avgKP!=null?avgKP.toFixed(1)+'%':null,'KILL PART. %')+
       sCell(avgGpm!=null?Math.round(avgGpm):null,'GOLD / MIN')+
       sCell(avgRating!=null?avgRating.toFixed(1):null,'IN-GAME RTG')+
       sCell(avgDmgDealt!=null?avgDmgDealt.toFixed(1)+'%':null,'DMG DEALT %')+
@@ -773,7 +805,9 @@ function _renderHeroesDetailPanel(){
       '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">BY PLAYER</div>'+
       (playerRows||'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px;">No player breakdown</div>')+
       '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">PAIRS WELL WITH</div>'+
-      pairsHtml
+      pairsHtml+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">PLAYED AGAINST OFTEN</div>'+
+      enemiesHtml
     :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding:10px 14px;">No games logged</div>')+
     allTimeHtml;
   // Draw radar after DOM update
@@ -782,7 +816,7 @@ function _renderHeroesDetailPanel(){
       var radarRole=detailPos!=='All'?detailPos.toLowerCase():'';
       var caps=_heroRadarCaps(radarRole);
       var teamAvg=_heroRadarTeamAvg(radarRole);
-      var playerVals={kda:avgK!=null&&avgD2!=null&&avgA!=null?(avgK+avgA)/Math.max(avgD2,1):null,kp:null,gpm:avgGpm,dd:avgDmgDealt,dt:avgDmgTaken,igr:avgRating};
+      var playerVals={kda:avgK!=null&&avgD2!=null&&avgA!=null?(avgK+avgA)/Math.max(avgD2,1):null,kp:avgKP,gpm:avgGpm,dd:avgDmgDealt,dt:avgDmgTaken,igr:avgRating};
       drawHeroRadar('h-global',playerVals,teamAvg,caps);
       if(typeof _setupHeroRadarEvents==='function') _setupHeroRadarEvents('h-global');
     },50);
@@ -843,6 +877,7 @@ function _renderHeroDetailModal(heroName){
   var kdaVal=avgK!=null&&avgD!=null&&avgA!=null?((avgK+avgA)/(avgD||1)).toFixed(2):null;
   var kdaLine=kdaVal?kdaVal+' ('+avgK.toFixed(1)+' / '+avgD.toFixed(1)+' / '+avgA.toFixed(1)+')':null;
   var avgGpm=_avg(D.rawGpm),avgRating=_avg(D.rawRating),avgDmgDealt=_avg(D.rawDmgDealt),avgDmgTaken=_avg(D.rawDmgTaken);
+  var avgKP=_avg(D.rawKP||[]);
   var wr=D.picks?Math.round(D.wins/D.picks*100):null;
   var pr=totalGames&&modalPos==='All'?Math.round(h.picks/totalGames*100):null;
   var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
@@ -872,6 +907,18 @@ function _renderHeroDetailModal(heroName){
   }).join('')+
   '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding-top:6px;">Win rate when picked together (min 2 games)</div>'
   :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games together to show synergy</div>';
+  var enemies=Object.values(h.facedAgainst||{}).filter(function(e){return e.picks>=2;}).sort(function(a,b){return b.picks-a.picks;}).slice(0,5);
+  var enemiesHtml=enemies.length?enemies.map(function(e){
+    var ewr=e.picks?Math.round(e.wins/e.picks*100):0;
+    var ec=ewr>=60?'var(--success)':ewr>=50?'var(--warn)':'var(--danger)';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:var(--border);">'+
+      '<div style="flex:1;font-size:12px;font-weight:600;">'+e.hero+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+e.picks+'G</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:12px;color:'+ec+';">'+ewr+'%</div>'+
+    '</div>';
+  }).join('')+
+  '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding-top:6px;">Win rate against each enemy (min 2 games)</div>'
+  :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games vs same hero to show</div>';
   function rawStatRow(label,val,suffix,decimals){
     var disp=val!=null?val.toFixed(decimals||0)+(suffix||''):'—';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:var(--border);font-family:\'DM Mono\',monospace;">'+
@@ -881,6 +928,7 @@ function _renderHeroDetailModal(heroName){
   }
   var rawStatsHtml=D.picks>0?
     rawStatRow('KDA',null,null,2).replace('—',kdaLine||'—')+
+    rawStatRow('Kill Part. %',avgKP,'%',1)+
     rawStatRow('Avg Gold / Min',avgGpm,'',0)+
     rawStatRow('Avg In-Game Rating',avgRating,'',1)+
     rawStatRow('Avg DMG Dealt %',avgDmgDealt,'%',1)+
@@ -906,11 +954,12 @@ function _renderHeroDetailModal(heroName){
     (D.picks?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin-bottom:8px;">BY PLAYER</div>'+
     (playerRows||'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No player breakdown</div>')+
     '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin:16px 0 8px;">🤝 PAIRS WELL WITH</div>'+
-    pairsHtml:'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);padding:8px 0 16px;">No games logged with this hero in the selected window</div>')+
+    pairsHtml+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin:16px 0 8px;">⚔ PLAYED AGAINST OFTEN</div>'+
+    enemiesHtml
+    :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);padding:8px 0 16px;">No games logged with this hero in the selected window</div>')+
     '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin:16px 0 8px;">📊 RAW STATS</div>'+
-    rawStatsHtml+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin:16px 0 8px;">⚔ COUNTERS / COUNTER-PICKS</div>'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);line-height:1.6;">Counter data requires opponent draft logging — coming when draft input is added to the game log.</div>';
+    rawStatsHtml;
   document.getElementById('hero-detail-modal').classList.add('open');
 }
 
