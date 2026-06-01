@@ -424,22 +424,28 @@
         <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
         <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
       </div>
+      <!-- Heroes controls (shown only when heroes tab is active) -->
+      <div id="dc-heroes-controls" style="display:none;margin-top:8px;">
+        <div id="heroes-role-tabs" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;overflow-x:auto;"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px;">
+          <div id="heroes-sort-bar" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          <div style="flex:1;min-width:8px;"></div>
+          <div id="heroes-window-bar" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- HEROES sub-section -->
     <div id="dc-section-heroes" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
       <div class="heroes-split">
-        <!-- Pool panel: controls + list (first in DOM = top on mobile) -->
+        <!-- Pool panel: search + list only -->
         <div class="heroes-pool-side" id="heroes-pool-panel">
-          <div class="hero-search-bar" style="flex-shrink:0;">
+          <div style="padding:10px 14px;border-bottom:var(--border);flex-shrink:0;">
             <input class="input" id="hero-search-inp" placeholder="Search hero..." oninput="renderHeroes()" style="margin:0;"/>
           </div>
-          <div class="hero-role-tabs" id="heroes-role-tabs" style="flex-shrink:0;"></div>
-          <div class="hero-sort-bar" id="heroes-sort-bar" style="flex-shrink:0;"></div>
-          <div class="hero-sort-bar" id="heroes-window-bar" style="flex-shrink:0;"></div>
           <div class="hp-list" id="heroes-list" style="overflow-y:auto;flex:1;"></div>
         </div>
-        <!-- Detail panel: selected hero info (second in DOM = bottom on mobile, left on desktop) -->
+        <!-- Detail panel -->
         <div class="heroes-detail-side" id="heroes-detail-panel" style="overflow-y:auto;"></div>
       </div>
     </div>
@@ -1089,6 +1095,8 @@ function dcSetTab(tab) {
     if (btn) btn.classList.toggle('active', t === tab);
     if (sec) sec.style.display = (t === tab) ? 'flex' : 'none';
   });
+  var hc = document.getElementById('dc-heroes-controls');
+  if (hc) hc.style.display = (tab === 'heroes') ? 'block' : 'none';
   dcRenderActiveTab(tab);
 }
 
