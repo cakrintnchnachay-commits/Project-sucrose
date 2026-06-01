@@ -992,6 +992,16 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 @media(min-width:900px){.prof-hero-pool{width:260px;position:sticky;top:0;max-height:calc(100vh - 160px);overflow-y:auto;}}
 @media(min-width:1100px){.prof-hero-pool{width:300px;}}
 
+/* ── Heroes page split layout ── */
+.heroes-split{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.heroes-pool-side{display:flex;flex-direction:column;flex-shrink:0;height:280px;border-bottom:var(--border);overflow:hidden;}
+.heroes-detail-side{flex:1;min-height:0;overflow-y:auto;border-top:none;}
+@media(min-width:900px){
+  .heroes-split{flex-direction:row;}
+  .heroes-pool-side{width:280px;height:100%;flex-shrink:0;border-bottom:none;border-right:var(--border);}
+  .heroes-detail-side{flex:1;min-width:0;height:100%;border-top:none;}
+}
+
 /* ── Hero detail: two-column top layout ── */
 .hd-top-layout{display:flex;flex-direction:row;align-items:stretch;border-bottom:var(--border);background:var(--grey-1);min-height:240px;}
 .hd-top-left{width:190px;flex-shrink:0;padding:20px 16px;border-right:var(--border);display:flex;flex-direction:column;gap:0;}
