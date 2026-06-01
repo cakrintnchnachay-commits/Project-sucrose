@@ -461,7 +461,8 @@ function buildHeroStats(cutoff){
       if(s.in_game_rating!=null) entry.rawRating.push(+s.in_game_rating);
       if(s.dmg_dealt_pct!=null) entry.rawDmgDealt.push(+s.dmg_dealt_pct);
       if(s.dmg_taken_pct!=null) entry.rawDmgTaken.push(+s.dmg_taken_pct);
-      var playedRole=s.role||p.role;
+      var _rawRole=(s.role||p.role||'').trim();
+      var playedRole=GAME_ROLES.find(function(r){return r.toLowerCase()===_rawRole.toLowerCase();})||(_rawRole||null);
       if(playedRole){
         if(!entry.byRole[playedRole]) entry.byRole[playedRole]={picks:0,wins:0,losses:0,scores:[],rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
         var re=entry.byRole[playedRole];
