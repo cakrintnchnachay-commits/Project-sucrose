@@ -427,14 +427,21 @@
     </div>
 
     <!-- HEROES sub-section -->
-    <div id="dc-section-heroes" style="display:none;flex-direction:column;flex:1;overflow-y:auto;">
-      <div class="hero-search-bar">
-        <input class="input" id="hero-search-inp" placeholder="Search hero..." oninput="renderHeroes()" style="margin:0;"/>
+    <div id="dc-section-heroes" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="heroes-split" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+        <!-- Pool panel: controls + list (first in DOM = top on mobile) -->
+        <div class="heroes-pool-side" id="heroes-pool-panel">
+          <div class="hero-search-bar" style="flex-shrink:0;">
+            <input class="input" id="hero-search-inp" placeholder="Search hero..." oninput="renderHeroes()" style="margin:0;"/>
+          </div>
+          <div class="hero-role-tabs" id="heroes-role-tabs" style="flex-shrink:0;"></div>
+          <div class="hero-sort-bar" id="heroes-sort-bar" style="flex-shrink:0;"></div>
+          <div class="hero-sort-bar" id="heroes-window-bar" style="flex-shrink:0;"></div>
+          <div class="hp-list" id="heroes-list" style="overflow-y:auto;flex:1;"></div>
+        </div>
+        <!-- Detail panel: selected hero info (second in DOM = bottom on mobile, left on desktop) -->
+        <div class="heroes-detail-side" id="heroes-detail-panel" style="overflow-y:auto;"></div>
       </div>
-      <div class="hero-role-tabs" id="heroes-role-tabs"></div>
-      <div class="hero-sort-bar" id="heroes-sort-bar"></div>
-      <div class="hero-sort-bar" id="heroes-window-bar"></div>
-      <div id="heroes-list"></div>
     </div>
 
     <!-- TIERS sub-section -->

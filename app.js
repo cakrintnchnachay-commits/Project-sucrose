@@ -354,7 +354,8 @@ function selectHero(inputId,dropId,name){var inp=document.getElementById(inputId
 // ══════════════════════════════════════════
 // HEROES TAB — V7
 // ══════════════════════════════════════════
-var _heroState={role:'All',sort:'picks',window:'All'};
+var _heroState={role:'All',sort:'picks',window:'All',selectedHero:null,heroDetailPos:'All'};
+var _heroModalPos='All';
 var HERO_WINDOWS=[
   {k:'1M',l:'1 Month',days:30},
   {k:'2M',l:'2 Months',days:60},
@@ -446,7 +447,7 @@ function buildHeroStats(cutoff){
       var hobj=allH.find(function(h){return h.name===hname;})||{name:hname,cls:'Custom',roles:[]};
       if(!heroMap[hname]){
         heroMap[hname]={name:hname,cls:hobj.cls,roles:hobj.roles,picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
-          rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
+          rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],byRole:{}};
       }
       var entry=heroMap[hname];
       entry.picks++;
@@ -460,6 +461,20 @@ function buildHeroStats(cutoff){
       if(s.in_game_rating!=null) entry.rawRating.push(+s.in_game_rating);
       if(s.dmg_dealt_pct!=null) entry.rawDmgDealt.push(+s.dmg_dealt_pct);
       if(s.dmg_taken_pct!=null) entry.rawDmgTaken.push(+s.dmg_taken_pct);
+      var playedRole=s.role||p.role;
+      if(playedRole){
+        if(!entry.byRole[playedRole]) entry.byRole[playedRole]={picks:0,wins:0,losses:0,scores:[],rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
+        var re=entry.byRole[playedRole];
+        re.picks++;if(isWin)re.wins++;else re.losses++;
+        if(score>0)re.scores.push(score);
+        if(s.kills!=null)re.rawKills.push(+s.kills);
+        if(s.deaths!=null)re.rawDeaths.push(+s.deaths);
+        if(s.assists!=null)re.rawAssists.push(+s.assists);
+        if(s.gold_per_min!=null)re.rawGpm.push(+s.gold_per_min);
+        if(s.in_game_rating!=null)re.rawRating.push(+s.in_game_rating);
+        if(s.dmg_dealt_pct!=null)re.rawDmgDealt.push(+s.dmg_dealt_pct);
+        if(s.dmg_taken_pct!=null)re.rawDmgTaken.push(+s.dmg_taken_pct);
+      }
       if(!entry.players[p.id]){
         entry.players[p.id]={nick:p.nick,role:p.role,picks:0,wins:0,losses:0,scores:[]};
       }
@@ -479,7 +494,7 @@ function buildHeroStats(cutoff){
   getLiveHeroes().concat(_cache.customHeroes||[]).forEach(function(hobj){
     if(!heroMap[hobj.name]){
       heroMap[hobj.name]={name:hobj.name,cls:hobj.cls||'Unknown',roles:hobj.roles||[],picks:0,wins:0,losses:0,scores:[],players:{},pairsWith:{},
-        rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[]};
+        rawKills:[],rawDeaths:[],rawAssists:[],rawGpm:[],rawRating:[],rawDmgDealt:[],rawDmgTaken:[],byRole:{}};
     }
   });
   var result=Object.values(heroMap);
@@ -509,77 +524,330 @@ function renderHeroes(){
   document.getElementById('heroes-window-bar').innerHTML=HERO_WINDOWS.map(function(w){
     return '<button class="hero-sort-btn '+(win===w.k?'active':'')+'" onclick="setHeroWindow(\''+w.k+'\')">'+w.l+'</button>';
   }).join('');
-  // Filter
+  // Filter — position filter uses actual plays, not registered roles
   var filtered=heroes.filter(function(h){
     if(q&&!h.name.toLowerCase().includes(q)) return false;
-    if(role!=='All'&&!h.roles.includes(role)) return false;
+    if(role!=='All'){
+      var playedInRole=h.byRole&&h.byRole[role]&&h.byRole[role].picks>0;
+      if(!playedInRole) return false;
+    }
     return true;
   });
-  // Sort — heroes with picks always come before 0-pick ones within same sort
+  // Sort — use position-specific stats when filtered by role
   filtered.sort(function(a,b){
+    var ad=(role!=='All'&&a.byRole&&a.byRole[role])?a.byRole[role]:a;
+    var bd=(role!=='All'&&b.byRole&&b.byRole[role])?b.byRole[role]:b;
     if(sort==='name') return a.name.localeCompare(b.name);
     if(sort==='wr'){
-      if(!a.picks&&!b.picks) return a.name.localeCompare(b.name);
-      if(!a.picks) return 1; if(!b.picks) return -1;
-      var wa=a.wins/a.picks,wb=b.wins/b.picks;
-      return wb-wa||b.picks-a.picks;
+      if(!ad.picks&&!bd.picks) return a.name.localeCompare(b.name);
+      if(!ad.picks) return 1; if(!bd.picks) return -1;
+      var wa=ad.wins/ad.picks,wb=bd.wins/bd.picks;
+      return wb-wa||bd.picks-ad.picks;
     }
     if(sort==='score'){
-      var sa=a.scores.length?a.scores.reduce(function(x,y){return x+y;},0)/a.scores.length:0;
-      var sb=b.scores.length?b.scores.reduce(function(x,y){return x+y;},0)/b.scores.length:0;
+      var sa=ad.scores.length?ad.scores.reduce(function(x,y){return x+y;},0)/ad.scores.length:0;
+      var sb=bd.scores.length?bd.scores.reduce(function(x,y){return x+y;},0)/bd.scores.length:0;
       if(!sa&&!sb) return a.name.localeCompare(b.name);
       return sb-sa;
     }
-    // picks (default)
-    if(b.picks!==a.picks) return b.picks-a.picks;
+    if(bd.picks!==ad.picks) return bd.picks-ad.picks;
     return a.name.localeCompare(b.name);
   });
+  // Auto-select first hero if none selected or selected hero not in filtered list
+  if(filtered.length){
+    var selName=_heroState.selectedHero;
+    if(!selName||!filtered.find(function(h){return h.name===selName;})){
+      _heroState.selectedHero=filtered[0].name;
+    }
+  }
   if(!filtered.length){
     document.getElementById('heroes-list').innerHTML='<div class="empty"><div class="empty-icon">⭐</div><div class="empty-text">No heroes match</div></div>';
+    document.getElementById('heroes-detail-panel').innerHTML='';
     return;
   }
+  var selName=_heroState.selectedHero;
   document.getElementById('heroes-list').innerHTML=filtered.map(function(h){
-    var wr=h.picks?Math.round(h.wins/h.picks*100):null;
-    var pr=totalGames?Math.round(h.picks/totalGames*100):null;
-    var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+    var displayData=(role!=='All'&&h.byRole&&h.byRole[role])?h.byRole[role]:h;
+    var wr=displayData.picks?Math.round(displayData.wins/displayData.picks*100):null;
+    var avgScore=displayData.scores.length?displayData.scores.reduce(function(a,b){return a+b;},0)/displayData.scores.length:0;
     var grade=avgScore>0?scoreToGrade(avgScore):null;
-    var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
-    var lowConf=h.picks>0&&h.picks<3?'<span class="low-conf">·</span>':'';
-    return '<div class="hero-row" onclick="openHeroDetail(decodeURIComponent(\''+_encHero(h.name)+'\'))">'+
-      heroPortraitHtml(h.name,44,false)+
-      '<div style="flex:1;min-width:0;margin-left:10px;">'+
-        '<div class="hero-row-name">'+h.name+lowConf+'</div>'+
-        '<div class="hero-row-cls">'+h.cls+(h.roles.length?' · '+h.roles.join(', '):'')+'</div>'+
+    var wrColor=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--white)':wr>0?'var(--danger)':'var(--grey-5)'):'var(--grey-5)';
+    var isSelected=h.name===selName;
+    // Positions played (shown in "All" view)
+    var playedPositions=h.byRole?Object.keys(h.byRole).filter(function(r){return h.byRole[r].picks>0;}).join(' · '):'';
+    var metaStr=displayData.picks?(displayData.picks+'G'):(role!=='All'?'No games':'');
+    if(role==='All'&&playedPositions) metaStr+=(metaStr?' · ':'')+playedPositions;
+    return '<div class="hp-item'+(isSelected?' active':'')+'" data-hero="'+h.name+'" onclick="selectHeroInList(this.getAttribute(\'data-hero\'))">'+
+      '<div class="hp-item-img">'+heroPortraitHtml(h.name,44,false)+'</div>'+
+      '<div class="hp-item-body">'+
+        '<div class="hp-item-name">'+h.name.toUpperCase()+'</div>'+
+        '<div class="hp-item-meta">'+(metaStr||'No games')+'</div>'+
       '</div>'+
-      '<div class="hero-stat-col" style="margin-right:8px;">'+
-        '<div class="hero-stat-val">'+(pr!=null?pr+'%':'0%')+'</div>'+
-        '<div class="hero-stat-label">'+h.picks+'G picked</div>'+
+      '<div class="hp-item-wr-col">'+
+        '<div class="hp-item-wr" style="color:'+wrColor+';">'+(wr!=null?wr+'%':'--')+'</div>'+
+        '<div class="hp-item-wr-lbl">WR</div>'+
       '</div>'+
-      '<div class="hero-stat-col" style="margin-right:8px;">'+
-        (h.picks?'<div class="hero-stat-val" style="color:'+wrCol+';">'+(wr!=null?wr+'%':'--')+'</div>'+
-        '<div class="hero-wr-bar"><div class="hero-wr-fill" style="width:'+(wr||0)+'%;background:'+wrCol+';"></div></div>':
-        '<div class="hero-stat-val" style="color:var(--grey-4);">--</div><div class="hero-wr-bar"></div>')+
+      '<div class="hp-item-rtg">'+
+        '<div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:16px;line-height:1;">'+(grade?grade.grade:'--')+'</div>'+
+        '<div class="hp-item-rtg-lbl">RTG</div>'+
       '</div>'+
-      '<div class="hero-stat-col">'+
-        '<div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:18px;">'+(grade?grade.grade:'--')+'</div>'+
-      '</div>'+
-      '<div style="color:var(--grey-4);font-size:16px;margin-left:6px;">›</div>'+
     '</div>';
   }).join('');
+  _renderHeroesDetailPanel();
+}
+
+function selectHeroInList(heroName){
+  _heroState.selectedHero=heroName;
+  _heroState.heroDetailPos='All';
+  document.querySelectorAll('#heroes-list .hp-item').forEach(function(el){
+    el.classList.toggle('active',el.getAttribute('data-hero')===heroName);
+  });
+  _renderHeroesDetailPanel();
+}
+
+function setHeroDetailPos(pos){
+  _heroState.heroDetailPos=pos;
+  _renderHeroesDetailPanel();
+}
+
+function _renderHeroesDetailPanel(){
+  var box=document.getElementById('heroes-detail-panel');
+  if(!box) return;
+  var heroName=_heroState.selectedHero;
+  if(!heroName){
+    box.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;gap:10px;">'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;">SELECT A HERO FROM THE LIST</div>'+
+    '</div>';
+    return;
+  }
+  var cutoff=getHeroCutoff();
+  var heroes=buildHeroStats(cutoff);
+  var totalGames=heroes.totalGames||0;
+  var h=heroes.find(function(x){return x.name===heroName;});
+  if(!h){
+    box.innerHTML='<div style="padding:20px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Hero not found</div>';
+    return;
+  }
+  var detailPos=_heroState.heroDetailPos||'All';
+  var playedPositions=Object.keys(h.byRole||{}).filter(function(r){return h.byRole[r].picks>0;});
+  // Active data: position-specific or overall
+  var D=(detailPos!=='All'&&h.byRole&&h.byRole[detailPos])?h.byRole[detailPos]:h;
+  // Position mode tabs
+  var posModesHtml='';
+  if(playedPositions.length>0){
+    var modesArr=['All'].concat(playedPositions);
+    posModesHtml='<div class="hero-role-tabs">'+
+      modesArr.map(function(pos){
+        var cnt=pos==='All'?h.picks:(h.byRole[pos]||{picks:0}).picks;
+        return '<button class="hero-role-tab '+(detailPos===pos?'active':'')+'" onclick="setHeroDetailPos(\''+pos+'\')">'+
+          pos+' <span style="font-family:\'DM Mono\',monospace;font-size:6px;opacity:0.55;">('+cnt+'G)</span>'+
+        '</button>';
+      }).join('')+
+    '</div>';
+  }
+  // Position breakdown chips (visible in All mode)
+  var posChipsHtml='';
+  if(playedPositions.length>1&&detailPos==='All'){
+    posChipsHtml='<div style="display:flex;flex-wrap:wrap;gap:5px;padding:10px 14px;border-bottom:var(--border);">'+
+      playedPositions.map(function(pos){
+        var re=h.byRole[pos];
+        var wr=re.picks?Math.round(re.wins/re.picks*100):0;
+        var wrCol=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
+        return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--grey-1);border:var(--border);border-radius:3px;">'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1px;color:var(--grey-5);">'+pos.toUpperCase()+'</span>'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:9px;font-weight:600;">'+re.picks+'G</span>'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:'+wrCol+';">'+wr+'%</span>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+  // Hero meta
+  var hdb=getLiveHeroes().find(function(x){return x.name===heroName;});
+  var heroMetaStr=hdb?(hdb.cls+(hdb.roles&&hdb.roles.length?' · '+hdb.roles.join(', '):'')):h.cls;
+  var init=(heroName||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+  var heroUrl=heroImgUrl(heroName);
+  // Radar data
+  function _avg(arr){return arr.length?arr.reduce(function(a,b){return a+b;},0)/arr.length:null;}
+  var avgK=_avg(D.rawKills),avgD2=_avg(D.rawDeaths),avgA=_avg(D.rawAssists);
+  var avgGpm=_avg(D.rawGpm),avgRating=_avg(D.rawRating),avgDmgDealt=_avg(D.rawDmgDealt),avgDmgTaken=_avg(D.rawDmgTaken);
+  // Top layout: portrait left, radar right
+  var topHtml='<div class="hd-top-layout">'+
+    '<div class="hd-top-left">'+
+      '<div class="hd-square-portrait">'+
+        '<div class="hd-square-portrait-fallback">'+init+'</div>'+
+        (heroUrl?'<img class="hd-square-portrait-img" src="'+heroUrl+'" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>':'')+
+      '</div>'+
+      '<div class="hd-top-hero-name">'+heroName.toUpperCase()+'</div>'+
+      (heroMetaStr?'<div class="hd-hdr-meta">'+heroMetaStr+'</div>':'')+
+      '<div class="hd-top-badges">'+
+        '<span class="hd-badge-pool">'+(detailPos==='All'?'ALL POSITIONS':detailPos.toUpperCase())+'</span>'+
+      '</div>'+
+    '</div>'+
+    (D.picks>0?
+      '<div class="hd-top-right">'+
+        '<div class="hd-radar-section-hdr">'+
+          '<span class="hd-radar-section-title">PERFORMANCE</span>'+
+          '<span class="hd-radar-section-sub">· '+(detailPos!=='All'?detailPos:'All Positions').toUpperCase()+'</span>'+
+        '</div>'+
+        '<div class="hd-radar-canvas-wrap">'+
+          '<canvas id="hero-radar-h-global" width="300" height="300" style="width:100%;max-width:300px;display:block;margin:0 auto;"></canvas>'+
+          '<div class="hd-radar-tip" id="hero-radar-tip-h-global">'+
+            '<div class="hd-radar-tip-lbl" id="hero-radar-tip-lbl-h-global"></div>'+
+            '<div class="hd-radar-tip-val" id="hero-radar-tip-val-h-global"></div>'+
+            '<div class="hd-radar-tip-team" id="hero-radar-tip-team-h-global" style="display:none;">'+
+              '<span class="hd-radar-tip-team-lbl">TEAM AVG</span>'+
+              '<span class="hd-radar-tip-team-val" id="hero-radar-tip-teamval-h-global"></span>'+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="hd-radar-legend">'+
+          '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>'+heroName.split(' ')[0]+'</div>'+
+          '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>Team Avg</div>'+
+        '</div>'+
+      '</div>'
+    :'<div class="hd-top-right" style="display:flex;align-items:center;justify-content:center;">'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">No games logged yet</div>'+
+      '</div>')+
+  '</div>';
+  // 3 stat boxes
+  var wr=D.picks?Math.round(D.wins/D.picks*100):null;
+  var pr=totalGames&&detailPos==='All'?Math.round(h.picks/totalGames*100):null;
+  var wrColor=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--white)':wr>0?'var(--danger)':'var(--grey-5)'):'var(--grey-5)';
+  var avgScore=D.scores.length?D.scores.reduce(function(a,b){return a+b;},0)/D.scores.length:0;
+  var grade=avgScore>0?scoreToGrade(avgScore):null;
+  var boxesHtml='<div class="hd-stat-boxes">'+
+    '<div class="hd-stat-box"><div class="hd-stat-box-val">'+D.picks+'</div><div class="hd-stat-box-lbl">PICKS'+(pr!=null?' ('+pr+'%)':'')+'</div></div>'+
+    '<div class="hd-stat-box"><div class="hd-stat-box-val" style="color:'+wrColor+';">'+(wr!=null?wr+'%':'—')+'</div><div class="hd-stat-box-lbl">WIN RATE</div></div>'+
+    '<div class="hd-stat-box"><div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:28px;">'+(grade?grade.grade:'—')+'</div><div class="hd-stat-box-lbl">GRADE</div></div>'+
+  '</div>';
+  // Low confidence warning
+  var lowWarn=D.picks>0&&D.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;margin:10px 14px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
+  // Player breakdown
+  var playerRows=Object.values(h.players).sort(function(a,b){return b.picks-a.picks;}).map(function(pe){
+    var pwr=pe.picks?Math.round(pe.wins/pe.picks*100):0;
+    var pavgScore=pe.scores.length?pe.scores.reduce(function(a,b){return a+b;},0)/pe.scores.length:0;
+    var pgr=pavgScore>0?scoreToGrade(pavgScore):null;
+    return '<div class="hd-player-row" style="padding-left:14px;padding-right:14px;">'+
+      '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+pe.nick+'</div>'+
+      '<div class="hd-wl">'+pe.wins+'W / '+pe.losses+'L · '+pwr+'% WR · '+pe.picks+' game'+(pe.picks!==1?'s':'')+'</div></div>'+
+      '<div class="grade '+(pgr?pgr.cls:'grade-am')+'" style="font-size:18px;">'+(pgr?pgr.grade:'--')+'</div>'+
+    '</div>';
+  }).join('');
+  // Pair synergy
+  var pairs=Object.values(h.pairsWith||{}).filter(function(p){return p.picks>=2;}).sort(function(a,b){
+    var wa=a.picks?a.wins/a.picks:0,wb=b.picks?b.wins/b.picks:0;return wb-wa;
+  }).slice(0,5);
+  var pairsHtml=pairs.length?pairs.map(function(p){
+    var pwr=p.picks?Math.round(p.wins/p.picks*100):0;
+    var pc=pwr>=60?'var(--success)':pwr>=50?'var(--white)':'var(--danger)';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:var(--border);">'+
+      heroPortraitHtml(p.hero,28,false)+
+      '<div style="flex:1;font-size:11px;font-weight:600;">'+p.hero+'</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+p.picks+'G</div>'+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:'+pc+';">'+pwr+'%</div>'+
+    '</div>';
+  }).join('')+
+  '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);padding:5px 14px 8px;">Win rate when picked together (min 2 games)</div>'
+  :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px;">Need 2+ games together to show synergy</div>';
+  // All-time stats grid
+  function sCell(val,lbl){return '<div class="hd-alltime-cell"><div class="hd-alltime-val">'+(val!=null?val:'—')+'</div><div class="hd-alltime-lbl">'+lbl+'</div></div>';}
+  var kdaVal=avgK!=null&&avgD2!=null&&avgA!=null?((avgK+avgA)/Math.max(avgD2,1)).toFixed(2):null;
+  var allTimeHtml=D.picks>0?
+    '<div class="hd-alltime-header"><span class="hd-alltime-title">STATISTICS</span><span class="hd-alltime-sub">· '+D.picks+' GAMES · '+(detailPos==='All'?'ALL POSITIONS':detailPos)+'</span></div>'+
+    '<div class="hd-alltime-grid">'+
+      sCell(kdaVal!=null?kdaVal+' ('+avgK.toFixed(1)+'/'+avgD2.toFixed(1)+'/'+avgA.toFixed(1)+')':null,'KDA')+
+      sCell(avgGpm!=null?Math.round(avgGpm):null,'GOLD / MIN')+
+      sCell(avgRating!=null?avgRating.toFixed(1):null,'IN-GAME RTG')+
+      sCell(avgDmgDealt!=null?avgDmgDealt.toFixed(1)+'%':null,'DMG DEALT %')+
+      sCell(avgDmgTaken!=null?avgDmgTaken.toFixed(1)+'%':null,'DMG TAKEN %')+
+    '</div>'
+    :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px 16px;">No games logged with this hero yet</div>';
+  box.innerHTML=
+    posModesHtml+
+    topHtml+
+    lowWarn+
+    posChipsHtml+
+    boxesHtml+
+    (D.picks?
+      '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">BY PLAYER</div>'+
+      (playerRows||'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px 14px;">No player breakdown</div>')+
+      '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">PAIRS WELL WITH</div>'+
+      pairsHtml
+    :'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding:10px 14px;">No games logged</div>')+
+    allTimeHtml;
+  // Draw radar after DOM update
+  if(D.picks>0 && typeof drawHeroRadar==='function'){
+    setTimeout(function(){
+      var radarRole=detailPos!=='All'?detailPos.toLowerCase():'';
+      var caps=_heroRadarCaps(radarRole);
+      var teamAvg=_heroRadarTeamAvg(radarRole);
+      var playerVals={kda:avgK!=null&&avgD2!=null&&avgA!=null?(avgK+avgA)/Math.max(avgD2,1):null,kp:null,gpm:avgGpm,dd:avgDmgDealt,dt:avgDmgTaken,igr:avgRating};
+      drawHeroRadar('h-global',playerVals,teamAvg,caps);
+      if(typeof _setupHeroRadarEvents==='function') _setupHeroRadarEvents('h-global');
+    },50);
+  }
 }
 
 function openHeroDetail(heroName){
+  _heroModalPos='All';
+  _renderHeroDetailModal(heroName);
+}
+
+function setHeroModalPos(pos,heroName){
+  _heroModalPos=pos;
+  _renderHeroDetailModal(heroName);
+}
+
+function _renderHeroDetailModal(heroName){
   var cutoff=getHeroCutoff();
   var heroes=buildHeroStats(cutoff);
   var totalGames=heroes.totalGames||0;
   var h=heroes.find(function(x){return x.name===heroName;});
   if(!h){showToast('Hero not found');return;}
-  var wr=h.picks?Math.round(h.wins/h.picks*100):null;
-  var pr=totalGames?Math.round(h.picks/totalGames*100):null;
+  var modalPos=_heroModalPos||'All';
+  var playedPositions=Object.keys(h.byRole||{}).filter(function(r){return h.byRole[r].picks>0;});
+  // Active data
+  var D=(modalPos!=='All'&&h.byRole&&h.byRole[modalPos])?h.byRole[modalPos]:h;
+  // Position mode tabs
+  var posTabsHtml='';
+  if(playedPositions.length>0){
+    var modesArr=['All'].concat(playedPositions);
+    posTabsHtml='<div class="hero-role-tabs">'+
+      modesArr.map(function(pos){
+        var cnt=pos==='All'?h.picks:(h.byRole[pos]||{picks:0}).picks;
+        return '<button class="hero-role-tab '+(modalPos===pos?'active':'')+'" onclick="setHeroModalPos(\''+pos+'\',decodeURIComponent(\''+_encHero(heroName)+'\'))">'+
+          pos+' <span style="font-family:\'DM Mono\',monospace;font-size:6px;opacity:0.55;">('+cnt+'G)</span>'+
+        '</button>';
+      }).join('')+
+    '</div>';
+  }
+  // Position breakdown chips (All mode only)
+  var posChipsHtml='';
+  if(playedPositions.length>1&&modalPos==='All'){
+    posChipsHtml='<div style="display:flex;flex-wrap:wrap;gap:5px;padding:10px 0;border-bottom:var(--border);">'+
+      playedPositions.map(function(pos){
+        var re=h.byRole[pos];
+        var wr=re.picks?Math.round(re.wins/re.picks*100):0;
+        var wrCol=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
+        return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--grey-1);border:var(--border);border-radius:3px;">'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1px;color:var(--grey-5);">'+pos.toUpperCase()+'</span>'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:9px;font-weight:600;">'+re.picks+'G</span>'+
+          '<span style="font-family:\'DM Mono\',monospace;font-size:8px;color:'+wrCol+';">'+wr+'%</span>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+  function _avg(arr){return arr.length?arr.reduce(function(a,b){return a+b;},0)/arr.length:null;}
+  var avgK=_avg(D.rawKills),avgD=_avg(D.rawDeaths),avgA=_avg(D.rawAssists);
+  var kdaVal=avgK!=null&&avgD!=null&&avgA!=null?((avgK+avgA)/(avgD||1)).toFixed(2):null;
+  var kdaLine=kdaVal?kdaVal+' ('+avgK.toFixed(1)+' / '+avgD.toFixed(1)+' / '+avgA.toFixed(1)+')':null;
+  var avgGpm=_avg(D.rawGpm),avgRating=_avg(D.rawRating),avgDmgDealt=_avg(D.rawDmgDealt),avgDmgTaken=_avg(D.rawDmgTaken);
+  var wr=D.picks?Math.round(D.wins/D.picks*100):null;
+  var pr=totalGames&&modalPos==='All'?Math.round(h.picks/totalGames*100):null;
   var wrCol=wr!=null?(wr>=60?'var(--success)':wr>=50?'var(--warn)':'var(--danger)'):'var(--grey-5)';
-  var avgScore=h.scores.length?h.scores.reduce(function(a,b){return a+b;},0)/h.scores.length:0;
+  var avgScore=D.scores.length?D.scores.reduce(function(a,b){return a+b;},0)/D.scores.length:0;
   var grade=avgScore>0?scoreToGrade(avgScore):null;
-  var lowWarn=h.picks>0&&h.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);margin-bottom:12px;">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
+  var lowWarn=D.picks>0&&D.picks<3?'<div style="background:rgba(255,204,68,0.1);border:1px solid rgba(255,204,68,0.3);border-radius:2px;padding:8px 12px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--warn);margin-bottom:12px;">⚠ Low sample (&lt;3 games) — data may not be reliable</div>':'';
   var playerRows=Object.values(h.players).sort(function(a,b){return b.picks-a.picks;}).map(function(pe){
     var pwr=pe.picks?Math.round(pe.wins/pe.picks*100):0;
     var pavgScore=pe.scores.length?pe.scores.reduce(function(a,b){return a+b;},0)/pe.scores.length:0;
@@ -589,12 +857,10 @@ function openHeroDetail(heroName){
       '<div class="grade '+(pgr?pgr.cls:'grade-am')+'" style="font-size:18px;">'+(pgr?pgr.grade:'--')+'</div>'+
     '</div>';
   }).join('');
-  // Pair synergy
   var pairs=Object.values(h.pairsWith||{}).filter(function(p){return p.picks>=2;}).sort(function(a,b){
     var wa=a.picks?a.wins/a.picks:0,wb=b.picks?b.wins/b.picks:0;return wb-wa;
-  });
-  var topPairs=pairs.slice(0,5);
-  var pairsHtml=topPairs.length?topPairs.map(function(p){
+  }).slice(0,5);
+  var pairsHtml=pairs.length?pairs.map(function(p){
     var pwr=p.picks?Math.round(p.wins/p.picks*100):0;
     var pc=pwr>=60?'var(--success)':pwr>=50?'var(--warn)':'var(--danger)';
     return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:var(--border);">'+
@@ -605,12 +871,6 @@ function openHeroDetail(heroName){
   }).join('')+
   '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-4);padding-top:6px;">Win rate when picked together (min 2 games)</div>'
   :'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">Need 2+ games together to show synergy</div>';
-  // Raw stats section
-  function _avg(arr){return arr.length?arr.reduce(function(a,b){return a+b;},0)/arr.length:null;}
-  var avgK=_avg(h.rawKills),avgD=_avg(h.rawDeaths),avgA=_avg(h.rawAssists);
-  var kdaVal=avgK!=null&&avgD!=null&&avgA!=null?((avgK+avgA)/(avgD||1)).toFixed(2):null;
-  var kdaLine=kdaVal?kdaVal+' ('+avgK.toFixed(1)+' / '+avgD.toFixed(1)+' / '+avgA.toFixed(1)+')':null;
-  var avgGpm=_avg(h.rawGpm),avgRating=_avg(h.rawRating),avgDmgDealt=_avg(h.rawDmgDealt),avgDmgTaken=_avg(h.rawDmgTaken);
   function rawStatRow(label,val,suffix,decimals){
     var disp=val!=null?val.toFixed(decimals||0)+(suffix||''):'—';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:var(--border);font-family:\'DM Mono\',monospace;">'+
@@ -618,7 +878,7 @@ function openHeroDetail(heroName){
       '<div style="font-size:12px;color:var(--text);">'+disp+'</div>'+
     '</div>';
   }
-  var rawStatsHtml=h.picks>0?
+  var rawStatsHtml=D.picks>0?
     rawStatRow('KDA',null,null,2).replace('—',kdaLine||'—')+
     rawStatRow('Avg Gold / Min',avgGpm,'',0)+
     rawStatRow('Avg In-Game Rating',avgRating,'',1)+
@@ -628,19 +888,21 @@ function openHeroDetail(heroName){
   var winLabel=(HERO_WINDOWS.find(function(w){return w.k===_heroState.window;})||{l:'All Time'}).l;
   document.getElementById('hd-title').textContent=heroName.toUpperCase();
   document.getElementById('hd-body').innerHTML=
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:8px 0 0;letter-spacing:1px;">'+winLabel.toUpperCase()+'</div>'+
+    posTabsHtml+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;padding:8px 0 0;letter-spacing:1px;">'+winLabel.toUpperCase()+(modalPos!=='All'?' · '+modalPos.toUpperCase():'')+'</div>'+
     '<div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 8px;">'+
       heroPortraitHtml(heroName,160,false)+
       '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;margin-top:10px;">'+heroName+'</div>'+
       (function(){var hdb=getLiveHeroes().find(function(x){return x.name===heroName;});return hdb?'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">'+hdb.cls+(hdb.roles.length?' · '+hdb.roles.join(', '):'')+'</div>':'';})() +
     '</div>'+
+    posChipsHtml+
     lowWarn+
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--grey-3);border:var(--border);margin-bottom:16px;">'+
-      '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;">'+h.picks+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">PICKS'+(pr!=null?' ('+pr+'%)':'')+'</div></div>'+
+      '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;">'+D.picks+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">PICKS'+(pr!=null?' ('+pr+'%)':'')+'</div></div>'+
       '<div style="background:var(--black);padding:12px;text-align:center;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;color:'+wrCol+';">'+(wr!=null?wr+'%':'--')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">WIN RATE</div></div>'+
       '<div style="background:var(--black);padding:12px;text-align:center;"><div class="grade '+(grade?grade.cls:'grade-am')+'" style="font-size:28px;">'+(grade?grade.grade:'--')+'</div><div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">GRADE</div></div>'+
     '</div>'+
-    (h.picks?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin-bottom:8px;">BY PLAYER</div>'+
+    (D.picks?'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin-bottom:8px;">BY PLAYER</div>'+
     (playerRows||'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-5);">No player breakdown</div>')+
     '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin:16px 0 8px;">🤝 PAIRS WELL WITH</div>'+
     pairsHtml:'<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--grey-4);padding:8px 0 16px;">No games logged with this hero in the selected window</div>')+
