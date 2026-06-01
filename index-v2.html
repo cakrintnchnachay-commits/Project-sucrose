@@ -946,6 +946,94 @@
   padding: 1px 5px;
   border-radius: 2px;
 }
+.pb-raw-section {
+  padding: 10px 16px 12px;
+  background: var(--grey-2);
+  border-bottom: var(--border);
+}
+.pb-raw-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 7px;
+  letter-spacing: 2px;
+  color: var(--grey-4);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.pb-raw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+}
+.pb-raw-field-label {
+  display: block;
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--grey-4);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-raw-input {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--grey-3);
+  border: 1px solid var(--grey-3);
+  color: var(--grey-6);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  border-radius: 2px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.pb-raw-input:focus { border-color: var(--grey-5); color: var(--white); }
+.pb-auto-tag {
+  display: none;
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--auto);
+  background: rgba(68,136,255,0.1);
+  border: 1px solid rgba(68,136,255,0.2);
+  padding: 1px 6px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.pb-info-btn {
+  background: none;
+  border: none;
+  color: var(--grey-4);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 0 0 6px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.pb-info-btn:hover { color: var(--grey-6); }
+.pb-info-panel {
+  display: none;
+  padding: 8px 16px 10px;
+  background: rgba(68,136,255,0.04);
+  border-bottom: 1px solid rgba(68,136,255,0.12);
+}
+.pb-info-panel.open { display: block; }
+.pb-info-formula {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--grey-5);
+  white-space: pre-line;
+  line-height: 1.7;
+  margin-bottom: 6px;
+}
+.pb-info-unit {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  color: var(--grey-4);
+  margin-bottom: 5px;
+}
+.pb-info-desc { font-size: 11px; color: var(--grey-5); }
 </style>
 
 <script>
@@ -1011,6 +1099,9 @@ function showDataCenter(tab) {
 // ═══════════════════════════════════════════════════════════
 
 var PB = { role: null, wl: 'all', bracket: 'all' };
+var PB_RAW = {};        // role_pi_rawKey → parsed float (raw input values)
+var PB_AUTO_KEYS = {};  // _pbInputKey → true when auto-filled from raw inputs
+var PB_MANUAL_KEYS = {};// _pbInputKey → true when user manually typed
 
 // ── Anchor helpers ──────────────────────────────────────
 
@@ -1062,6 +1153,117 @@ function _pbShortLong(obj, bracket, wl) {
 
 // ── Pillar definitions ──────────────────────────────────
 
+// ── Raw-input helpers ──────────────────────────────────
+
+function _pbRaw(raw, key) { return raw[key] != null ? raw[key] : null; }
+function _pbRawAll(raw) {
+  for (var i = 1; i < arguments.length; i++)
+    if (raw[arguments[i]] == null) return false;
+  return true;
+}
+
+// ── Shared stat factories (avoid code repetition) ──────
+
+function _pbStatDmgPct(anchorFn) {
+  return { key:'dmgpct', label:'DMG%', unit:'%', lowerBetter:false,
+    placeholder:'e.g. 23.5', displayScale:100,
+    fmt: function(v){ return (v*100).toFixed(1)+'%'; },
+    parse: function(s){ return parseFloat(s)/100; },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.pdmg!=null&&r.tdmg>0 ? r.pdmg/r.tdmg*100 : null; } };
+}
+function _pbStatDpm(anchorFn) {
+  return { key:'dpm', label:'DMG/min', unit:'', lowerBetter:false,
+    placeholder:'e.g. 4341', displayScale:1,
+    fmt: function(v){ return Math.round(v).toLocaleString(); },
+    parse: function(s){ return parseFloat(s); },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.pdmg!=null&&r.dur>0 ? r.pdmg/r.dur : null; } };
+}
+function _pbStatKpPct(anchorFn) {
+  return { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
+    placeholder:'e.g. 66.7', displayScale:100,
+    fmt: function(v){ return (v*100).toFixed(1)+'%'; },
+    parse: function(s){ return parseFloat(s)/100; },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.tkills>0&&r.kills!=null&&r.assts!=null ? (r.kills+r.assts)/r.tkills*100 : null; } };
+}
+function _pbStatKaPm(anchorFn) {
+  return { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
+    placeholder:'e.g. 0.45', displayScale:1,
+    fmt: function(v){ return v.toFixed(2); },
+    parse: function(s){ return parseFloat(s); },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.dur>0&&r.kills!=null&&r.assts!=null ? (r.kills+r.assts)/r.dur : null; } };
+}
+function _pbStatKda(anchorFn) {
+  return { key:'kda', label:'KDA', unit:'', lowerBetter:false,
+    placeholder:'e.g. 4.5', displayScale:1,
+    fmt: function(v){ return v.toFixed(2); },
+    parse: function(s){ return parseFloat(s); },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.kills!=null&&r.assts!=null&&r.deaths!=null ? (r.kills+r.assts)/Math.max(r.deaths,1) : null; } };
+}
+function _pbStatKillShare(anchorFn) {
+  return { key:'killshare', label:'Kill Share', unit:'%', lowerBetter:false,
+    placeholder:'e.g. 18.2', displayScale:100,
+    fmt: function(v){ return (v*100).toFixed(1)+'%'; },
+    parse: function(s){ return parseFloat(s)/100; },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.tkills>0&&r.kills!=null ? r.kills/r.tkills*100 : null; } };
+}
+function _pbStatDmgShare(anchorFn) {
+  return { key:'dmgshare', label:'DMG%', unit:'%', lowerBetter:false,
+    placeholder:'e.g. 16.1', displayScale:100,
+    fmt: function(v){ return (v*100).toFixed(1)+'%'; },
+    parse: function(s){ return parseFloat(s)/100; },
+    anchors: anchorFn,
+    calcFromRaw: function(r){ return r.pdmg!=null&&r.tdmg>0 ? r.pdmg/r.tdmg*100 : null; } };
+}
+
+// Raw input field defs
+var _rawKAS  = [
+  { key:'kills',  label:'Kills',       ph:'e.g. 3' },
+  { key:'assts',  label:'Assists',     ph:'e.g. 5' },
+  { key:'deaths', label:'Deaths',      ph:'e.g. 1' },
+  { key:'tkills', label:'Team Kills',  ph:'e.g. 12' },
+  { key:'dur',    label:'Duration (m)',ph:'e.g. 15.5' },
+];
+var _rawKASDmg = [
+  { key:'kills',  label:'Kills',       ph:'e.g. 3' },
+  { key:'assts',  label:'Assists',     ph:'e.g. 5' },
+  { key:'deaths', label:'Deaths',      ph:'e.g. 1' },
+  { key:'tkills', label:'Team Kills',  ph:'e.g. 12' },
+  { key:'pdmg',   label:'Player Dmg',  ph:'e.g. 92000' },
+  { key:'tdmg',   label:'Team Dmg',    ph:'e.g. 390000' },
+  { key:'dur',    label:'Duration (m)',ph:'e.g. 15.5' },
+];
+var _rawDmgDur = [
+  { key:'pdmg',   label:'Player Dmg',  ph:'e.g. 92000' },
+  { key:'tdmg',   label:'Team Dmg',    ph:'e.g. 390000' },
+  { key:'kills',  label:'Kills',       ph:'e.g. 3' },
+  { key:'assts',  label:'Assists',     ph:'e.g. 5' },
+  { key:'tkills', label:'Team Kills',  ph:'e.g. 12' },
+  { key:'dur',    label:'Duration (m)',ph:'e.g. 15.5' },
+];
+var _rawSurvival = [
+  { key:'pdmg',   label:'Dmg Dealt',   ph:'e.g. 92000' },
+  { key:'dtaken', label:'Dmg Taken',   ph:'e.g. 52000' },
+  { key:'deaths', label:'Deaths',      ph:'e.g. 1' },
+  { key:'dur',    label:'Duration (m)',ph:'e.g. 15.5' },
+];
+var _rawTank = [
+  { key:'dtaken', label:'Dmg Taken',       ph:'e.g. 52000' },
+  { key:'tdtaken',label:'Team Dmg Taken',  ph:'e.g. 170000' },
+  { key:'deaths', label:'Deaths',          ph:'e.g. 1' },
+  { key:'dur',    label:'Duration (m)',    ph:'e.g. 15.5' },
+];
+var _rawProtect = [
+  { key:'adld',   label:'ADL Deaths',  ph:'e.g. 2' },
+  { key:'midd',   label:'MID Deaths',  ph:'e.g. 1' },
+  { key:'dur',    label:'Duration (m)',ph:'e.g. 15.5' },
+];
+
 var PB_CONFIG = {
   adl: {
     label: 'ADL', fullRole: 'Carry',
@@ -1069,52 +1271,46 @@ var PB_CONFIG = {
       {
         name: 'Teamfight & Dmg', cat: 'Damage',
         sub: 'DMG% · DMG/min · KP% · KA/min',
+        rawInputs: _rawKASDmg,
+        info: {
+          formula: 'DMG% = PlayerDmg ÷ TeamDmg × 100  ·  DPM = PlayerDmg ÷ min\nKP% = (K+A) ÷ TeamKills × 100  ·  KA/min = (K+A) ÷ min',
+          unit: '% · dmg/min · % · KA/min',
+          desc: 'Carry damage output and fight presence. DMG% is your share of team damage; DPM is absolute output rate; KP% is kill involvement; KA/min is activity rate.'
+        },
         stats: [
-          { key:'dmgpct', label:'DMG%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 23.5',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return DMG_ANCHORS.carry.dmg_pct.map(function(v){return v*100;}); } },
-          { key:'dpm', label:'DMG/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 4341',
-            fmt: function(v){ return Math.round(v).toLocaleString(); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(DMG_ANCHORS.carry.dmg_per_min, b); } },
-          { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 66.7',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return KA_ANCHORS.adl.kp.map(function(v){return v*100;}); } },
-          { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 0.45',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracketWL(KA_ANCHORS.adl.ka_pm, b, wl); } }
+          _pbStatDmgPct(function(b,wl){ return DMG_ANCHORS.carry.dmg_pct.map(function(v){return v*100;}); }),
+          _pbStatDpm(function(b,wl){ return _pbBracket(DMG_ANCHORS.carry.dmg_per_min, b); }),
+          _pbStatKpPct(function(b,wl){ return KA_ANCHORS.adl.kp.map(function(v){return v*100;}); }),
+          _pbStatKaPm(function(b,wl){ return _pbBracketWL(KA_ANCHORS.adl.ka_pm, b, wl); })
         ],
         scoreWeights: [0.25, 0.25, 0.25, 0.25]
       },
       {
         name: 'Survival', cat: 'Survival',
         sub: 'DMG/DTK · Deaths/min',
+        rawInputs: _rawSurvival,
+        info: {
+          formula: 'DMG/DTK = PlayerDmg ÷ DmgTaken  ·  Deaths/min = Deaths ÷ min',
+          unit: '× ratio · /min',
+          desc: 'Efficient trading and survivability. Higher DMG/DTK means more damage output per damage absorbed; lower Deaths/min means staying in the fight longer.'
+        },
         stats: [
           { key:'dmgdtk', label:'DMG/DTK', unit:'×', lowerBetter:false,
             placeholder:'e.g. 1.80',
             fmt: function(v){ return v.toFixed(2)+'×'; },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.dmg_dtk, b); } },
+            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.dmg_dtk, b); },
+            calcFromRaw: function(r){ return r.pdmg!=null&&r.dtaken>0 ? r.pdmg/r.dtaken : null; } },
           { key:'dthpm', label:'Deaths/min', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.074',
             fmt: function(v){ return v.toFixed(3); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.deaths_pm, b); } }
+            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.deaths_pm, b); },
+            calcFromRaw: function(r){ return r.deaths!=null&&r.dur>0 ? r.deaths/r.dur : null; } }
         ],
-        scoreWeights: [0.60, -0.40]  // negative = lower-better inverted
+        scoreWeights: [0.60, -0.40]
       }
     ]
   },
@@ -1125,50 +1321,44 @@ var PB_CONFIG = {
       {
         name: 'Teamfight & Dmg', cat: 'Damage',
         sub: 'DMG% · DMG/min · KP% · KA/min',
+        rawInputs: _rawKASDmg,
+        info: {
+          formula: 'DMG% = PlayerDmg ÷ TeamDmg × 100  ·  DPM = PlayerDmg ÷ min\nKP% = (K+A) ÷ TeamKills × 100  ·  KA/min = (K+A) ÷ min',
+          unit: '% · dmg/min · % · KA/min',
+          desc: 'Midlane damage output and fight presence. DMG% is your share of team damage; DPM is absolute output rate; KP% is kill involvement; KA/min is activity rate.'
+        },
         stats: [
-          { key:'dmgpct', label:'DMG%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 30.0',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return DMG_ANCHORS.mage.dmg_pct.map(function(v){return v*100;}); } },
-          { key:'dpm', label:'DMG/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 5501',
-            fmt: function(v){ return Math.round(v).toLocaleString(); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(DMG_ANCHORS.mage.dmg_per_min, b); } },
-          { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 75.0',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return KA_ANCHORS.mid.kp.map(function(v){return v*100;}); } },
-          { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 0.48',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracketWL(KA_ANCHORS.mid.ka_pm, b, wl); } }
+          _pbStatDmgPct(function(b,wl){ return DMG_ANCHORS.mage.dmg_pct.map(function(v){return v*100;}); }),
+          _pbStatDpm(function(b,wl){ return _pbBracket(DMG_ANCHORS.mage.dmg_per_min, b); }),
+          _pbStatKpPct(function(b,wl){ return KA_ANCHORS.mid.kp.map(function(v){return v*100;}); }),
+          _pbStatKaPm(function(b,wl){ return _pbBracketWL(KA_ANCHORS.mid.ka_pm, b, wl); })
         ],
         scoreWeights: [0.25, 0.25, 0.25, 0.25]
       },
       {
         name: 'Survival', cat: 'Survival',
         sub: 'DMG/DTK · Deaths/min',
+        rawInputs: _rawSurvival,
+        info: {
+          formula: 'DMG/DTK = PlayerDmg ÷ DmgTaken  ·  Deaths/min = Deaths ÷ min',
+          unit: '× ratio · /min',
+          desc: 'Midlane trading efficiency and survival. Higher DMG/DTK means more burst output per damage absorbed; lower Deaths/min means better positioning.'
+        },
         stats: [
           { key:'dmgdtk', label:'DMG/DTK', unit:'×', lowerBetter:false,
             placeholder:'e.g. 1.83',
             fmt: function(v){ return v.toFixed(2)+'×'; },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.dmg_dtk, b); } },
+            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.dmg_dtk, b); },
+            calcFromRaw: function(r){ return r.pdmg!=null&&r.dtaken>0 ? r.pdmg/r.dtaken : null; } },
           { key:'dthpm', label:'Deaths/min', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.074',
             fmt: function(v){ return v.toFixed(3); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.deaths_pm, b); } }
+            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.deaths_pm, b); },
+            calcFromRaw: function(r){ return r.deaths!=null&&r.dur>0 ? r.deaths/r.dur : null; } }
         ],
         scoreWeights: [0.60, -0.40]
       }
@@ -1181,37 +1371,18 @@ var PB_CONFIG = {
       {
         name: 'Teamfight', cat: 'Damage',
         sub: 'KP% · KA/min · KDA · DMG% · Kill Share',
+        rawInputs: _rawKASDmg,
+        info: {
+          formula: 'KP% = (K+A) ÷ TeamKills × 100  ·  KA/min = (K+A) ÷ min\nKDA = (K+A) ÷ max(D,1)  ·  DMG% = PlayerDmg ÷ TeamDmg × 100  ·  Kill Share = K ÷ TeamKills × 100',
+          unit: '% · /min · × · % · %',
+          desc: 'Offlane fight contribution — participation rate, activity, trade efficiency, damage share, and kill involvement relative to the team.'
+        },
         stats: [
-          { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 54.5',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return KA_ANCHORS.dsl.kp.map(function(v){return v*100;}); } },
-          { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 0.38',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracketWL(KA_ANCHORS.dsl.ka_pm, b, wl); } },
-          { key:'kda', label:'KDA', unit:'', lowerBetter:false,
-            placeholder:'e.g. 4.5',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbWL(TEAMFIGHT_ANCHORS.dsl.kda, wl); } },
-          { key:'dmgshare', label:'DMG%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 16.1',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return TEAMFIGHT_ANCHORS.dsl.dmg_share.map(function(v){return v*100;}); } },
-          { key:'killshare', label:'Kill Share', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 18.2',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return _pbShortLong(TEAMFIGHT_ANCHORS.dsl.kill_share, b, wl).map(function(v){return v*100;}); } }
+          _pbStatKpPct(function(b,wl){ return KA_ANCHORS.dsl.kp.map(function(v){return v*100;}); }),
+          _pbStatKaPm(function(b,wl){ return _pbBracketWL(KA_ANCHORS.dsl.ka_pm, b, wl); }),
+          _pbStatKda(function(b,wl){ return _pbWL(TEAMFIGHT_ANCHORS.dsl.kda, wl); }),
+          _pbStatDmgShare(function(b,wl){ return TEAMFIGHT_ANCHORS.dsl.dmg_share.map(function(v){return v*100;}); }),
+          _pbStatKillShare(function(b,wl){ return _pbShortLong(TEAMFIGHT_ANCHORS.dsl.kill_share, b, wl).map(function(v){return v*100;}); })
         ],
         scoreWeights: [0.175, 0.175, 0.30, 0.25, 0.10]
       }
@@ -1224,37 +1395,18 @@ var PB_CONFIG = {
       {
         name: 'Gank', cat: 'Damage',
         sub: 'KP% · KA/min · KDA · Kill Share · DMG%',
+        rawInputs: _rawKASDmg,
+        info: {
+          formula: 'KP% = (K+A) ÷ TeamKills × 100  ·  KA/min = (K+A) ÷ min\nKDA = (K+A) ÷ max(D,1)  ·  Kill Share = K ÷ TeamKills × 100  ·  DMG% = PlayerDmg ÷ TeamDmg × 100',
+          unit: '% · /min · × · % · %',
+          desc: 'Jungler gank impact — fight presence, activity rate, personal trade ratio, kill-chain involvement, and damage contribution.'
+        },
         stats: [
-          { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 66.7',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return KA_ANCHORS.jug.kp.map(function(v){return v*100;}); } },
-          { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 0.43',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracketWL(KA_ANCHORS.jug.ka_pm, b, wl); } },
-          { key:'kda', label:'KDA', unit:'', lowerBetter:false,
-            placeholder:'e.g. 5.0',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbWL(GANK_ANCHORS.jug.kda, wl); } },
-          { key:'killshare', label:'Kill Share', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 26.7',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return _pbShortLong(GANK_ANCHORS.jug.kill_share, b, wl).map(function(v){return v*100;}); } },
-          { key:'dmgshare', label:'DMG%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 16.3',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return GANK_ANCHORS.jug.dmg_share.map(function(v){return v*100;}); } }
+          _pbStatKpPct(function(b,wl){ return KA_ANCHORS.jug.kp.map(function(v){return v*100;}); }),
+          _pbStatKaPm(function(b,wl){ return _pbBracketWL(KA_ANCHORS.jug.ka_pm, b, wl); }),
+          _pbStatKda(function(b,wl){ return _pbWL(GANK_ANCHORS.jug.kda, wl); }),
+          _pbStatKillShare(function(b,wl){ return _pbShortLong(GANK_ANCHORS.jug.kill_share, b, wl).map(function(v){return v*100;}); }),
+          _pbStatDmgShare(function(b,wl){ return GANK_ANCHORS.jug.dmg_share.map(function(v){return v*100;}); })
         ],
         scoreWeights: [0.175, 0.175, 0.25, 0.25, 0.15]
       }
@@ -1267,63 +1419,74 @@ var PB_CONFIG = {
       {
         name: 'Protection', cat: 'Support',
         sub: 'Geo-mean (ADL+MID deaths/min)',
+        rawInputs: _rawProtect,
+        info: {
+          formula: 'Geo-mean = √((ADLDeaths ÷ min + ε) × (MIDDeaths ÷ min + ε))',
+          unit: 'deaths/min (geometric mean)',
+          desc: 'How well you keep both carries alive. Lower geo-mean means fewer ADL and MID deaths — a perfect protection performance.'
+        },
         stats: [
           { key:'geomean', label:'Geo-mean', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.066',
             fmt: function(v){ return v.toFixed(4); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return PROTECTION_ANCHORS.geo_mean; } }
+            anchors: function(b,wl){ return PROTECTION_ANCHORS.geo_mean; },
+            calcFromRaw: function(r){
+              if (r.adld==null||r.midd==null||r.dur==null||r.dur<=0) return null;
+              var EPS=0.001, adlDpm=r.adld/r.dur, midDpm=r.midd/r.dur;
+              return Math.sqrt((adlDpm+EPS)*(midDpm+EPS));
+            } }
         ],
-        scoreWeights: [-1.0]  // lower = better (geo_mean inverted)
+        scoreWeights: [-1.0]
       },
       {
         name: 'Teamfight', cat: 'Damage',
         sub: 'KP% · KA/min · KDA',
+        rawInputs: _rawKAS,
+        info: {
+          formula: 'KP% = (K+A) ÷ TeamKills × 100  ·  KA/min = (K+A) ÷ min  ·  KDA = (K+A) ÷ max(D,1)',
+          unit: '% · /min · ×',
+          desc: 'Support teamfight presence — how many kills you touch, your activity rate, and your trade efficiency.'
+        },
         stats: [
-          { key:'kppct', label:'KP%', unit:'%', lowerBetter:false,
-            placeholder:'e.g. 80.0',
-            fmt: function(v){ return (v*100).toFixed(1)+'%'; },
-            parse: function(s){ return parseFloat(s)/100; },
-            displayScale: 100,
-            anchors: function(b,wl){ return KA_ANCHORS.sup.kp.map(function(v){return v*100;}); } },
-          { key:'kapm', label:'KA/min', unit:'', lowerBetter:false,
-            placeholder:'e.g. 0.53',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbBracketWL(KA_ANCHORS.sup.ka_pm, b, wl); } },
-          { key:'kda', label:'KDA', unit:'', lowerBetter:false,
-            placeholder:'e.g. 6.0',
-            fmt: function(v){ return v.toFixed(2); },
-            parse: function(s){ return parseFloat(s); },
-            displayScale: 1,
-            anchors: function(b,wl){ return _pbWL(TEAMFIGHT_ANCHORS.sup.kda, wl); } }
+          _pbStatKpPct(function(b,wl){ return KA_ANCHORS.sup.kp.map(function(v){return v*100;}); }),
+          _pbStatKaPm(function(b,wl){ return _pbBracketWL(KA_ANCHORS.sup.ka_pm, b, wl); }),
+          _pbStatKda(function(b,wl){ return _pbWL(TEAMFIGHT_ANCHORS.sup.kda, wl); })
         ],
         scoreWeights: [0.30, 0.30, 0.40]
       },
       {
         name: 'Tank', cat: 'Durability',
         sub: 'DTK% · DTK/min · Death Adj',
+        rawInputs: _rawTank,
+        info: {
+          formula: 'DTK% = DmgTaken ÷ TeamDmgTaken × 100  ·  DTK/min = DmgTaken ÷ min\nDeathAdj = Deaths × 10000 ÷ DmgTaken',
+          unit: '% · dmg/min · ratio',
+          desc: 'Tank absorption metrics — DTK% is your share of team damage received, DTK/min your raw absorption rate, and DeathAdj penalises dying without sufficient tanking.'
+        },
         stats: [
           { key:'dtkpct', label:'DTK%', unit:'%', lowerBetter:false,
             placeholder:'e.g. 30.9',
             fmt: function(v){ return (v*100).toFixed(1)+'%'; },
             parse: function(s){ return parseFloat(s)/100; },
             displayScale: 100,
-            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.dtk_pct, b, wl).map(function(v){return v*100;}); } },
+            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.dtk_pct, b, wl).map(function(v){return v*100;}); },
+            calcFromRaw: function(r){ return r.dtaken!=null&&r.tdtaken>0 ? r.dtaken/r.tdtaken*100 : null; } },
           { key:'dtkpm', label:'DTK/min', unit:'', lowerBetter:false,
             placeholder:'e.g. 5834',
             fmt: function(v){ return Math.round(v).toLocaleString(); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.dtk_per_min, b, wl); } },
+            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.dtk_per_min, b, wl); },
+            calcFromRaw: function(r){ return r.dtaken!=null&&r.dur>0 ? r.dtaken/r.dur : null; } },
           { key:'deadj', label:'Death Adj', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.153',
             fmt: function(v){ return v.toFixed(3); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.death_adj, b, wl); } }
+            anchors: function(b,wl){ return _pbShortLong(TANK_ANCHORS.death_adj, b, wl); },
+            calcFromRaw: function(r){ return r.deaths!=null&&r.dtaken>0 ? r.deaths*10000/r.dtaken : null; } }
         ],
         scoreWeights: [0.40, 0.40, -0.20]
       }
@@ -1337,7 +1500,15 @@ var PB_INPUTS = {};  // key: "role_pillarIdx_statKey" → raw numeric value
 
 function _pbInputKey(role, pi, statKey) { return role + '_' + pi + '_' + statKey; }
 
-// ── Rendering ────────────────────────────────────────────
+// ── Rendering helpers ────────────────────────────────────
+
+function _pbFmtInput(v) {
+  if (Math.abs(v) >= 1000) return Math.round(v).toString();
+  if (Math.abs(v) >= 10)   return parseFloat(v.toFixed(1)).toString();
+  if (Math.abs(v) >= 1)    return parseFloat(v.toFixed(2)).toString();
+  if (Math.abs(v) >= 0.01) return parseFloat(v.toFixed(3)).toString();
+  return parseFloat(v.toFixed(4)).toString();
+}
 
 function pbSelectRole(role) {
   PB.role = role;
@@ -1421,17 +1592,52 @@ function pbRenderPillarCard(pillar, pi, cfg) {
   var b = PB.bracket, wl = PB.wl;
 
   var html = '<div class="pb-card">';
-  // Header
+
+  // Header with ⓘ button
   html += '<div class="pb-card-header">';
   html += '<div class="pb-card-title">' + pillar.name + '</div>';
+  html += '<div style="display:flex;align-items:center;gap:4px;">';
   html += '<div class="pb-cat-badge">' + pillar.cat + '</div>';
+  if (pillar.info) {
+    html += '<button class="pb-info-btn" id="pb-info-btn-' + role + '-' + pi + '" onclick="pbToggleInfo(\'' + role + '\',' + pi + ')">ⓘ</button>';
+  }
   html += '</div>';
+  html += '</div>';
+
+  // Info panel (collapsed by default)
+  if (pillar.info) {
+    html += '<div class="pb-info-panel" id="pb-info-' + role + '-' + pi + '">';
+    html += '<div class="pb-info-formula">' + pillar.info.formula + '</div>';
+    html += '<div class="pb-info-unit">Unit: ' + pillar.info.unit + '</div>';
+    html += '<div class="pb-info-desc">' + pillar.info.desc + '</div>';
+    html += '</div>';
+  }
+
   html += '<div class="pb-card-sub" style="padding:8px 16px 0;color:var(--grey-4);">' + pillar.sub + '</div>';
 
-  // Stat blocks
+  // Layer 1: raw input fields
+  if (pillar.rawInputs && pillar.rawInputs.length) {
+    html += '<div class="pb-raw-section">';
+    html += '<div class="pb-raw-label">Raw inputs</div>';
+    html += '<div class="pb-raw-grid">';
+    pillar.rawInputs.forEach(function(rf) {
+      var rawId = 'pb-raw-' + role + '-' + pi + '-' + rf.key;
+      var cachedRaw = PB_RAW[role + '_' + pi + '_' + rf.key];
+      html += '<div>';
+      html += '<label class="pb-raw-field-label" for="' + rawId + '">' + rf.label + '</label>';
+      html += '<input class="pb-raw-input" id="' + rawId + '" type="number" step="any" placeholder="' + rf.ph + '" value="' + (cachedRaw != null ? cachedRaw : '') + '" oninput="pbHandleRaw(\'' + rawId + '\',\'' + role + '\',' + pi + ',\'' + rf.key + '\')">';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // Layer 2: stat blocks
   pillar.stats.forEach(function(stat, si) {
     var anchors = stat.anchors(b, wl);
-    var cached = PB_INPUTS[_pbInputKey(role, pi, stat.key)];
+    var statKey = _pbInputKey(role, pi, stat.key);
+    var cached = PB_INPUTS[statKey];
+    var isAuto = !!PB_AUTO_KEYS[statKey];
     var inputId = 'pb-inp-' + role + '-' + pi + '-' + si;
 
     html += '<div class="pb-stat-block">';
@@ -1445,7 +1651,6 @@ function pbRenderPillarCard(pillar, pi, cfg) {
     var pcts = [10, 25, 50, 75, 90];
     html += '<div style="position:relative;">';
     html += '<div class="pb-bar-wrap" id="pb-bar-' + inputId + '">';
-    // Needle (hidden initially)
     var needleLeft = (cached != null) ? pbComputeNeedlePos(cached, anchors) : null;
     html += '<div class="pb-needle-wrap" id="pb-needle-' + inputId + '" style="' + (needleLeft != null ? 'left:' + needleLeft + '%;display:block;' : 'display:none;') + '"></div>';
     html += '</div>';
@@ -1453,7 +1658,7 @@ function pbRenderPillarCard(pillar, pi, cfg) {
     // Tick labels
     html += '<div class="pb-bar-ticks">';
     for (var ti = 0; ti < 5; ti++) {
-      var pos = pcts[ti]; // percentile position = bar %
+      var pos = pcts[ti];
       var val = anchors[ti];
       html += '<div class="pb-tick" style="left:' + pos + '%;">';
       html += '<div class="pb-tick-line"></div>';
@@ -1464,10 +1669,11 @@ function pbRenderPillarCard(pillar, pi, cfg) {
     html += '</div>';
     html += '</div>';
 
-    // Input row
-    var cachedStr = (cached != null) ? pbToInputString(cached, stat) : '';
+    // Input row (Layer 2)
+    var cachedStr = (cached != null) ? String(cached) : '';
     html += '<div class="pb-input-row">';
     html += '<input class="pb-input" id="' + inputId + '" type="number" step="any" placeholder="' + stat.placeholder + '" value="' + cachedStr + '" oninput="pbHandleInput(\'' + inputId + '\',\'' + role + '\',' + pi + ',' + si + ')">';
+    html += '<span class="pb-auto-tag" id="pb-autotag-' + inputId + '" style="' + (isAuto ? 'display:inline;' : 'display:none;') + '">= calculated</span>';
     html += '<div class="pb-result-text" id="pb-res-' + inputId + '">';
     if (cached != null) {
       var res = pbComputeStatResult(cached, anchors, stat);
@@ -1487,6 +1693,96 @@ function pbRenderPillarCard(pillar, pi, cfg) {
 
   html += '</div>'; // end card
   return html;
+}
+
+function pbToggleInfo(role, pi) {
+  var panel = document.getElementById('pb-info-' + role + '-' + pi);
+  var btn = document.getElementById('pb-info-btn-' + role + '-' + pi);
+  if (!panel) return;
+  panel.classList.toggle('open');
+  if (btn) btn.classList.toggle('active');
+}
+
+function pbHandleRaw(rawId, role, pi, rawKey) {
+  var el = document.getElementById(rawId);
+  var storeKey = role + '_' + pi + '_' + rawKey;
+  var str = el ? el.value.trim() : '';
+  if (!str) {
+    delete PB_RAW[storeKey];
+  } else {
+    var v = parseFloat(str);
+    if (!isNaN(v)) PB_RAW[storeKey] = v;
+  }
+  pbTryAutoCalc(role, pi);
+}
+
+function pbTryAutoCalc(role, pi) {
+  var cfg = PB_CONFIG[role];
+  if (!cfg) return;
+  var pillar = cfg.pillars[pi];
+  if (!pillar || !pillar.rawInputs) return;
+
+  var raw = {};
+  pillar.rawInputs.forEach(function(rf) {
+    var v = PB_RAW[role + '_' + pi + '_' + rf.key];
+    raw[rf.key] = v != null ? v : null;
+  });
+
+  pillar.stats.forEach(function(stat, si) {
+    if (!stat.calcFromRaw) return;
+    var statKey = _pbInputKey(role, pi, stat.key);
+    if (PB_MANUAL_KEYS[statKey]) return;
+
+    var inputId = 'pb-inp-' + role + '-' + pi + '-' + si;
+    var inputEl = document.getElementById(inputId);
+    var autoTagEl = document.getElementById('pb-autotag-' + inputId);
+    var calc = stat.calcFromRaw(raw);
+
+    if (calc != null) {
+      var displayStr = _pbFmtInput(calc);
+      PB_INPUTS[statKey] = parseFloat(displayStr);
+      PB_AUTO_KEYS[statKey] = true;
+      if (inputEl) inputEl.value = displayStr;
+      if (autoTagEl) autoTagEl.style.display = 'inline';
+    } else {
+      if (PB_AUTO_KEYS[statKey]) {
+        delete PB_INPUTS[statKey];
+        delete PB_AUTO_KEYS[statKey];
+        if (inputEl) inputEl.value = '';
+        if (autoTagEl) autoTagEl.style.display = 'none';
+        var needle = document.getElementById('pb-needle-' + inputId);
+        if (needle) needle.style.display = 'none';
+        var resEl = document.getElementById('pb-res-' + inputId);
+        if (resEl) resEl.innerHTML = '';
+      }
+    }
+
+    if (PB_INPUTS[statKey] != null) pbUpdateStatVisuals(inputId, role, pi, si);
+  });
+
+  pbUpdateComposite(role, pi);
+}
+
+function pbUpdateStatVisuals(inputId, role, pi, si) {
+  var cfg = PB_CONFIG[role];
+  if (!cfg) return;
+  var pillar = cfg.pillars[pi];
+  if (!pillar) return;
+  var stat = pillar.stats[si];
+  if (!stat) return;
+  var val = PB_INPUTS[_pbInputKey(role, pi, stat.key)];
+  if (val == null) return;
+
+  var anchors = stat.anchors(PB.bracket, PB.wl);
+  var needlePos = pbComputeNeedlePos(val, anchors);
+  var needle = document.getElementById('pb-needle-' + inputId);
+  if (needle) { needle.style.left = needlePos + '%'; needle.style.display = 'block'; }
+
+  var res = pbComputeStatResult(val, anchors, stat);
+  var resEl = document.getElementById('pb-res-' + inputId);
+  if (resEl) resEl.innerHTML = pbResultHTML(res, stat);
+
+  pbUpdateComposite(role, pi);
 }
 
 function pbFormatAnchorDisplay(val, stat) {
@@ -1549,30 +1845,35 @@ function pbHandleInput(inputId, role, pi, si) {
 
   var rawStr = el.value.trim();
   var key = _pbInputKey(role, pi, stat.key);
+  var autoTagEl = document.getElementById('pb-autotag-' + inputId);
 
   if (!rawStr) {
     delete PB_INPUTS[key];
-    document.getElementById('pb-res-' + inputId).innerHTML = '';
-    document.getElementById('pb-needle-' + inputId).style.display = 'none';
-    pbUpdateComposite(role, pi);
+    delete PB_MANUAL_KEYS[key];
+    var resEl = document.getElementById('pb-res-' + inputId);
+    var needle = document.getElementById('pb-needle-' + inputId);
+    if (resEl) resEl.innerHTML = '';
+    if (needle) needle.style.display = 'none';
+    if (autoTagEl) autoTagEl.style.display = 'none';
+    // If raw inputs exist for this stat, try re-computing from raw
+    if (pillar.rawInputs && stat.calcFromRaw) {
+      pbTryAutoCalc(role, pi);
+    } else {
+      pbUpdateComposite(role, pi);
+    }
     return;
   }
 
   var val = parseFloat(rawStr);
   if (isNaN(val)) return;
 
+  // Mark as manually entered — overrides auto-calc
+  PB_MANUAL_KEYS[key] = true;
+  delete PB_AUTO_KEYS[key];
+  if (autoTagEl) autoTagEl.style.display = 'none';
+
   PB_INPUTS[key] = val;
-
-  var anchors = stat.anchors(PB.bracket, PB.wl);
-  var needlePos = pbComputeNeedlePos(val, anchors);
-  var needle = document.getElementById('pb-needle-' + inputId);
-  if (needle) { needle.style.left = needlePos + '%'; needle.style.display = 'block'; }
-
-  var res = pbComputeStatResult(val, anchors, stat);
-  var resEl = document.getElementById('pb-res-' + inputId);
-  if (resEl) resEl.innerHTML = pbResultHTML(res, stat);
-
-  pbUpdateComposite(role, pi);
+  pbUpdateStatVisuals(inputId, role, pi, si);
 }
 
 function pbComputeNeedlePos(val, anchors) {
