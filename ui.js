@@ -441,6 +441,35 @@ function renderHomeDesktop(data){
       '<div class="sub">You\'re '+streakHtml+'. '+spotNote+'</div>'+
     '</div>';
 
+  function buildTeamScoreChart(gamesArr,w,h){
+    var sorted=gamesArr.slice().sort(function(a,b){return gameDateTime(a)-gameDateTime(b);});
+    var points=sorted.map(function(g){
+      var scores=PLAYERS.filter(function(p){return p.status!=='Inactive';}).map(function(p){
+        var s=g.playerScores&&g.playerScores[p.id];if(!s||s.skipped)return null;
+        var v=calcGameScore(s,p.role,g,p.id);return v>0?v:null;
+      }).filter(function(v){return v!=null;});
+      var avg=scores.length?scores.reduce(function(a,b){return a+b;},0)/scores.length:null;
+      return avg!=null?{avg:avg,result:g.result}:null;
+    }).filter(function(p){return p!=null;});
+    if(!points.length)return '<svg width="'+w+'" height="'+h+'"></svg>';
+    var padL=4,padR=4,padT=8,padB=4;
+    var plotW=w-padL-padR,plotH=h-padT-padB;
+    var vals=points.map(function(p){return p.avg;});
+    var minV=Math.min.apply(null,vals),maxV=Math.max.apply(null,vals),range=(maxV-minV)||1;
+    function xp(i){return padL+(points.length<=1?plotW/2:i/(points.length-1)*plotW);}
+    function yp(v){return padT+plotH-((v-minV)/range)*plotH;}
+    var coords=points.map(function(p,i){return{x:xp(i),y:yp(p.avg),result:p.result};});
+    var linePath=coords.map(function(c,i){return(i===0?'M':'L')+c.x.toFixed(1)+','+c.y.toFixed(1);}).join(' ');
+    var svg='<svg width="'+w+'" height="'+h+'" style="overflow:visible;">';
+    svg+='<path d="'+linePath+'" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+    coords.forEach(function(c){
+      var col=c.result==='Win'?'#44ff88':'#ff4444';
+      svg+='<circle cx="'+c.x.toFixed(1)+'" cy="'+c.y.toFixed(1)+'" r="3.5" fill="'+col+'"/>';
+    });
+    svg+='</svg>';
+    return svg;
+  }
+
   var wrHero=''+
     '<section class="hd-card hd-wr">'+
       '<div class="hd-wr-row">'+
@@ -448,7 +477,7 @@ function renderHomeDesktop(data){
       '</div>'+
       '<div class="hd-wr-figure">'+
         '<div class="hd-wr-pct"><div class="n">'+wr30+'</div><div class="pct">%</div></div>'+
-        '<div class="hd-wr-spark">'+spark(wrSpark,{w:340,h:50,color:'#44ff88'})+'</div>'+
+        '<div class="hd-wr-spark">'+buildTeamScoreChart(recent30,340,50)+'</div>'+
       '</div>'+
       '<div class="hd-stat-row">'+
         '<div class="hd-stat"><div class="hd-stat-label">Record</div><div class="hd-stat-val mono">'+wins30+'-'+losses30+'</div></div>'+
@@ -1481,7 +1510,7 @@ function _starterAvgRadar(role){
   if(!starters.length)return null;
   var sums=[0,0,0,0,0,0],cnt=[0,0,0,0,0,0];
   starters.forEach(function(p){
-    var ax=_profileRadarAxes(p.id,role);
+    var ax=_profileRadarAxes(p.id,p.role);
     ax.values.forEach(function(v,i){if(v>0){sums[i]+=v;cnt[i]++;}});
   });
   return sums.map(function(s,i){return cnt[i]?s/cnt[i]:0;});
