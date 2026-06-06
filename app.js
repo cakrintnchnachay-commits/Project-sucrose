@@ -140,6 +140,27 @@ function parseHeroCSV(csv){
   return heroes;
 }
 
+// === CLEAR DB CONFIRMATION ===
+var _clearDBTimer = null;
+function confirmClearDB(btn) {
+  if (!btn) return;
+  if (_clearDBTimer) {
+    clearTimeout(_clearDBTimer);
+    _clearDBTimer = null;
+    btn.textContent = 'Clear DB';
+    btn.classList.remove('confirm-pending');
+    clearHeroDB();
+  } else {
+    btn.textContent = 'Tap again to confirm clear';
+    btn.classList.add('confirm-pending');
+    _clearDBTimer = setTimeout(function() {
+      _clearDBTimer = null;
+      btn.textContent = 'Clear DB';
+      btn.classList.remove('confirm-pending');
+    }, 3000);
+  }
+}
+
 async function clearHeroDB(){
   await sb.from('heroes').delete().neq('id','00000000-0000-0000-0000-000000000000'); // delete all
   _cache.heroes=[];
@@ -2036,6 +2057,38 @@ var PILLAR_MAP = {
   support: ['Map Influence',  'Protection', 'Teamfight', 'Tank'],
 };
 var MANUAL_PILLARS = new Set(['Lane Influence','Map Influence','Wave Management','Objective']);
+
+// === MVP MATCH FEEDBACK ===
+function updateMvpFeedback() {
+  var inp = document.getElementById('log-mvp');
+  var fb  = document.getElementById('mvp-match-feedback');
+  if (!fb) return;
+  var val = (inp ? inp.value : '').trim().toLowerCase();
+  if (!val) { fb.textContent = ''; return; }
+  var match = (PLAYERS || []).find(function(p) {
+    return (p.nick && p.nick.toLowerCase().indexOf(val) !== -1) ||
+           (p.ign  && p.ign.toLowerCase().indexOf(val)  !== -1);
+  });
+  if (match) {
+    fb.style.color = 'var(--success)';
+    fb.textContent = '✓ Matched: ' + (match.nick || match.ign);
+  } else {
+    fb.style.color = 'var(--warning)';
+    fb.textContent = '⚠ No player found';
+  }
+}
+
+// === MIDNIGHT DATE REFRESH ===
+setInterval(function() {
+  var dateInput = document.getElementById('log-date');
+  if (!dateInput) return;
+  var today = new Date();
+  var yyyy  = today.getFullYear();
+  var mm    = String(today.getMonth() + 1).padStart(2, '0');
+  var dd    = String(today.getDate()).padStart(2, '0');
+  var todayStr = yyyy + '-' + mm + '-' + dd;
+  if (dateInput.value !== todayStr) dateInput.value = todayStr;
+}, 60000);
 
 function initLog(){
   LS.matchInfo = {};

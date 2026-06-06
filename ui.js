@@ -254,7 +254,8 @@ function renderHome(){
   var totalWins=games.filter(function(g){return g.result==='Win';}).length;
   var gEl=document.getElementById('qs-games');if(gEl) gEl.textContent=totalGames;
   var sEl=document.getElementById('qs-sessions');if(sEl) sEl.textContent=matches.length||'--';
-  var wEl=document.getElementById('qs-winrate');if(wEl) wEl.textContent=totalGames?Math.round(totalWins/totalGames*100)+'%':'--';
+  // === SAMPLE SIZE ===
+  var wEl=document.getElementById('qs-winrate');if(wEl) wEl.innerHTML=totalGames?Math.round(totalWins/totalGames*100)+'%<span style="display:block;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-top:2px;">(n='+totalGames+')</span>':'--';
 
   // ── Win rate by game type: Scrim vs Tournament ──
   function typeStats(type){
@@ -701,6 +702,12 @@ function renderTeamSummary(data){
 // NAVIGATION
 // ══════════════════════════════════════════
 function showPage(id){
+  // === NAV GUARD ===
+  if(typeof LS!=='undefined'&&LS._step>0){
+    var leave=confirm('You have an unsaved game in progress. Leave and discard?');
+    if(!leave) return;
+    LS._step=0;
+  }
   // PIN gate for settings
   if(id==='page-settings'&&_cache.settingsPin&&!_cache._pinUnlocked){
     document.getElementById('pin-entry-inp').value='';

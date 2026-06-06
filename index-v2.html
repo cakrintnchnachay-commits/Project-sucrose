@@ -222,14 +222,15 @@
       </div>
       <!-- Game name -->
       <div class="input-group">
-        <label class="input-label">Game Name</label>
-        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix-1"/>
+        <label class="input-label">Opponent</label>
+        <input class="input" id="log-opponent" placeholder="e.g. Team Phoenix"/>
       </div>
       <!-- Duration + End Time -->
       <div class="row" style="gap:10px;">
         <div class="input-group" style="flex:1;">
           <label class="input-label">Duration <span style="color:var(--grey-5);font-weight:400;">(MM:SS)</span></label>
           <input class="input" id="log-duration" placeholder="12:54" style="font-family:'DM Mono',monospace;letter-spacing:1px;"/>
+          <small class="field-hint">Required for gold/min auto-score</small>
         </div>
         <div class="input-group" style="flex:1;">
           <label class="input-label">Game End Time <span style="color:var(--grey-5);font-weight:400;">(HH:MM)</span></label>
@@ -253,8 +254,9 @@
       <!-- MVP -->
       <div class="input-group">
         <label class="input-label">MVP <span style="color:var(--grey-5);font-weight:400;">(our side · optional)</span></label>
-        <input class="input" id="log-mvp" list="log-mvp-list" placeholder="Search player…" autocomplete="off"/>
+        <input class="input" id="log-mvp" list="log-mvp-list" placeholder="Search player…" autocomplete="off" oninput="updateMvpFeedback()"/>
         <datalist id="log-mvp-list"></datalist>
+        <div id="mvp-match-feedback" style="font-size:0.75rem; margin-top:4px; min-height:1em;"></div>
       </div>
       <!-- VOD URL -->
       <div class="input-group">
@@ -314,9 +316,6 @@
       </div>
     </div>
     <div id="history-list"></div>
-    <div style="padding:16px 20px;border-top:var(--border);">
-      <button class="btn btn-full" onclick="exportCSV()">Export Data as Text</button>
-    </div>
   </div>
 
   <!-- COMPARE -->
@@ -371,7 +370,7 @@
       </div>
       <div style="display:flex;gap:10px;">
         <button class="btn btn-primary" style="flex:1;" onclick="importFromSheet()">Import / Re-sync URL</button>
-        <button class="btn btn-danger btn-sm" onclick="clearHeroDB()">Clear DB</button>
+        <button class="btn btn-danger btn-sm" id="clear-db-btn" onclick="confirmClearDB(this)">Clear DB</button>
       </div>
       <div id="import-status" style="margin-top:12px;font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);"></div>
     </div>
@@ -774,6 +773,9 @@
 <script src="app.js?v=20260530a"></script>
 
 <style>
+/* ── Field hints ── */
+.field-hint { font-size: 0.72rem; color: #888; margin-top: 3px; display: block; }
+
 /* ── Pro Benchmarks styles ── */
 .pb-role-pill {
   padding: 18px 8px;
