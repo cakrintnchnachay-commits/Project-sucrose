@@ -422,6 +422,7 @@
         <button class="tier-mode-btn" id="dc-tab-heroes" onclick="dcSetTab('heroes')">Heroes</button>
         <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
         <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
+        <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
       </div>
       <!-- Heroes controls (shown only when heroes tab is active) -->
       <div id="dc-heroes-controls" style="display:none;margin-top:8px;">
@@ -529,6 +530,20 @@
 
         <!-- Pillar cards -->
         <div id="pb-pillars" style="padding:14px 20px 80px;display:flex;flex-direction:column;gap:14px;"></div>
+      </div>
+    </div>
+
+    <!-- META LAB sub-section -->
+    <div id="dc-section-metalab" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="padding:10px 14px;border-bottom:var(--border);flex-shrink:0;">
+        <div id="ml-tour-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div id="ml-sort-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div id="ml-role-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input class="input" id="ml-search" placeholder="Search hero..." oninput="mlRenderList()" style="margin:0;"/>
+      </div>
+      <div class="heroes-split">
+        <div class="heroes-pool-side"><div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div></div>
+        <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -771,6 +786,7 @@
 
 <script src="ui.js?v=20260530a"></script>
 <script src="app.js?v=20260530a"></script>
+<script src="metalab.js"></script>
 
 <style>
 /* ── Field hints ── */
@@ -1087,10 +1103,11 @@ function dcRenderActiveTab(tab) {
   if (tab === 'heroes')   { if (typeof renderHeroes === 'function') renderHeroes(); }
   if (tab === 'tiers')    { if (typeof initTiers === 'function')    initTiers(); }
   if (tab === 'probench') pbRenderCurrentRole();
+  if (tab === 'metalab')  { if (typeof mlInit === 'function')       mlInit(); }
 }
 
 function dcSetTab(tab) {
-  var tabs = ['heroes', 'tiers', 'probench'];
+  var tabs = ['heroes', 'tiers', 'probench', 'metalab'];
   tabs.forEach(function(t) {
     var btn = document.getElementById('dc-tab-' + t);
     var sec = document.getElementById('dc-section-' + t);
@@ -1949,6 +1966,8 @@ function pbUpdateComposite(role, pi) {
   compEl.style.color = _pbScoreColor(composite);
 }
 
+
+// META LAB ENGINE — see metalab.js
 
 </script>
 </body>
