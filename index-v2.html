@@ -422,6 +422,7 @@
         <button class="tier-mode-btn" id="dc-tab-heroes" onclick="dcSetTab('heroes')">Heroes</button>
         <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
         <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
+        <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
       </div>
       <!-- Heroes controls (shown only when heroes tab is active) -->
       <div id="dc-heroes-controls" style="display:none;margin-top:8px;">
@@ -529,6 +530,20 @@
 
         <!-- Pillar cards -->
         <div id="pb-pillars" style="padding:14px 20px 80px;display:flex;flex-direction:column;gap:14px;"></div>
+      </div>
+    </div>
+
+    <!-- META LAB sub-section -->
+    <div id="dc-section-metalab" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="padding:10px 14px;border-bottom:var(--border);flex-shrink:0;">
+        <div id="ml-tour-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div id="ml-sort-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div id="ml-role-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input class="input" id="ml-search" placeholder="Search hero..." oninput="mlRenderList()" style="margin:0;"/>
+      </div>
+      <div class="heroes-split">
+        <div class="heroes-pool-side"><div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div></div>
+        <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -1087,10 +1102,11 @@ function dcRenderActiveTab(tab) {
   if (tab === 'heroes')   { if (typeof renderHeroes === 'function') renderHeroes(); }
   if (tab === 'tiers')    { if (typeof initTiers === 'function')    initTiers(); }
   if (tab === 'probench') pbRenderCurrentRole();
+  if (tab === 'metalab')  { if (typeof mlInit === 'function')       mlInit(); }
 }
 
 function dcSetTab(tab) {
-  var tabs = ['heroes', 'tiers', 'probench'];
+  var tabs = ['heroes', 'tiers', 'probench', 'metalab'];
   tabs.forEach(function(t) {
     var btn = document.getElementById('dc-tab-' + t);
     var sec = document.getElementById('dc-section-' + t);
@@ -1948,6 +1964,592 @@ function pbUpdateComposite(role, pi) {
   compEl.textContent = composite.toFixed(1) + ' / 10';
   compEl.style.color = _pbScoreColor(composite);
 }
+
+
+// === META LAB ENGINE (pro hero hub, reads game_results_detailed.csv) ===
+var ML_GAMES    = null;
+var ML_TOUR     = 'All';
+var ML_SORT     = 'presence';
+var ML_ROLE     = 'All';
+var ML_SELECTED = null;
+var ML_DETAIL_TAB = 'overview';
+
+function mlInit() {
+  if (ML_GAMES) { mlRenderBars(); mlRenderList(); return; }
+  var det = document.getElementById('ml-detail');
+  var lst = document.getElementById('ml-hero-list');
+  if (det) det.innerHTML = '<div style="padding:20px;color:var(--grey-5);font-size:12px;">Loading pro data…</div>';
+  if (lst) lst.innerHTML = '';
+  fetch('data/game_results_detailed.csv', {cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(function(csv){
+      ML_GAMES = mlBuildGames(csv);
+      mlRenderBars();
+      mlRenderList();
+      if (det) det.innerHTML = '<div style="padding:20px;color:var(--grey-5);font-size:12px;">Select a hero to view details.</div>';
+    })
+    .catch(function(err){
+      if (det) det.innerHTML = '<div style="padding:20px;">'
+        +'<div style="color:var(--red,#e55);font-size:12px;margin-bottom:10px;">Failed to load pro data: '+err.message+'</div>'
+        +'<button class="btn btn-sm" onclick="ML_GAMES=null;mlInit()">Retry</button></div>';
+    });
+}
+
+function _mlParseCSVRow(line) {
+  var result = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function mlBuildGames(csvText) {
+  var lines = csvText.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+  var header = _mlParseCSVRow(lines[0]);
+  var ci = {};
+  header.forEach(function(h,i){ ci[h.trim()] = i; });
+
+  var ROLES = ['DSL','JUG','MID','ADL','SUP'];
+  var games = [];
+
+  for (var li = 1; li < lines.length; li++) {
+    var raw = lines[li].trim();
+    if (!raw) continue;
+    var cols = _mlParseCSVRow(raw);
+
+    // Drop incomplete rows
+    var chk = cols[ci['A DSL KILL']];
+    if (!chk || chk === '') continue;
+    var chkN = parseFloat(chk);
+    if (isNaN(chkN) && chk !== '0') continue;
+
+    var dur = parseFloat(cols[ci['END TIME']] || '0');
+    if (dur <= 0) continue;
+
+    var tour  = (cols[ci['TYPE']] || '').trim();
+    var teamA = (cols[ci['Team A']] || '').trim();
+    var teamB = (cols[ci['Team B']] || '').trim();
+    var matchWin = (cols[ci['MATCH WIN']] || '').trim();
+    var winSide = matchWin === teamA ? 'A' : 'B';
+
+    var bansA = ['A BAN 1','A BAN 2','A BAN 3','A BAN 4'].map(function(k){ return (cols[ci[k]]||'').trim(); }).filter(Boolean);
+    var bansB = ['B BAN 1','B BAN 2','B BAN 3','B BAN 4'].map(function(k){ return (cols[ci[k]]||'').trim(); }).filter(Boolean);
+
+    var picks = [];
+    var teamKillsA = 0, teamKillsB = 0;
+    var aGold = parseFloat((cols[ci['A Gold']]||'0').replace(/,/g,'')) || 0;
+    var bGold = parseFloat((cols[ci['B Gold']]||'0').replace(/,/g,'')) || 0;
+
+    ['A','B'].forEach(function(side) {
+      ROLES.forEach(function(role) {
+        var hero   = (cols[ci[side+' '+role]] || '').trim();
+        var player = (cols[ci[side+' P '+role]] || '').trim();
+        var k  = parseFloat(cols[ci[side+' '+role+' KILL']]  || '0') || 0;
+        var d  = parseFloat(cols[ci[side+' '+role+' DEATH']] || '0') || 0;
+        var a  = parseFloat(cols[ci[side+' '+role+' ASSIST']]|| '0') || 0;
+        var dmg = parseFloat((cols[ci[side+' '+role+' DMG']]||'0').replace(/,/g,'')) || 0;
+        var dtk = parseFloat((cols[ci[side+' '+role+' DTK']]||'0').replace(/,/g,'')) || 0;
+        if (side === 'A') teamKillsA += k; else teamKillsB += k;
+        picks.push({ side:side, role:role, hero:hero, player:player, k:k, d:d, a:a, dmg:dmg, dtk:dtk });
+      });
+    });
+
+    var mvpHero = (cols[ci['MVP Hero']]||'').trim();
+    var mvpPlayer = (cols[ci['MVP']]||'').trim();
+
+    games.push({
+      tour: tour, dur: dur, winSide: winSide,
+      teams: { A: teamA, B: teamB },
+      bans: { A: bansA, B: bansB },
+      picks: picks,
+      teamKills: { A: teamKillsA, B: teamKillsB },
+      gold: { A: aGold, B: bGold },
+      mvpHero: mvpHero, mvpPlayer: mvpPlayer
+    });
+  }
+  return games;
+}
+
+function mlFilteredGames() {
+  if (!ML_GAMES) return [];
+  return ML_GAMES.filter(function(g){ return ML_TOUR === 'All' || g.tour === ML_TOUR; });
+}
+
+function mlHeroStats(hero, games) {
+  var picks = [], bans = 0;
+  games.forEach(function(g) {
+    g.bans.A.forEach(function(b){ if(b===hero) bans++; });
+    g.bans.B.forEach(function(b){ if(b===hero) bans++; });
+    g.picks.forEach(function(p) {
+      if (p.hero === hero) picks.push({ g:g, p:p });
+    });
+  });
+  var n = picks.length, totalGames = games.length;
+  if (totalGames === 0) return null;
+
+  var wins=0, sumK=0, sumD=0, sumA=0, sumDmg=0, sumDtk=0, sumDur=0;
+  var kpSum=0, kpCount=0, mvpCount=0;
+  var blueWins=0, bluePicks=0, redWins=0, redPicks=0;
+  var winGoldDiffs=[], avgDurs=[];
+
+  picks.forEach(function(entry) {
+    var g=entry.g, p=entry.p;
+    if(g.dur<=0) return;
+    var won = (g.winSide===p.side);
+    if(won) wins++;
+    sumK+=p.k; sumD+=p.d; sumA+=p.a; sumDmg+=p.dmg; sumDtk+=p.dtk; sumDur+=g.dur;
+    avgDurs.push(g.dur);
+    if(p.side==='A'){bluePicks++; if(won) blueWins++;}
+    else {redPicks++; if(won) redWins++;}
+    var tk = g.teamKills[p.side];
+    if(tk > 0) { kpSum += Math.min((p.k+p.a)/tk, 1); kpCount++; }
+    if(g.mvpHero===hero && won) mvpCount++;
+    if(won) {
+      var ownG = g.gold[p.side], oppG = g.gold[p.side==='A'?'B':'A'];
+      winGoldDiffs.push((ownG - oppG) / (5 * g.dur));
+    }
+  });
+
+  var kda = (sumK+sumA)/Math.max(sumD,1);
+  var killsPerMin = sumDur>0 ? sumK/sumDur : 0;
+  var deathsPerMin = sumDur>0 ? sumD/sumDur : 0;
+  var minPerDeath = sumD>0 ? sumDur/sumD : sumDur;
+  var dmgPerMin = sumDur>0 ? sumDmg/sumDur : 0;
+  var dtkPerMin = sumDur>0 ? sumDtk/sumDur : 0;
+  var kpPct = kpCount>0 ? kpSum/kpCount : 0;
+  var mvpRate = n>0 ? mvpCount/n : 0;
+  var wr = n>0 ? wins/n : 0;
+  var pr = n/totalGames;
+  var br = bans/totalGames;
+  var presence = (n+bans)/totalGames;
+  var avgDur = avgDurs.length>0 ? avgDurs.reduce(function(a,b){return a+b;},0)/avgDurs.length : 0;
+  var winGoldDiff = winGoldDiffs.length>0 ? winGoldDiffs.reduce(function(a,b){return a+b;},0)/winGoldDiffs.length : null;
+  var blueWR = bluePicks>0 ? blueWins/bluePicks : null;
+  var redWR  = redPicks>0  ? redWins/redPicks   : null;
+
+  return {
+    games:n, wins:wins, bans:bans, wr:wr, pr:pr, br:br, presence:presence,
+    kda:kda, killsPerMin:killsPerMin, deathsPerMin:deathsPerMin, minPerDeath:minPerDeath,
+    dmgPerMin:dmgPerMin, dtkPerMin:dtkPerMin, kpPct:kpPct, mvpRate:mvpRate,
+    avgDur:avgDur, winGoldDiff:winGoldDiff, blueWR:blueWR, redWR:redWR,
+    sumK:sumK, sumD:sumD, sumA:sumA
+  };
+}
+
+function mlRenderBars() {
+  var tours = ['All','RPL Summer','GCS Spring','AOG Spring','APL'];
+  var tourEl = document.getElementById('ml-tour-bar');
+  if (tourEl) tourEl.innerHTML = tours.map(function(t){
+    return '<button class="tier-mode-btn'+(ML_TOUR===t?' active':'')+'" onclick="ML_TOUR=\''+t+'\';mlRenderBars();mlRenderList()">'+t+'</button>';
+  }).join('');
+
+  var sorts = [{k:'presence',l:'Presence'},{k:'winrate',l:'Win Rate'},{k:'games',l:'Games'}];
+  var sortEl = document.getElementById('ml-sort-bar');
+  if (sortEl) sortEl.innerHTML = sorts.map(function(s){
+    return '<button class="tier-mode-btn'+(ML_SORT===s.k?' active':'')+'" onclick="ML_SORT=\''+s.k+'\';mlRenderList()">'+s.l+'</button>';
+  }).join('');
+
+  var roles = ['All','DSL','JUG','MID','ADL','SUP'];
+  var roleEl = document.getElementById('ml-role-tabs');
+  if (roleEl) roleEl.innerHTML = roles.map(function(r){
+    return '<button class="tier-mode-btn'+(ML_ROLE===r?' active':'')+'" onclick="ML_ROLE=\''+r+'\';mlRenderList()">'+r+'</button>';
+  }).join('');
+}
+
+function mlCollectHeroes(games) {
+  var heroSet = {};
+  games.forEach(function(g){
+    g.picks.forEach(function(p){
+      if(p.hero) {
+        if(!heroSet[p.hero]) heroSet[p.hero] = { roles:{} };
+        heroSet[p.hero].roles[p.role] = true;
+      }
+    });
+    [g.bans.A, g.bans.B].forEach(function(bl){
+      bl.forEach(function(b){ if(b && !heroSet[b]) heroSet[b]={roles:{}}; });
+    });
+  });
+  return heroSet;
+}
+
+function mlSortHeroes(list) {
+  var key = ML_SORT === 'winrate' ? 'wr' : ML_SORT === 'games' ? 'games' : 'presence';
+  return list.slice().sort(function(a,b){
+    var aLow = a.stats.games < 10, bLow = b.stats.games < 10;
+    if (aLow !== bLow) return aLow ? 1 : -1;
+    return (b.stats[key]||0) - (a.stats[key]||0);
+  });
+}
+
+function mlRenderList() {
+  var el = document.getElementById('ml-hero-list');
+  if (!el || !ML_GAMES) return;
+  var games = mlFilteredGames();
+  var heroSet = mlCollectHeroes(games);
+  var q = (document.getElementById('ml-search')||{}).value || '';
+  q = q.trim().toLowerCase();
+
+  var list = [];
+  Object.keys(heroSet).forEach(function(hero){
+    if(ML_ROLE !== 'All' && !heroSet[hero].roles[ML_ROLE]) return;
+    if(q && !hero.toLowerCase().includes(q)) return;
+    var stats = mlHeroStats(hero, games);
+    if(!stats) return;
+    list.push({hero:hero, stats:stats});
+  });
+
+  list = mlSortHeroes(list);
+
+  el.innerHTML = list.map(function(item){
+    var s = item.stats;
+    var isLow = s.games < 10;
+    var sel = ML_SELECTED === item.hero;
+    return '<div class="hp-row'+(sel?' selected':'')+'" onclick="mlSelectHero(\''+item.hero.replace(/'/g,"\\'")+'\')" style="cursor:pointer;">'
+      +'<div style="flex:1;min-width:0;">'
+        +'<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+item.hero
+          +(isLow?'<span style="font-size:9px;color:var(--grey-4);margin-left:4px;">LOW SAMPLE</span>':'')
+        +'</div>'
+        +'<div style="font-size:10px;color:var(--grey-5);">'+s.games+' games</div>'
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0;">'
+        +'<div style="font-size:11px;font-weight:600;">'+Math.round(s.wr*100)+'% WR</div>'
+        +'<div style="font-size:10px;color:var(--grey-5);">'+Math.round(s.presence*100)+'% pres</div>'
+      +'</div>'
+    +'</div>';
+  }).join('') || '<div style="padding:20px;color:var(--grey-5);font-size:12px;">No heroes found.</div>';
+}
+
+function mlSelectHero(hero) {
+  ML_SELECTED = hero;
+  ML_DETAIL_TAB = 'overview';
+  mlRenderList();
+  mlRenderDetail();
+}
+
+function _mlFmt(v, decimals) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return v.toFixed(decimals !== undefined ? decimals : 2);
+}
+function _mlFmtPct(v) { return v === null || v === undefined ? '—' : Math.round(v*100)+'%'; }
+function _mlFmtK(v)   { return v >= 1000 ? (v/1000).toFixed(1)+'k' : _mlFmt(v,0); }
+
+function mlRenderDetail() {
+  var el = document.getElementById('ml-detail');
+  if (!el || !ML_SELECTED) return;
+  var games = mlFilteredGames();
+  var stats = mlHeroStats(ML_SELECTED, games);
+  if (!stats || stats.games === 0) {
+    el.innerHTML = '<div style="padding:20px;color:var(--grey-5);font-size:12px;">No data for this hero in the current filter.</div>';
+    return;
+  }
+
+  var tabs = ['overview','stats','style','players','matchups'];
+  var tabLabels = {overview:'Overview',stats:'Stats',style:'Style',players:'Players',matchups:'Matchups'};
+  var tabBar = '<div style="display:flex;gap:4px;flex-wrap:wrap;padding:10px 14px;border-bottom:var(--border);flex-shrink:0;">'
+    + tabs.map(function(t){
+      return '<button class="tier-mode-btn'+(ML_DETAIL_TAB===t?' active':'')+'" onclick="ML_DETAIL_TAB=\''+t+'\';mlRenderDetail()">'+tabLabels[t]+'</button>';
+    }).join('')
+    +'</div>';
+
+  var heroTitle = '<div style="padding:10px 14px 0;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">'+ML_SELECTED+'</div>'
+    +'<div style="font-size:10px;color:var(--grey-5);margin-bottom:4px;">'+stats.games+' games · '+(stats.games<10?'<span style="color:var(--warn);">LOW SAMPLE</span>':'in filter')+'</div></div>';
+
+  var body = '';
+  if (ML_DETAIL_TAB === 'overview') body = mlDetailOverview(stats);
+  else if (ML_DETAIL_TAB === 'stats') body = mlDetailStats(stats);
+  else if (ML_DETAIL_TAB === 'style') body = mlDetailStyle(stats, games);
+  else if (ML_DETAIL_TAB === 'players') body = mlDetailPlayers(games);
+  else if (ML_DETAIL_TAB === 'matchups') body = mlDetailMatchups(games);
+
+  el.innerHTML = heroTitle + tabBar + '<div style="padding:12px 14px 60px;">' + body + '</div>';
+}
+
+function _mlCard(label, value, sub) {
+  return '<div style="background:var(--grey-1);border-radius:4px;padding:10px 12px;min-width:90px;">'
+    +'<div style="font-size:9px;color:var(--grey-5);letter-spacing:1px;margin-bottom:4px;">'+label+'</div>'
+    +'<div style="font-size:18px;font-family:\'DM Mono\',monospace;font-weight:600;">'+value+'</div>'
+    +(sub?'<div style="font-size:9px;color:var(--grey-5);margin-top:2px;">'+sub+'</div>':'')
+    +'</div>';
+}
+
+function mlDetailOverview(s) {
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;">'
+    + _mlCard('WIN RATE',    _mlFmtPct(s.wr))
+    + _mlCard('PICK RATE',   _mlFmtPct(s.pr))
+    + _mlCard('BAN RATE',    _mlFmtPct(s.br))
+    + _mlCard('PRESENCE',    _mlFmtPct(s.presence))
+    + _mlCard('GAMES',       s.games)
+    + _mlCard('MVP RATE',    _mlFmtPct(s.mvpRate))
+    +'</div>';
+}
+
+function _mlStatRow(label, value) {
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--grey-2);">'
+    +'<span style="font-size:11px;color:var(--grey-5);">'+label+'</span>'
+    +'<span style="font-size:12px;font-family:\'DM Mono\',monospace;font-weight:600;">'+value+'</span>'
+    +'</div>';
+}
+
+function _mlSection(title, rows) {
+  return '<div style="margin-bottom:16px;"><div style="font-size:9px;color:var(--grey-4);letter-spacing:2px;margin-bottom:4px;">'+title+'</div>'
+    + rows + '</div>';
+}
+
+function mlDetailStats(s) {
+  var combat = _mlSection('COMBAT',
+    _mlStatRow('KDA', _mlFmt(s.kda,2))
+    +_mlStatRow('Kills / min', _mlFmt(s.killsPerMin,3))
+    +_mlStatRow('Deaths / min', _mlFmt(s.deathsPerMin,3))
+    +_mlStatRow('Min / death', _mlFmt(s.minPerDeath,2)+' min')
+    +_mlStatRow('Damage / min', _mlFmtK(s.dmgPerMin))
+    +_mlStatRow('Dmg taken / min', _mlFmtK(s.dtkPerMin))
+    +_mlStatRow('Kill Participation', _mlFmtPct(s.kpPct))
+  );
+  var impact = _mlSection('IMPACT',
+    _mlStatRow('MVP Rate', _mlFmtPct(s.mvpRate))
+    +_mlStatRow('Win Gold Diff/min', s.winGoldDiff!==null ? _mlFmtK(s.winGoldDiff) : '—')
+  );
+  var ctx = _mlSection('CONTEXT',
+    _mlStatRow('Win Rate (Blue)', s.blueWR!==null?_mlFmtPct(s.blueWR):'—')
+    +_mlStatRow('Win Rate (Red)',  s.redWR!==null?_mlFmtPct(s.redWR):'—')
+    +_mlStatRow('Avg Game Length', _mlFmt(s.avgDur,2)+' min')
+    +_mlStatRow('Pick Rate', _mlFmtPct(s.pr))
+    +_mlStatRow('Ban Rate', _mlFmtPct(s.br))
+    +_mlStatRow('Presence', _mlFmtPct(s.presence))
+  );
+  return combat + impact + ctx;
+}
+
+function mlDetailStyle(stats, games) {
+  // Build pool of heroes with >=10 games for normalization
+  var heroSet = mlCollectHeroes(games);
+  var allStats = [];
+  Object.keys(heroSet).forEach(function(h){
+    var s = mlHeroStats(h, games);
+    if(s && s.games>=10) allStats.push(s);
+  });
+
+  function percentileOf(arr, val) {
+    if(!arr.length) return 0.5;
+    var below = arr.filter(function(x){ return x<val; }).length;
+    return below/arr.length;
+  }
+
+  var axes = [
+    {key:'dmgPerMin',    label:'Damage/min',     rawFn:function(s){return _mlFmtK(s.dmgPerMin);}},
+    {key:'dtkPerMin',    label:'Dmg Taken/min',  rawFn:function(s){return _mlFmtK(s.dtkPerMin);}},
+    {key:'kda',          label:'KDA',             rawFn:function(s){return _mlFmt(s.kda,2);}},
+    {key:'avgDur',       label:'Game Length',     rawFn:function(s){return _mlFmt(s.avgDur,2)+'m';}},
+    {key:'minPerDeath',  label:'Min/Death',       rawFn:function(s){return _mlFmt(s.minPerDeath,2);}},
+    {key:'mvpRate',      label:'MVP Rate',        rawFn:function(s){return _mlFmtPct(s.mvpRate);}},
+  ];
+
+  var pools = {};
+  axes.forEach(function(ax){
+    pools[ax.key] = allStats.map(function(s){ return s[ax.key]||0; });
+  });
+
+  var values = axes.map(function(ax){
+    return percentileOf(pools[ax.key], stats[ax.key]||0) * 100;
+  });
+  var rawLabels = axes.map(function(ax){ return ax.rawFn(stats); });
+  var axisLabels = axes.map(function(ax){ return ax.label; });
+
+  return mlDrawRadarSVG(values, axisLabels, rawLabels, 200, 'var(--accent,#ffcc44)');
+}
+
+function mlDrawRadarSVG(values, labels, rawLabels, size, color) {
+  var n = values.length;
+  var cx = size/2, cy = size/2, r = size*0.35;
+  var levels = [0.2,0.4,0.6,0.8,1.0];
+
+  function ptX(i,frac){ return cx + Math.cos(Math.PI/2 + 2*Math.PI*i/n)*r*frac; }
+  function ptY(i,frac){ return cy - Math.sin(Math.PI/2 + 2*Math.PI*i/n)*r*frac; }
+
+  // Grid
+  var svg = '<svg viewBox="0 0 '+size+' '+size+'" style="width:100%;max-width:'+size+'px;display:block;margin:0 auto;">';
+  levels.forEach(function(lv){
+    var pts = [];
+    for(var i=0;i<n;i++) pts.push(ptX(i,lv)+','+ptY(i,lv));
+    svg += '<polygon points="'+pts.join(' ')+'" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>';
+  });
+  // Spokes
+  for(var i=0;i<n;i++){
+    svg += '<line x1="'+cx+'" y1="'+cy+'" x2="'+ptX(i,1)+'" y2="'+ptY(i,1)+'" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>';
+  }
+  // Data polygon
+  var dpts = values.map(function(v,i){ return ptX(i,v/100)+','+ptY(i,v/100); });
+  var hexColor = (typeof color === 'string' && color.startsWith('var')) ? '#ffcc44' : color;
+  svg += '<polygon points="'+dpts.join(' ')+'" fill="'+hexColor+'22" stroke="'+hexColor+'" stroke-width="1.5"/>';
+  // Dots
+  values.forEach(function(v,i){
+    svg += '<circle cx="'+ptX(i,v/100)+'" cy="'+ptY(i,v/100)+'" r="3" fill="'+hexColor+'"/>';
+  });
+  // Labels
+  for(var i=0;i<n;i++){
+    var lx = ptX(i,1.22), ly = ptY(i,1.22);
+    var anchor = lx < cx-5 ? 'end' : lx > cx+5 ? 'start' : 'middle';
+    svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="'+anchor+'" font-size="8" fill="rgba(255,255,255,0.55)" font-family="DM Mono,monospace">'+labels[i]+'</text>';
+    svg += '<text x="'+lx+'" y="'+(ly+10)+'" text-anchor="'+anchor+'" font-size="9" fill="rgba(255,255,255,0.8)" font-family="DM Mono,monospace" font-weight="600">'+rawLabels[i]+'</text>';
+  }
+  svg += '</svg>';
+  return '<div style="margin-bottom:12px;">'+svg+'</div>'
+    +'<div style="font-size:9px;color:var(--grey-5);text-align:center;">Percentile rank among heroes with ≥10 games in current filter.</div>';
+}
+
+function mlDetailPlayers(games) {
+  if (!ML_SELECTED) return '';
+  var playerMap = {};
+  games.forEach(function(g){
+    g.picks.forEach(function(p){
+      if(p.hero !== ML_SELECTED) return;
+      var key = p.player || '?';
+      if(!playerMap[key]) playerMap[key] = {player:p.player, picks:[], team:''};
+      // Find team
+      playerMap[key].team = g.teams[p.side] || '';
+      playerMap[key].picks.push({g:g,p:p});
+    });
+  });
+
+  var playerList = Object.values(playerMap).sort(function(a,b){ return b.picks.length - a.picks.length; });
+  var rosterPlayers = (typeof getPlayers === 'function') ? getPlayers() : [];
+
+  function findRosterMatch(pname) {
+    var lo = (pname||'').toLowerCase();
+    return rosterPlayers.find(function(rp){
+      return (rp.nick&&rp.nick.toLowerCase()===lo)||(rp.ign&&rp.ign.toLowerCase()===lo);
+    }) || null;
+  }
+
+  var html = '';
+  playerList.forEach(function(pl){
+    var picks = pl.picks, n = picks.length;
+    var wins = picks.filter(function(e){ return e.g.winSide===e.p.side; }).length;
+    var wr = n>0 ? wins/n : 0;
+    var rp = findRosterMatch(pl.player);
+    var nameHtml = rp
+      ? '<span style="cursor:pointer;color:var(--accent,#ffcc44);text-decoration:underline;" onclick="showProfile(\''+rp.id+'\')">'+pl.team+'.'+pl.player+'</span>'
+      : '<span>'+pl.team+'.'+pl.player+'</span>';
+
+    var rowId = 'ml-pl-'+pl.player.replace(/[^a-zA-Z0-9]/g,'_');
+    html += '<div style="border-bottom:1px solid var(--grey-2);padding:8px 0;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        +'<div style="font-size:12px;font-weight:600;">'+nameHtml+'</div>'
+        +'<div style="display:flex;gap:10px;align-items:center;">'
+          +'<span style="font-size:11px;color:var(--grey-5);">'+n+' games</span>'
+          +'<span style="font-size:11px;font-family:\'DM Mono\',monospace;">'+Math.round(wr*100)+'% WR</span>'
+          +'<button class="tier-mode-btn" style="padding:2px 6px;font-size:9px;" onclick="mlTogglePlayerExpand(\''+rowId+'\')">'
+            +'<span id="'+rowId+'-lbl">▶</span>'
+          +'</button>'
+        +'</div>'
+      +'</div>'
+      +'<div id="'+rowId+'" style="display:none;margin-top:8px;">'
+        +mlPlayerPickStats(picks)
+      +'</div>'
+    +'</div>';
+  });
+
+  return html || '<div style="color:var(--grey-5);font-size:12px;">No player data.</div>';
+}
+
+function mlTogglePlayerExpand(id) {
+  var el = document.getElementById(id);
+  var lbl = document.getElementById(id+'-lbl');
+  if(!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if(lbl) lbl.textContent = open ? '▶' : '▼';
+}
+
+function mlPlayerPickStats(picks) {
+  var n=picks.length, wins=0;
+  var sumK=0,sumD=0,sumA=0,sumDmg=0,sumDtk=0,sumDur=0;
+  var kpSum=0,kpCount=0,mvpCount=0;
+  picks.forEach(function(e){
+    var g=e.g,p=e.p;
+    var won=(g.winSide===p.side);
+    if(won) wins++;
+    sumK+=p.k;sumD+=p.d;sumA+=p.a;sumDmg+=p.dmg;sumDtk+=p.dtk;sumDur+=g.dur;
+    var tk=g.teamKills[p.side];
+    if(tk>0){kpSum+=Math.min((p.k+p.a)/tk,1);kpCount++;}
+    if(g.mvpHero===ML_SELECTED&&won) mvpCount++;
+  });
+  var s = {
+    games:n,wins:wins,wr:n>0?wins/n:0,
+    kda:(sumK+sumA)/Math.max(sumD,1),
+    killsPerMin:sumDur>0?sumK/sumDur:0,
+    deathsPerMin:sumDur>0?sumD/sumDur:0,
+    minPerDeath:sumD>0?sumDur/sumD:sumDur,
+    dmgPerMin:sumDur>0?sumDmg/sumDur:0,
+    dtkPerMin:sumDur>0?sumDtk/sumDur:0,
+    kpPct:kpCount>0?kpSum/kpCount:0,
+    mvpRate:n>0?mvpCount/n:0,
+    avgDur:sumDur>0?sumDur/n:0
+  };
+  return mlDetailStats(s);
+}
+
+function mlDetailMatchups(games) {
+  if (!ML_SELECTED) return '';
+  var allies = {}, enemies = {};
+  games.forEach(function(g){
+    var heroSide = null;
+    g.picks.forEach(function(p){ if(p.hero===ML_SELECTED) heroSide=p.side; });
+    if(!heroSide) return;
+    var heroWon = g.winSide===heroSide;
+    g.picks.forEach(function(p){
+      if(p.hero===ML_SELECTED||!p.hero) return;
+      var isAlly = p.side===heroSide;
+      var map = isAlly ? allies : enemies;
+      if(!map[p.hero]) map[p.hero]={hero:p.hero,games:0,wins:0};
+      map[p.hero].games++;
+      if(heroWon) map[p.hero].wins++;
+    });
+  });
+
+  function renderMatchupTable(map, label) {
+    var list = Object.values(map).sort(function(a,b){return b.games-a.games;});
+    if(!list.length) return '<div style="color:var(--grey-5);font-size:11px;margin-bottom:12px;">No '+label+' data.</div>';
+    var top5 = list.slice(0,5);
+    var rest = list.slice(5);
+    var expandId = 'ml-mu-'+label.replace(/\s/g,'_');
+    var rows = function(items){
+      return items.map(function(item){
+        return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--grey-2);">'
+          +'<span style="font-size:11px;">'+item.hero+'</span>'
+          +'<span style="font-size:11px;font-family:\'DM Mono\',monospace;">'+Math.round(item.wins/item.games*100)+'% WR · '+item.games+' g</span>'
+          +'</div>';
+      }).join('');
+    };
+    var html = '<div style="margin-bottom:12px;">'
+      +'<div style="font-size:9px;color:var(--grey-4);letter-spacing:2px;margin-bottom:4px;">'+label.toUpperCase()+'</div>'
+      +rows(top5);
+    if(rest.length) {
+      html += '<div id="'+expandId+'" style="display:none;">'+rows(rest)+'</div>'
+        +'<button class="tier-mode-btn" style="margin-top:6px;font-size:9px;" onclick="var e=document.getElementById(\''+expandId+'\');if(e){var open=e.style.display!==\'none\';e.style.display=open?\'none\':\'block\';this.textContent=open?\'Show '+(rest.length)+' more\':\'Show less\';}">Show '+rest.length+' more</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  var subTabId = 'ml-mu-subtab';
+  var curSub = (window._mlMuTab||'allies');
+  var subBar = '<div style="display:flex;gap:4px;margin-bottom:10px;">'
+    +'<button class="tier-mode-btn'+(curSub==='allies'?' active':'')+'" onclick="window._mlMuTab=\'allies\';mlRenderDetail()">Allies</button>'
+    +'<button class="tier-mode-btn'+(curSub==='enemies'?' active':'')+'" onclick="window._mlMuTab=\'enemies\';mlRenderDetail()">Enemies</button>'
+    +'</div>';
+
+  var content = curSub==='allies'
+    ? renderMatchupTable(allies, 'Allies')
+    : renderMatchupTable(enemies, 'Enemies');
+
+  return subBar + content;
+}
+// === END META LAB ENGINE ===
 
 
 </script>
