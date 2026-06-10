@@ -685,6 +685,210 @@ function mlDrawHeroRadar(heroStats, refStats, caps) {
   });
 }
 
+// ── Style tab (radar) ────────────────────────────────────────
+
+var _ML_RADAR_AXES = [
+  {key:'dmgPerMin',   label:'DMG/min',   cap:800,  fmt:function(v){return (v/1000).toFixed(1)+'k';}},
+  {key:'dtkPerMin',   label:'DTK/min',   cap:600,  fmt:function(v){return (v/1000).toFixed(1)+'k';}},
+  {key:'kda',         label:'KDA',       cap:5,    fmt:function(v){return v.toFixed(2);}},
+  {key:'kp',          label:'Kill Part', cap:75,   fmt:function(v){return v.toFixed(0)+'%';}},
+  {key:'minPerDeath', label:'Min/Death', cap:12,   fmt:function(v){return v.toFixed(1);}},
+  {key:'mvpRate',     label:'MVP Rate',  cap:0.40, fmt:function(v){return (v*100).toFixed(0)+'%';}}
+];
+
+function _mlStyleShell() {
+  var heroFirst = (ML_SELECTED || '').split(' ')[0];
+  return (
+    _mlSectionHdr('STYLE PROFILE', 'vs pool average · heroes ≥10 games') +
+    '<div style="padding:14px;">' +
+      '<div class="hd-radar-canvas-wrap" style="position:relative;">' +
+        '<canvas id="ml-radar-canvas" width="300" height="300" style="width:100%;max-width:300px;display:block;margin:0 auto;"></canvas>' +
+        '<div class="hd-radar-tip" id="ml-radar-tip">' +
+          '<div class="hd-radar-tip-lbl" id="ml-radar-tip-lbl"></div>' +
+          '<div class="hd-radar-tip-val" id="ml-radar-tip-val"></div>' +
+          '<div class="hd-radar-tip-team" id="ml-radar-tip-team" style="display:none;">' +
+            '<span class="hd-radar-tip-team-lbl">POOL AVG</span>' +
+            '<span class="hd-radar-tip-team-val" id="ml-radar-tip-teamval"></span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="hd-radar-legend">' +
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>' + heroFirst + '</div>' +
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>Pool Avg</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _mlDrawRadar(heroStats, games) {
+  var canvas = document.getElementById('ml-radar-canvas');
+  if (!canvas) return;
+
+  // Compute pool averages for green overlay
+  var allH = _mlAllHeroes(games);
+  var pool = allH.map(function(h) { return _mlGetStats(h, games); }).filter(function(s) { return s.games >= 10; });
+  var poolAvg = {};
+  _ML_RADAR_AXES.forEach(function(ax) {
+    var vals = pool.map(function(s) { return s[ax.key]; }).filter(function(v) { return v != null && !isNaN(v); });
+    poolAvg[ax.key] = vals.length ? vals.reduce(function(a, b) { return a + b; }, 0) / vals.length : 0;
+  });
+
+  var dpr = window.devicePixelRatio || 1;
+  var W = canvas.offsetWidth || 300, H = canvas.offsetHeight || 300;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  var n = _ML_RADAR_AXES.length;
+  var cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 58;
+
+  function ang(i) { return (Math.PI * 2 * i / n) - Math.PI / 2; }
+  function pt(i, r) { return {x: cx + r * Math.cos(ang(i)), y: cy + r * Math.sin(ang(i))}; }
+  function norm(val, ax) {
+    if (val == null || isNaN(val)) return 0;
+    return Math.min(Math.max(val / ax.cap, 0), 1);
+  }
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid rings
+  [0.25, 0.5, 0.75, 1].forEach(function(f) {
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) { var p = pt(i, R*f); i === 0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); }
+    ctx.closePath();
+    ctx.strokeStyle = f === 1 ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1; ctx.stroke();
+  });
+  // Spokes
+  for (var i = 0; i < n; i++) {
+    var ep = pt(i, R);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ep.x, ep.y);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  function drawPoly(statsObj, fillCol, strokeCol, dotCol, dotR) {
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) {
+      var ax = _ML_RADAR_AXES[i];
+      var frac = norm(statsObj[ax.key], ax);
+      var p = pt(i, R * Math.max(frac, 0.03));
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fillCol; ctx.fill();
+    ctx.strokeStyle = strokeCol; ctx.lineWidth = 2; ctx.stroke();
+    for (var j = 0; j < n; j++) {
+      var axj = _ML_RADAR_AXES[j];
+      var val = statsObj[axj.key];
+      if (val == null || isNaN(val)) continue;
+      var frac = norm(val, axj);
+      var p = pt(j, R * Math.max(frac, 0.03));
+      ctx.beginPath(); ctx.arc(p.x, p.y, dotR, 0, Math.PI*2);
+      ctx.fillStyle = dotCol; ctx.fill();
+    }
+  }
+
+  // Pool avg in green (benchmark, drawn behind)
+  drawPoly(poolAvg, 'rgba(80,220,140,0.08)', 'rgba(80,220,140,0.5)', 'rgba(80,220,140,0.75)', 3);
+  // Hero polygon in cyan (drawn on top)
+  drawPoly(heroStats, 'rgba(100,180,255,0.15)', 'rgba(100,180,255,0.9)', 'rgba(100,180,255,1)', 4.5);
+
+  // Labels — drawn last so they sit above polygons
+  _ML_RADAR_AXES.forEach(function(ax, i) {
+    var p = pt(i, R + 42);
+    ctx.textAlign = 'center';
+    ctx.font = '500 8.5px DM Sans,sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(ax.label, p.x, p.y);
+    var rawVal = heroStats[ax.key];
+    if (rawVal != null && !isNaN(rawVal)) {
+      ctx.font = 'bold 10px "Bebas Neue",sans-serif';
+      ctx.fillStyle = 'rgba(100,180,255,1)';
+      ctx.fillText(ax.fmt(rawVal), p.x, p.y + 13);
+    }
+  });
+
+  // Store hit zones for hover interactivity
+  if (!window._mlRadarHits) window._mlRadarHits = {};
+  window._mlRadarHits['ml'] = _ML_RADAR_AXES.map(function(ax, i) {
+    var val = heroStats[ax.key];
+    if (val == null || isNaN(val)) return null;
+    var frac = norm(val, ax);
+    var p = pt(i, R * Math.max(frac, 0.03));
+    return {x: p.x, y: p.y, label: ax.label, value: val, fmt: ax.fmt,
+            teamVal: poolAvg[ax.key], teamFmt: ax.fmt};
+  }).filter(Boolean);
+
+  _mlSetupRadarEvents();
+}
+
+function _mlSetupRadarEvents() {
+  var canvas = document.getElementById('ml-radar-canvas');
+  var tip    = document.getElementById('ml-radar-tip');
+  if (!canvas || !tip) return;
+
+  function getHit(mx, my) {
+    var hits = (window._mlRadarHits && window._mlRadarHits['ml']) || [];
+    var best = null, bestD = Infinity;
+    hits.forEach(function(h) {
+      var d = Math.hypot(h.x - mx, h.y - my);
+      if (d < bestD && d < 24) { best = h; bestD = d; }
+    });
+    return best;
+  }
+
+  function showTip(ex, ey, hit) {
+    var lblEl    = document.getElementById('ml-radar-tip-lbl');
+    var valEl    = document.getElementById('ml-radar-tip-val');
+    var teamRow  = document.getElementById('ml-radar-tip-team');
+    var teamValEl= document.getElementById('ml-radar-tip-teamval');
+    if (lblEl)    lblEl.textContent = hit.label;
+    if (valEl)    valEl.textContent = hit.fmt(hit.value);
+    if (teamRow)  teamRow.style.display = hit.teamVal != null ? 'flex' : 'none';
+    if (teamValEl && hit.teamVal != null) teamValEl.textContent = hit.teamFmt(hit.teamVal);
+    var wrapRect   = tip.parentElement.getBoundingClientRect();
+    var canvasRect = canvas.getBoundingClientRect();
+    var offX = canvasRect.left - wrapRect.left;
+    var offY = canvasRect.top  - wrapRect.top;
+    var pw = wrapRect.width || 300, ph = wrapRect.height || 300;
+    var tw = 155, th = tip.offsetHeight || 90;
+    var tx = ex + offX + 14, ty = ey + offY - 40;
+    if (tx + tw > pw - 4) tx = ex + offX - tw - 14;
+    if (tx < 4) tx = 4;
+    if (ty < 4) ty = 4;
+    if (ty + th > ph - 4) ty = Math.max(4, ph - th - 4);
+    tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+    tip.style.display = 'block'; tip._lastHit = hit;
+  }
+
+  function hideTip() { tip.style.display = 'none'; tip._lastHit = null; }
+
+  canvas.addEventListener('mousemove', function(e) {
+    var r = canvas.getBoundingClientRect();
+    var hit = getHit(e.clientX - r.left, e.clientY - r.top);
+    canvas.style.cursor = hit ? 'pointer' : 'default';
+    if (hit) showTip(e.clientX - r.left, e.clientY - r.top, hit);
+    else hideTip();
+  });
+  canvas.addEventListener('mouseleave', function() { hideTip(); canvas.style.cursor = 'default'; });
+  canvas.addEventListener('click', function(e) {
+    var r = canvas.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    var hit = getHit(mx, my);
+    if (hit) { if (tip.style.display !== 'none' && tip._lastHit === hit) hideTip(); else showTip(mx, my, hit); }
+    else hideTip();
+  });
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    var r = canvas.getBoundingClientRect(); var t = e.touches[0];
+    var mx = t.clientX - r.left, my = t.clientY - r.top;
+    var hit = getHit(mx, my);
+    if (hit) { if (tip.style.display !== 'none' && tip._lastHit === hit) hideTip(); else showTip(mx, my, hit); }
+    else hideTip();
+  }, {passive: false});
+}
+
 // ── Players tab ──────────────────────────────────────────────
 
 function _mlPlayers(games) {
