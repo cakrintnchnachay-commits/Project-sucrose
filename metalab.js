@@ -395,10 +395,10 @@ function mlRenderDetail() {
 
   // Pre-compute radar data for top card
   var primaryRole  = _mlHeroPrimaryRole(ML_SELECTED, games);
-  var radarCaps    = _mlHeroRadarCaps(games);
+  var radarCaps    = _mlHeroRadarCaps();
   var refStats     = primaryRole ? _mlProRoleRef(primaryRole, games) : null;
   var heroRadarStats = {
-    wr: stats.wr, presence: stats.presence, kda: stats.kda,
+    wr: stats.wr, mvpRate: stats.mvpRate, kda: stats.kda,
     dmgPerMin: stats.dmgPerMin, dtkPerMin: stats.dtkPerMin, kp: stats.kp
   };
 
@@ -440,8 +440,16 @@ function mlRenderDetail() {
         '<span class="hd-radar-section-title">STYLE PROFILE</span>' +
         (primaryRole ? '<span class="hd-radar-section-sub"> · ' + primaryRole + '</span>' : '') +
       '</div>' +
-      '<div class="hd-radar-canvas-wrap" style="flex:1;min-height:200px;">' +
-        '<canvas id="ml-hero-radar-canvas" width="260" height="260" style="width:100%;max-width:260px;display:block;margin:0 auto;"></canvas>' +
+      '<div class="hd-radar-canvas-wrap" style="flex:1;min-height:220px;position:relative;">' +
+        '<canvas id="ml-hero-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;display:block;margin:0 auto;"></canvas>' +
+        '<div class="hd-radar-tip" id="ml-hero-radar-tip">' +
+          '<div class="hd-radar-tip-lbl" id="ml-hero-radar-tip-lbl"></div>' +
+          '<div class="hd-radar-tip-val" id="ml-hero-radar-tip-val"></div>' +
+          '<div class="hd-radar-tip-team" id="ml-hero-radar-tip-team" style="display:none;">' +
+            '<span class="hd-radar-tip-team-lbl">ROLE AVG</span>' +
+            '<span class="hd-radar-tip-team-val" id="ml-hero-radar-tip-teamval"></span>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="hd-radar-legend">' +
         '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>' + ML_SELECTED.split(' ')[0] + '</div>' +
@@ -597,7 +605,7 @@ function _mlStats(s) {
 
 var _ML_HERO_RADAR_AXES = [
   {key:'wr',        label:'Win Rate',  fmt:function(v){return Math.round(v*100)+'%';}},
-  {key:'presence',  label:'Presence',  fmt:function(v){return Math.round(v*100)+'%';}},
+  {key:'mvpRate',   label:'MVP Rate',  fmt:function(v){return Math.round(v*100)+'%';}},
   {key:'kda',       label:'KDA',       fmt:function(v){return v.toFixed(2);}},
   {key:'dmgPerMin', label:'DMG/min',   fmt:function(v){return (v/1000).toFixed(1)+'k';}},
   {key:'dtkPerMin', label:'DTK/min',   fmt:function(v){return (v/1000).toFixed(1)+'k';}},
@@ -618,9 +626,9 @@ function _mlHeroPrimaryRole(hero, games) {
 
 function _mlProRoleRef(role, games) {
   var allH = _mlAllHeroes(games);
-  var keys = ['wr','presence','kda','dmgPerMin','dtkPerMin','kp'];
-  var sums = {wr:0,presence:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
-  var cnts = {wr:0,presence:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
+  var keys = ['wr','mvpRate','kda','dmgPerMin','dtkPerMin','kp'];
+  var sums = {wr:0,mvpRate:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
+  var cnts = {wr:0,mvpRate:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
   allH.forEach(function(h) {
     var s = mlHeroStatsForRole(h, games, role);
     if (s.games < 3) return;
@@ -633,30 +641,20 @@ function _mlProRoleRef(role, games) {
   return result;
 }
 
-function _mlHeroRadarCaps(games) {
-  var allH = _mlAllHeroes(games);
-  var caps = {wr:0.75, presence:0.9, kda:3, dmgPerMin:2000, dtkPerMin:2000, kp:60};
-  allH.forEach(function(h) {
-    var s = mlHeroStats(h, games);
-    if (s.games < 3) return;
-    ['wr','presence','kda','dmgPerMin','dtkPerMin','kp'].forEach(function(k) {
-      if (s[k] != null && !isNaN(s[k]) && s[k] > caps[k]) caps[k] = s[k];
-    });
-  });
-  Object.keys(caps).forEach(function(k) { caps[k] *= 1.1; });
-  return caps;
+function _mlHeroRadarCaps() {
+  return {wr: 0.75, mvpRate: 0.40, kda: 5, dmgPerMin: 800, dtkPerMin: 600, kp: 75};
 }
 
 function mlDrawHeroRadar(heroStats, refStats, caps) {
   var canvas = document.getElementById('ml-hero-radar-canvas');
   if (!canvas) return;
   var dpr = window.devicePixelRatio || 1;
-  var dW = canvas.offsetWidth || 260, dH = canvas.offsetHeight || 260;
+  var dW = canvas.offsetWidth || 280, dH = canvas.offsetHeight || 280;
   canvas.width = dW * dpr; canvas.height = dH * dpr;
   canvas.style.width = dW + 'px'; canvas.style.height = dH + 'px';
   var ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
   var n = _ML_HERO_RADAR_AXES.length;
-  var cx = dW/2, cy = dH/2, R = Math.min(dW,dH)/2 - 52;
+  var cx = dW/2, cy = dH/2, R = Math.min(dW,dH)/2 - 58;
   ctx.clearRect(0, 0, dW, dH);
   function ang(i) { return (Math.PI*2*i/n) - Math.PI/2; }
   function pt(i, r) { return {x: cx + r*Math.cos(ang(i)), y: cy + r*Math.sin(ang(i))}; }
@@ -677,12 +675,87 @@ function mlDrawHeroRadar(heroStats, refStats, caps) {
   }
   if(refStats) drawPoly(refStats,'rgba(80,220,140,0.08)','rgba(80,220,140,0.5)','rgba(80,220,140,0.75)',3);
   drawPoly(heroStats,'rgba(100,180,255,0.15)','rgba(100,180,255,0.95)','rgba(100,180,255,1)',4.5);
+  // Labels drawn last so they sit above polygons
   _ML_HERO_RADAR_AXES.forEach(function(ax,i){
-    var p=pt(i,R+44);var val=heroStats[ax.key];
+    var p=pt(i,R+42);var val=heroStats[ax.key];
     ctx.textAlign='center';
     ctx.font='500 9px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.6)';ctx.fillText(ax.label,p.x,p.y);
     if(val!=null&&!isNaN(val)){ctx.font='bold 10.5px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(100,180,255,1)';ctx.fillText(ax.fmt(val),p.x,p.y+13);}
   });
+  // Store hit zones for hover interactivity
+  window._mlHeroRadarHits = _ML_HERO_RADAR_AXES.map(function(ax,i){
+    var val = heroStats[ax.key]; if(val==null||isNaN(val)) return null;
+    var p = pt(i, R * Math.max(norm(val, ax.key), 0.03));
+    return {x:p.x, y:p.y, label:ax.label, value:val, fmt:ax.fmt,
+            roleVal:refStats?refStats[ax.key]:null, roleFmt:ax.fmt};
+  }).filter(Boolean);
+  _mlSetupHeroRadarEvents();
+}
+
+function _mlSetupHeroRadarEvents() {
+  var canvas = document.getElementById('ml-hero-radar-canvas');
+  var tip    = document.getElementById('ml-hero-radar-tip');
+  if (!canvas || !tip) return;
+
+  function getHit(mx, my) {
+    var hits = window._mlHeroRadarHits || [];
+    var best = null, bestD = Infinity;
+    hits.forEach(function(h) {
+      var d = Math.hypot(h.x - mx, h.y - my);
+      if (d < bestD && d < 24) { best = h; bestD = d; }
+    });
+    return best;
+  }
+
+  function showTip(ex, ey, hit) {
+    var lblEl    = document.getElementById('ml-hero-radar-tip-lbl');
+    var valEl    = document.getElementById('ml-hero-radar-tip-val');
+    var teamRow  = document.getElementById('ml-hero-radar-tip-team');
+    var teamValEl= document.getElementById('ml-hero-radar-tip-teamval');
+    if (lblEl)    lblEl.textContent = hit.label;
+    if (valEl)    valEl.textContent = hit.fmt(hit.value);
+    if (teamRow)  teamRow.style.display = hit.roleVal != null ? 'flex' : 'none';
+    if (teamValEl && hit.roleVal != null) teamValEl.textContent = hit.roleFmt(hit.roleVal);
+    var wrapRect   = tip.parentElement.getBoundingClientRect();
+    var canvasRect = canvas.getBoundingClientRect();
+    var offX = canvasRect.left - wrapRect.left;
+    var offY = canvasRect.top  - wrapRect.top;
+    var pw = wrapRect.width || 280, ph = wrapRect.height || 280;
+    var tw = 155, th = tip.offsetHeight || 90;
+    var tx = ex + offX + 14, ty = ey + offY - 40;
+    if (tx + tw > pw - 4) tx = ex + offX - tw - 14;
+    if (tx < 4) tx = 4;
+    if (ty < 4) ty = 4;
+    if (ty + th > ph - 4) ty = Math.max(4, ph - th - 4);
+    tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+    tip.style.display = 'block'; tip._lastHit = hit;
+  }
+
+  function hideTip() { tip.style.display = 'none'; tip._lastHit = null; }
+
+  canvas.addEventListener('mousemove', function(e) {
+    var r = canvas.getBoundingClientRect();
+    var hit = getHit(e.clientX - r.left, e.clientY - r.top);
+    canvas.style.cursor = hit ? 'pointer' : 'default';
+    if (hit) showTip(e.clientX - r.left, e.clientY - r.top, hit);
+    else hideTip();
+  });
+  canvas.addEventListener('mouseleave', function() { hideTip(); canvas.style.cursor = 'default'; });
+  canvas.addEventListener('click', function(e) {
+    var r = canvas.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    var hit = getHit(mx, my);
+    if (hit) { if (tip.style.display !== 'none' && tip._lastHit === hit) hideTip(); else showTip(mx, my, hit); }
+    else hideTip();
+  });
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    var r = canvas.getBoundingClientRect(); var t = e.touches[0];
+    var mx = t.clientX - r.left, my = t.clientY - r.top;
+    var hit = getHit(mx, my);
+    if (hit) { if (tip.style.display !== 'none' && tip._lastHit === hit) hideTip(); else showTip(mx, my, hit); }
+    else hideTip();
+  }, {passive: false});
 }
 
 // ── Players tab ──────────────────────────────────────────────
