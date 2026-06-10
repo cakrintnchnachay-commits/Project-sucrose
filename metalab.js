@@ -337,6 +337,7 @@ function mlRenderList() {
     var wrColor = s.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
     var presStr = (s.presence * 100).toFixed(0) + '%';
     return '<div class="hp-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
+      '<div class="hp-item-img">' + heroPortraitHtml(x.hero, 44, false) + '</div>' +
       '<div class="hp-item-body">' +
         '<div class="hp-item-name">' + x.hero.toUpperCase() +
           (isLow ? '<span style="font-size:7px;color:var(--warn);margin-left:6px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>' : '') +
@@ -393,6 +394,7 @@ function mlRenderDetail() {
       '<div class="hd-top-left">' +
         '<div class="hd-square-portrait">' +
           '<div class="hd-square-portrait-fallback">' + init + '</div>' +
+          (heroImgUrl(ML_SELECTED) ? '<img class="hd-square-portrait-img" src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>' : '') +
         '</div>' +
         '<div class="hd-top-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
         '<div class="hd-hdr-meta">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence</div>' +
