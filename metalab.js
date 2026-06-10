@@ -151,7 +151,6 @@ function _mlAllHeroes(games) {
 // ── Stats computation ────────────────────────────────────────
 
 function _mlStatsFromPicks(picks, games, totalGames, bans) {
-  // picks = pre-filtered array of {pick, game} pairs
   var n = picks.length;
   var wins = 0;
   var sumK=0,sumD=0,sumA=0,sumDmg=0,sumDtk=0,sumDur=0;
@@ -334,23 +333,29 @@ function mlRenderList() {
     var isLow = s.games < 10;
     var isSel = x.hero === ML_SELECTED;
     var safeName = x.hero.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    return '<div style="padding:10px 14px;border-bottom:var(--border);cursor:pointer;display:flex;align-items:center;gap:8px;' +
-      (isSel ? 'background:var(--grey-1);' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
-      '<div style="flex:1;min-width:0;">' +
-        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:15px;line-height:1.2;">' + x.hero +
-          (isLow ? '<span style="font-size:8px;color:var(--warn);margin-left:5px;font-family:\'DM Mono\',monospace;vertical-align:middle;">low n</span>' : '') +
+    var wr = Math.round(s.wr * 100);
+    var wrColor = s.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
+    var presStr = (s.presence * 100).toFixed(0) + '%';
+    return '<div class="hp-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
+      '<div class="hp-item-body">' +
+        '<div class="hp-item-name">' + x.hero.toUpperCase() +
+          (isLow ? '<span style="font-size:7px;color:var(--warn);margin-left:6px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>' : '') +
         '</div>' +
-        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:2px;">' + s.games + ' games</div>' +
+        '<div class="hp-item-meta">' + s.games + 'G' + (s.games > 0 ? ' · ' + presStr + ' PRES' : '') + '</div>' +
       '</div>' +
-      '<div style="text-align:right;flex-shrink:0;">' +
-        '<div style="font-family:\'DM Mono\',monospace;font-size:10px;">' + (s.wr * 100).toFixed(0) + '% WR</div>' +
-        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">' + (s.presence * 100).toFixed(0) + '% pres</div>' +
+      '<div class="hp-item-wr-col">' +
+        '<div class="hp-item-wr" style="color:' + wrColor + ';">' + wr + '%</div>' +
+        '<div class="hp-item-wr-lbl">WR</div>' +
+      '</div>' +
+      '<div class="hp-item-rtg">' +
+        '<div class="hp-item-rtg-val" style="font-size:13px;">' + presStr + '</div>' +
+        '<div class="hp-item-rtg-lbl">PRES</div>' +
       '</div>' +
     '</div>';
   }).join('');
 }
 
-// ── Hero select + detail shell ───────────────────────────────
+// ── Hero select ──────────────────────────────────────────────
 
 function mlSelectHero(hero) {
   ML_SELECTED    = hero;
@@ -362,20 +367,65 @@ function mlSelectHero(hero) {
   mlRenderDetail();
 }
 
+// ── Detail shell ─────────────────────────────────────────────
+
 function mlRenderDetail() {
   var el = document.getElementById('ml-detail');
   if (!el) return;
   if (!ML_SELECTED) {
-    el.innerHTML = '<div style="padding:24px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:1px;">SELECT A HERO</div>';
+    el.innerHTML =
+      '<div class="hd-placeholder-inner" style="min-height:300px;">' +
+        '<div class="ph-title">META LAB</div>' +
+        '<div class="ph-sub">SELECT A HERO FROM THE LIST</div>' +
+      '</div>';
     return;
   }
+
   var games = mlFilteredGames();
   var stats = _mlGetStats(ML_SELECTED, games);
+  var init  = ML_SELECTED.split(' ').map(function(w) { return w[0] || ''; }).join('').slice(0, 2).toUpperCase();
+  var wr    = Math.round(stats.wr * 100);
+  var wrColor = stats.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
 
-  var tabBar = ['overview','stats','style','players','matchups'].map(function(t) {
-    var label = t.charAt(0).toUpperCase() + t.slice(1);
-    return '<button class="tier-mode-btn' + (t === ML_DETAIL_TAB ? ' active' : '') + '" onclick="ML_DETAIL_TAB=\'' + t + '\';mlRenderDetail();">' + label + '</button>';
-  }).join('');
+  // Top layout — matches Heroes hd-top-layout
+  var topHtml =
+    '<div class="hd-top-layout">' +
+      '<div class="hd-top-left">' +
+        '<div class="hd-square-portrait">' +
+          '<div class="hd-square-portrait-fallback">' + init + '</div>' +
+        '</div>' +
+        '<div class="hd-top-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
+        '<div class="hd-hdr-meta">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence</div>' +
+        '<div class="hd-top-badges">' +
+          '<span class="hd-badge-pool">PRO DATA</span>' +
+          (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="hd-top-right" style="display:flex;flex-direction:column;justify-content:center;padding:20px 16px;">' +
+        '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:6px;">WIN RATE</div>' +
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:64px;letter-spacing:1px;line-height:0.9;color:' + wrColor + ';">' + wr + '<span style="font-size:28px;color:var(--grey-5);">%</span></div>' +
+        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:8px;">' + stats.wins + 'W · ' + (stats.games - stats.wins) + 'L</div>' +
+        '<div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+          '<div>' +
+            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);">PICK RATE</div>' +
+            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;">' + (stats.pickRate * 100).toFixed(1) + '%</div>' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);">BAN RATE</div>' +
+            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;">' + (stats.banRate * 100).toFixed(1) + '%</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  // Tab bar — matches hero-role-tabs / hero-role-tab
+  var tabLabels = {overview:'Overview', stats:'Stats', style:'Style', players:'Players', matchups:'Matchups'};
+  var tabBar =
+    '<div class="hero-role-tabs">' +
+    ['overview','stats','style','players','matchups'].map(function(t) {
+      return '<button class="hero-role-tab' + (t === ML_DETAIL_TAB ? ' active' : '') + '" onclick="ML_DETAIL_TAB=\'' + t + '\';mlRenderDetail();">' + tabLabels[t] + '</button>';
+    }).join('') +
+    '</div>';
 
   var body;
   if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats);
@@ -385,19 +435,14 @@ function mlRenderDetail() {
   else if (ML_DETAIL_TAB === 'matchups')  body = _mlMatchups(games);
   else body = '';
 
-  el.innerHTML =
-    '<div style="padding:12px 14px;border-bottom:var(--border);">' +
-      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;margin-bottom:8px;">' + ML_SELECTED + '</div>' +
-      '<div style="display:flex;gap:4px;flex-wrap:wrap;">' + tabBar + '</div>' +
-    '</div>' +
-    '<div style="padding:14px;">' + body + '</div>';
+  el.innerHTML = topHtml + tabBar + body;
 
   if (ML_DETAIL_TAB === 'style') {
     setTimeout(function() { _mlDrawRadar(stats, games); }, 30);
   }
 }
 
-// ── Detail helpers ───────────────────────────────────────────
+// ── Formatters ───────────────────────────────────────────────
 
 function _mlPct(v, d) {
   if (v == null || isNaN(v)) return '—';
@@ -412,62 +457,76 @@ function _mlFk(v) {
   return (v / 1000).toFixed(1) + 'k';
 }
 
-function _mlCard(label, value, sub) {
-  return '<div style="background:var(--grey-1);border:var(--border);padding:12px;border-radius:2px;">' +
-    '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);margin-bottom:6px;">' + label + '</div>' +
-    '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;line-height:1;">' + value + '</div>' +
-    (sub ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:4px;">' + sub + '</div>' : '') +
+// ── Shared rendering primitives ───────────────────────────────
+
+function _mlStatBox(lbl, val, sub) {
+  return '<div class="hd-stat-box">' +
+    '<div class="hd-stat-box-val">' + val + '</div>' +
+    '<div class="hd-stat-box-lbl">' + lbl + '</div>' +
+    (sub ? '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-4);margin-top:2px;">' + sub + '</div>' : '') +
   '</div>';
 }
 
-function _mlStatRow(label, value, note) {
-  return '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
-    '<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">' + label + '</span>' +
-    '<span style="font-family:\'DM Mono\',monospace;font-size:11px;">' +
-      (note ? '<span style="font-size:8px;color:var(--grey-4);margin-right:5px;">' + note + '</span>' : '') +
-      value +
-    '</span>' +
+function _mlAltCell(lbl, val) {
+  return '<div class="hd-alltime-cell">' +
+    '<div class="hd-alltime-val">' + val + '</div>' +
+    '<div class="hd-alltime-lbl">' + lbl + '</div>' +
   '</div>';
 }
 
-function _mlGrpHdr(label) {
-  return '<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);margin:14px 0 4px;padding-top:4px;">' + label + '</div>';
+function _mlSectionHdr(title, sub) {
+  return '<div class="hd-alltime-header">' +
+    '<span class="hd-alltime-title">' + title + '</span>' +
+    (sub ? '<span class="hd-alltime-sub"> · ' + sub + '</span>' : '') +
+  '</div>';
+}
+
+function _mlSectionLbl(text) {
+  return '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">' + text + '</div>';
 }
 
 // ── Overview tab ─────────────────────────────────────────────
 
 function _mlOverview(s) {
-  return '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' +
-    _mlCard('WIN RATE',  _mlPct(s.wr, 1),       s.wins + '/' + s.games + ' games') +
-    _mlCard('PICK RATE', _mlPct(s.pickRate, 1),  s.games + ' picks') +
-    _mlCard('BAN RATE',  _mlPct(s.banRate, 1),   s.bans + ' bans') +
-    _mlCard('PRESENCE',  _mlPct(s.presence, 1),  'pick+ban') +
-    _mlCard('GAMES',     String(s.games),          s.games < 10 ? 'low sample' : '') +
-    _mlCard('MVP RATE',  _mlPct(s.mvpRate, 1),   '') +
+  return '<div class="hd-stat-boxes">' +
+    _mlStatBox('WIN RATE',   _mlPct(s.wr, 1),       s.wins + '/' + s.games + ' games') +
+    _mlStatBox('PICK RATE',  _mlPct(s.pickRate, 1),  s.games + ' picks') +
+    _mlStatBox('BAN RATE',   _mlPct(s.banRate, 1),   s.bans + ' bans') +
+    _mlStatBox('PRESENCE',   _mlPct(s.presence, 1),  'pick + ban') +
+    _mlStatBox('GAMES',      String(s.games),          s.games < 10 ? 'low sample' : '') +
+    _mlStatBox('MVP RATE',   _mlPct(s.mvpRate, 1),   '') +
   '</div>';
 }
 
 // ── Stats tab ────────────────────────────────────────────────
 
 function _mlStats(s) {
-  return _mlGrpHdr('COMBAT') +
-    _mlStatRow('KDA',               _mlF(s.kda, 2)) +
-    _mlStatRow('Kills / min',       _mlF(s.killsPerMin, 2)) +
-    _mlStatRow('Deaths / min',      _mlF(s.deathsPerMin, 2)) +
-    _mlStatRow('Min / death',       _mlF(s.minPerDeath, 2), 'higher=better') +
-    _mlStatRow('Damage / min',      _mlFk(s.dmgPerMin)) +
-    _mlStatRow('Damage taken / min',_mlFk(s.dtkPerMin)) +
-    _mlStatRow('Kill Participation', _mlPct(s.kp / 100, 1)) +
-    _mlGrpHdr('IMPACT') +
-    _mlStatRow('MVP Rate',           _mlPct(s.mvpRate, 1)) +
-    _mlStatRow('Win Gold Diff / min', s.wgdpm != null ? _mlFk(s.wgdpm) : '—') +
-    _mlGrpHdr('CONTEXT') +
-    _mlStatRow('Win Rate (Blue)',    s.wrBlue != null ? _mlPct(s.wrBlue, 1) : '—') +
-    _mlStatRow('Win Rate (Red)',     s.wrRed  != null ? _mlPct(s.wrRed,  1) : '—') +
-    _mlStatRow('Avg Game Length',    _mlF(s.avgDur, 1, 'm')) +
-    _mlStatRow('Pick Rate',          _mlPct(s.pickRate, 1)) +
-    _mlStatRow('Ban Rate',           _mlPct(s.banRate, 1)) +
-    _mlStatRow('Presence',           _mlPct(s.presence, 1));
+  return (
+    _mlSectionHdr('COMBAT') +
+    '<div class="hd-alltime-grid">' +
+      _mlAltCell('KDA',          _mlF(s.kda, 2)) +
+      _mlAltCell('KILLS / MIN',  _mlF(s.killsPerMin, 2)) +
+      _mlAltCell('DEATHS / MIN', _mlF(s.deathsPerMin, 2)) +
+      _mlAltCell('MIN / DEATH',  _mlF(s.minPerDeath, 2)) +
+      _mlAltCell('DMG / MIN',    _mlFk(s.dmgPerMin)) +
+      _mlAltCell('DTK / MIN',    _mlFk(s.dtkPerMin)) +
+    '</div>' +
+    _mlSectionHdr('IMPACT') +
+    '<div class="hd-alltime-grid">' +
+      _mlAltCell('KILL PART',    _mlPct(s.kp / 100, 1)) +
+      _mlAltCell('MVP RATE',     _mlPct(s.mvpRate, 1)) +
+      _mlAltCell('WIN GOLD DIFF', s.wgdpm != null ? _mlFk(s.wgdpm) + '/m' : '—') +
+    '</div>' +
+    _mlSectionHdr('CONTEXT') +
+    '<div class="hd-alltime-grid">' +
+      _mlAltCell('WR (BLUE)',    s.wrBlue != null ? _mlPct(s.wrBlue, 1) : '—') +
+      _mlAltCell('WR (RED)',     s.wrRed  != null ? _mlPct(s.wrRed,  1) : '—') +
+      _mlAltCell('AVG LENGTH',   _mlF(s.avgDur, 1, 'm')) +
+      _mlAltCell('PICK RATE',    _mlPct(s.pickRate, 1)) +
+      _mlAltCell('BAN RATE',     _mlPct(s.banRate, 1)) +
+      _mlAltCell('PRESENCE',     _mlPct(s.presence, 1)) +
+    '</div>'
+  );
 }
 
 // ── Style tab (radar) ────────────────────────────────────────
@@ -482,15 +541,20 @@ var _ML_RADAR_AXES = [
 ];
 
 function _mlStyleShell() {
-  return '<canvas id="ml-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;display:block;margin:0 auto;"></canvas>' +
-    '<div style="margin-top:6px;text-align:center;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-4);">Percentile within filtered pool (heroes ≥10 games)</div>';
+  return (
+    _mlSectionHdr('STYLE PROFILE', 'Percentile within pro pool · heroes ≥10 games') +
+    '<div style="padding:14px;">' +
+      '<div class="hd-radar-canvas-wrap" style="min-height:260px;">' +
+        '<canvas id="ml-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;display:block;margin:0 auto;"></canvas>' +
+      '</div>' +
+    '</div>'
+  );
 }
 
 function _mlDrawRadar(heroStats, games) {
   var canvas = document.getElementById('ml-radar-canvas');
   if (!canvas) return;
 
-  // Build normalization pool: all heroes ≥10 games
   var allH = _mlAllHeroes(games);
   var pool = allH.map(function(h) { return _mlGetStats(h, games); }).filter(function(s) { return s.games >= 10; });
 
@@ -584,47 +648,47 @@ function _mlPlayers(games) {
   var rows = Object.keys(playerMap).map(function(k) { return playerMap[k]; })
     .sort(function(a, b) { return b.games - a.games; });
 
-  if (!rows.length) return '<div style="color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;padding:8px 0;">No picks found</div>';
+  if (!rows.length) {
+    return '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:14px;">No picks found</div>';
+  }
 
   var rosterPlayers = (typeof getPlayers === 'function') ? getPlayers() : [];
 
   return rows.map(function(r, idx) {
     var expanded = ML_PLAYERS_EXP[idx];
     var wr = r.games > 0 ? r.wins / r.games : 0;
+    var wrColor = r.games > 0 ? (wr >= 0.6 ? 'var(--success)' : wr >= 0.5 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
     var rP = rosterPlayers.find(function(p) { return p.ign && p.ign.toLowerCase() === r.player.toLowerCase(); });
     var nameHtml = rP
       ? '<span style="cursor:pointer;color:rgba(100,180,255,0.9);" onclick="event.stopPropagation();showProfile(\'' + rP.id + '\')">' + r.player + '</span>'
       : r.player;
 
+    var ps = expanded ? mlPlayerHeroStats(r.player, ML_SELECTED, games) : null;
     var expBody = '';
-    if (expanded) {
-      var ps = mlPlayerHeroStats(r.player, ML_SELECTED, games);
-      if (ps) {
-        expBody = '<div style="padding:8px 12px 4px;background:var(--black);border-top:var(--border);">' +
-          _mlStatRow('Win Rate',          _mlPct(ps.wr, 1)) +
-          _mlStatRow('KDA',               _mlF(ps.kda, 2)) +
-          _mlStatRow('Kills / min',       _mlF(ps.killsPerMin, 2)) +
-          _mlStatRow('Deaths / min',      _mlF(ps.deathsPerMin, 2)) +
-          _mlStatRow('Min / death',       _mlF(ps.minPerDeath, 2)) +
-          _mlStatRow('Damage / min',      _mlFk(ps.dmgPerMin)) +
-          _mlStatRow('Damage taken / min',_mlFk(ps.dtkPerMin)) +
-          _mlStatRow('Kill Participation',_mlPct(ps.kp / 100, 1)) +
-          _mlStatRow('MVP Rate',          _mlPct(ps.mvpRate, 1)) +
-          _mlStatRow('Avg Game Length',   _mlF(ps.avgDur, 1, 'm')) +
+    if (expanded && ps) {
+      expBody =
+        '<div class="hd-alltime-grid" style="border-top:var(--border);margin:0;">' +
+          _mlAltCell('WR',         _mlPct(ps.wr, 1)) +
+          _mlAltCell('KDA',        _mlF(ps.kda, 2)) +
+          _mlAltCell('KILLS/MIN',  _mlF(ps.killsPerMin, 2)) +
+          _mlAltCell('DEATHS/MIN', _mlF(ps.deathsPerMin, 2)) +
+          _mlAltCell('MIN/DEATH',  _mlF(ps.minPerDeath, 2)) +
+          _mlAltCell('DMG/MIN',    _mlFk(ps.dmgPerMin)) +
+          _mlAltCell('DTK/MIN',    _mlFk(ps.dtkPerMin)) +
+          _mlAltCell('KP%',        _mlPct(ps.kp / 100, 1)) +
+          _mlAltCell('MVP RATE',   _mlPct(ps.mvpRate, 1)) +
+          _mlAltCell('AVG LEN',    _mlF(ps.avgDur, 1, 'm')) +
         '</div>';
-      }
     }
 
-    return '<div style="border:var(--border);margin-bottom:6px;background:var(--grey-1);">' +
-      '<div style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;" onclick="ML_PLAYERS_EXP[' + idx + ']=!ML_PLAYERS_EXP[' + idx + '];mlRenderDetail();">' +
+    return '<div style="border-bottom:var(--border);">' +
+      '<div class="hd-player-row" style="padding:10px 14px;cursor:pointer;" onclick="ML_PLAYERS_EXP[' + idx + ']=!ML_PLAYERS_EXP[' + idx + '];mlRenderDetail();">' +
         '<div style="flex:1;min-width:0;">' +
           '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;">' + nameHtml + '</div>' +
+          '<div class="hd-wl">' + r.games + ' games · ' + r.wins + 'W / ' + (r.games - r.wins) + 'L</div>' +
         '</div>' +
-        '<div style="text-align:right;font-family:\'DM Mono\',monospace;font-size:10px;">' +
-          '<div>' + r.games + ' games</div>' +
-          '<div style="color:var(--grey-5);font-size:8px;">' + _mlPct(wr, 1) + ' WR</div>' +
-        '</div>' +
-        '<div style="color:var(--grey-5);font-size:10px;margin-left:4px;">' + (expanded ? '▲' : '▼') + '</div>' +
+        '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:' + wrColor + ';margin-right:10px;">' + Math.round(wr * 100) + '%</div>' +
+        '<div style="color:var(--grey-5);font-size:10px;">' + (expanded ? '▲' : '▼') + '</div>' +
       '</div>' +
       expBody +
     '</div>';
@@ -635,7 +699,7 @@ function _mlPlayers(games) {
 
 function _mlMatchups(games) {
   var subBar =
-    '<div style="display:flex;gap:4px;margin-bottom:12px;">' +
+    '<div style="padding:10px 14px;border-bottom:var(--border);display:flex;gap:4px;">' +
       '<button class="tier-mode-btn' + (ML_MATCHUP_MODE === 'allies'  ? ' active' : '') + '" onclick="ML_MATCHUP_MODE=\'allies\';mlRenderDetail();">Allies</button>' +
       '<button class="tier-mode-btn' + (ML_MATCHUP_MODE === 'enemies' ? ' active' : '') + '" onclick="ML_MATCHUP_MODE=\'enemies\';mlRenderDetail();">Enemies</button>' +
     '</div>';
@@ -662,30 +726,30 @@ function _mlMatchups(games) {
     return {hero: h, games: m.games, wr: m.games > 0 ? m.wins / m.games : 0};
   }).sort(function(a, b) { return b.games - a.games; });
 
-  if (!matchups.length) return subBar + '<div style="color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;padding:8px 0;">No matchup data</div>';
+  if (!matchups.length) {
+    return subBar + '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:14px;">No matchup data</div>';
+  }
 
   function renderRow(m) {
-    var bar = Math.round(m.wr * 100);
-    var barColor = m.wr >= 0.55 ? 'var(--success)' : m.wr <= 0.45 ? 'var(--danger)' : 'var(--grey-5)';
-    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
+    var pwr = Math.round(m.wr * 100);
+    var pc  = m.wr >= 0.55 ? 'var(--success)' : m.wr <= 0.45 ? 'var(--danger)' : 'var(--grey-5)';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:var(--border);">' +
       '<div style="flex:1;font-family:\'Bebas Neue\',sans-serif;font-size:14px;">' + m.hero + '</div>' +
-      '<div style="text-align:right;font-family:\'DM Mono\',monospace;font-size:10px;flex-shrink:0;">' +
-        '<div style="color:' + barColor + ';">' + bar + '% WR</div>' +
-        '<div style="color:var(--grey-5);font-size:8px;">' + m.games + ' games</div>' +
-      '</div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">' + m.games + 'G</div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:' + pc + ';">' + pwr + '%</div>' +
     '</div>';
   }
 
   var top5 = matchups.slice(0, 5);
   var rest  = matchups.slice(5);
-  var html = subBar + top5.map(renderRow).join('');
+  var html  = subBar + top5.map(renderRow).join('');
 
   if (rest.length) {
     if (ML_MATCHUP_EXP) {
       html += rest.map(renderRow).join('');
-      html += '<button class="tier-mode-btn" style="margin-top:8px;" onclick="ML_MATCHUP_EXP=false;mlRenderDetail();">▲ Collapse</button>';
+      html += '<div style="padding:8px 14px;"><button class="tier-mode-btn" onclick="ML_MATCHUP_EXP=false;mlRenderDetail();">▲ Collapse</button></div>';
     } else {
-      html += '<button class="tier-mode-btn" style="margin-top:8px;" onclick="ML_MATCHUP_EXP=true;mlRenderDetail();">+ Show ' + rest.length + ' more</button>';
+      html += '<div style="padding:8px 14px;"><button class="tier-mode-btn" onclick="ML_MATCHUP_EXP=true;mlRenderDetail();">+ Show ' + rest.length + ' more</button></div>';
     }
   }
   return html;
