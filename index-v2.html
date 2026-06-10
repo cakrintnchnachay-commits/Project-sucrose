@@ -416,13 +416,15 @@
   <div class="page" id="page-data-center" style="overflow:hidden;">
 
     <!-- Sub-tab bar -->
-    <div style="padding:16px 20px 0;border-bottom:var(--border);flex-shrink:0;background:var(--black);position:sticky;top:0;z-index:10;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">DATA CENTER</div>
-      <div style="display:flex;gap:4px;margin-top:10px;padding-bottom:1px;overflow-x:auto;">
-        <button class="tier-mode-btn" id="dc-tab-heroes" onclick="dcSetTab('heroes')">Heroes</button>
-        <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
-        <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
-        <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
+    <div style="padding:12px 20px 0;border-bottom:var(--border);flex-shrink:0;background:var(--black);position:sticky;top:0;z-index:10;">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:10px;overflow-x:auto;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;flex-shrink:0;">DATA CENTER</div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button class="tier-mode-btn" id="dc-tab-heroes" onclick="dcSetTab('heroes')">Heroes</button>
+          <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
+          <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
+          <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
+        </div>
       </div>
       <!-- Heroes controls (shown only when heroes tab is active) -->
       <div id="dc-heroes-controls" style="display:none;margin-top:8px;">
@@ -535,14 +537,28 @@
 
     <!-- META LAB sub-section -->
     <div id="dc-section-metalab" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-      <div style="padding:10px 14px;border-bottom:var(--border);flex-shrink:0;">
-        <div id="ml-tour-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
-        <div id="ml-sort-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
-        <div id="ml-role-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
-        <input class="input" id="ml-search" placeholder="Search hero..." oninput="mlRenderList()" style="margin:0;"/>
+      <!-- Competition + Position selectors on same row -->
+      <div style="padding:10px 14px 8px;border-bottom:var(--border);flex-shrink:0;">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+          <div>
+            <div style="font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:4px;">COMPETITION</div>
+            <div id="ml-tour-bar" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+          </div>
+          <div>
+            <div style="font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:4px;">POSITION</div>
+            <div id="ml-role-tabs" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+          </div>
+        </div>
       </div>
       <div class="heroes-split">
-        <div class="heroes-pool-side"><div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div></div>
+        <!-- Left panel: search + sort + scrollable list -->
+        <div class="heroes-pool-side" style="display:flex;flex-direction:column;">
+          <div style="padding:8px 10px;border-bottom:var(--border);flex-shrink:0;">
+            <input class="input" id="ml-search" placeholder="Search hero..." oninput="mlRenderList()" style="margin:0 0 6px;"/>
+            <div id="ml-sort-bar" style="display:flex;gap:3px;"></div>
+          </div>
+          <div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div>
+        </div>
         <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;"></div>
       </div>
     </div>

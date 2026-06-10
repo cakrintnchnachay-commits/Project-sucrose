@@ -8,9 +8,8 @@ var ML_SORT     = 'presence';  // 'presence' | 'winrate' | 'games'
 var ML_ROLE     = 'All';       // role filter
 var ML_SELECTED = null;        // selected hero name
 var ML_DETAIL_TAB    = 'overview';
-var ML_MATCHUP_MODE  = 'allies';
-var ML_MATCHUP_EXP   = false;
 var ML_PLAYERS_EXP   = {};     // playerName → boolean (expanded)
+var ML_RADAR_COMPARE = false;  // toggle stats comparison table under radar
 
 var _ML_TOURS = ['All', 'RPL Summer', 'GCS Spring', 'AOG Spring', 'APL'];
 var _ML_ROLES = ['All', 'DSL', 'JUG', 'MID', 'ADL', 'SUP'];
@@ -55,6 +54,13 @@ function _mlStr(row, idx) {
   return idx >= 0 && idx < row.length ? row[idx].trim().replace(/^"|"$/g, '') : '';
 }
 
+// Normalize inconsistent hero name spellings from CSV
+function _mlNormalize(name) {
+  if (!name) return name;
+  if (name === 'FlowbornMarksman') return 'Flowborn Marksman';
+  return name;
+}
+
 function _mlNum(s) {
   if (s == null) return NaN;
   return parseFloat(String(s).replace(/,/g, '').trim());
@@ -87,8 +93,8 @@ function mlBuildGames(csvText) {
     var tour     = get(row, 'TYPE');
 
     var bansA = [], bansB = [];
-    for (var b = 1; b <= 4; b++) { var bn = get(row, 'A BAN ' + b); if (bn) bansA.push(bn); }
-    for (var b = 1; b <= 4; b++) { var bn = get(row, 'B BAN ' + b); if (bn) bansB.push(bn); }
+    for (var b = 1; b <= 4; b++) { var bn = _mlNormalize(get(row, 'A BAN ' + b)); if (bn) bansA.push(bn); }
+    for (var b = 1; b <= 4; b++) { var bn = _mlNormalize(get(row, 'B BAN ' + b)); if (bn) bansB.push(bn); }
 
     var goldA = _mlNum(get(row, 'A Gold'));
     var goldB = _mlNum(get(row, 'B Gold'));
@@ -100,7 +106,7 @@ function mlBuildGames(csvText) {
 
     ['A', 'B'].forEach(function(S) {
       _ML_PICK_ROLES.forEach(function(R) {
-        var hero   = get(row, S + ' ' + R);
+        var hero   = _mlNormalize(get(row, S + ' ' + R));
         var player = get(row, S + ' P ' + R);
         var k  = _mlNum(get(row, S + ' ' + R + ' KILL'));
         var d  = _mlNum(get(row, S + ' ' + R + ' DEATH'));
@@ -124,7 +130,7 @@ function mlBuildGames(csvText) {
       bans:  {A: bansA, B: bansB},
       picks: picks, teamKills: teamKills,
       goldA: goldA, goldB: goldB,
-      mvpHero:   get(row, 'MVP Hero'),
+      mvpHero:   _mlNormalize(get(row, 'MVP Hero')),
       mvpPlayer: get(row, 'MVP')
     });
   }
@@ -359,11 +365,10 @@ function mlRenderList() {
 // ── Hero select ──────────────────────────────────────────────
 
 function mlSelectHero(hero) {
-  ML_SELECTED    = hero;
-  ML_DETAIL_TAB  = 'overview';
-  ML_PLAYERS_EXP = {};
-  ML_MATCHUP_EXP = false;
-  ML_MATCHUP_MODE = 'allies';
+  ML_SELECTED      = hero;
+  ML_DETAIL_TAB    = 'overview';
+  ML_PLAYERS_EXP   = {};
+  ML_RADAR_COMPARE = false;
   mlRenderList();
   mlRenderDetail();
 }
@@ -388,7 +393,69 @@ function mlRenderDetail() {
   var wr    = Math.round(stats.wr * 100);
   var wrColor = stats.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
 
-  // Top layout — matches Heroes hd-top-layout
+  // Pre-compute radar data for top card
+  var primaryRole  = _mlHeroPrimaryRole(ML_SELECTED, games);
+  var radarCaps    = _mlHeroRadarCaps(games);
+  var refStats     = primaryRole ? _mlProRoleRef(primaryRole, games) : null;
+  var heroRadarStats = {
+    wr: stats.wr, presence: stats.presence, kda: stats.kda,
+    dmgPerMin: stats.dmgPerMin, dtkPerMin: stats.dtkPerMin, kp: stats.kp
+  };
+
+  // Compact stat mini-cells for top-left
+  function miniStat(lbl, val, col) {
+    return '<div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1.5px;color:var(--grey-5);">' + lbl + '</div>' +
+      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:' + (col || 'var(--white)') + ';">' + val + '</div>' +
+    '</div>';
+  }
+
+  // Stats comparison table (below radar when toggled)
+  var compareHtml = '';
+  if (ML_RADAR_COMPARE && refStats) {
+    compareHtml =
+      '<div style="border-top:var(--border);margin-top:8px;font-family:\'DM Mono\',monospace;font-size:8px;">' +
+        '<div style="display:grid;grid-template-columns:1fr 64px 64px;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.07);">' +
+          '<div style="color:var(--grey-4);font-size:7px;letter-spacing:1px;">STAT</div>' +
+          '<div style="color:rgba(100,180,255,0.9);text-align:right;font-size:7px;letter-spacing:1px;">HERO</div>' +
+          '<div style="color:rgba(80,220,140,0.9);text-align:right;font-size:7px;letter-spacing:1px;">' + (primaryRole || 'ROLE') + ' AVG</div>' +
+        '</div>' +
+        _ML_HERO_RADAR_AXES.map(function(ax) {
+          var hv = heroRadarStats[ax.key];
+          var rv = refStats[ax.key];
+          return '<div style="display:grid;grid-template-columns:1fr 64px 64px;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.04);">' +
+            '<div style="color:var(--grey-5);">' + ax.label.toUpperCase() + '</div>' +
+            '<div style="color:rgba(100,180,255,0.9);text-align:right;">' + (hv!=null&&!isNaN(hv)?ax.fmt(hv):'—') + '</div>' +
+            '<div style="color:rgba(80,220,140,0.9);text-align:right;">' + (rv!=null&&!isNaN(rv)?ax.fmt(rv):'—') + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>';
+  }
+
+  // Right column: radar chart
+  var radarHtml;
+  if (stats.games > 0) {
+    radarHtml =
+      '<div class="hd-radar-section-hdr">' +
+        '<span class="hd-radar-section-title">STYLE PROFILE</span>' +
+        (primaryRole ? '<span class="hd-radar-section-sub"> · ' + primaryRole + '</span>' : '') +
+      '</div>' +
+      '<div class="hd-radar-canvas-wrap" style="flex:1;min-height:200px;">' +
+        '<canvas id="ml-hero-radar-canvas" width="260" height="260" style="width:100%;max-width:260px;display:block;margin:0 auto;"></canvas>' +
+      '</div>' +
+      '<div class="hd-radar-legend">' +
+        '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>' + ML_SELECTED.split(' ')[0] + '</div>' +
+        (refStats ? '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>' + (primaryRole || 'Role') + ' Avg</div>' : '') +
+      '</div>' +
+      '<div style="text-align:center;margin-top:6px;">' +
+        '<button class="tier-mode-btn' + (ML_RADAR_COMPARE ? ' active' : '') + '" style="font-size:7px;padding:4px 10px;" onclick="ML_RADAR_COMPARE=!ML_RADAR_COMPARE;mlRenderDetail();">⇄ COMPARE STATS</button>' +
+      '</div>' +
+      compareHtml;
+  } else {
+    radarHtml = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:9px;">NO GAMES YET</div>';
+  }
+
+  // Top layout — portrait left + radar right
   var topHtml =
     '<div class="hd-top-layout">' +
       '<div class="hd-top-left">' +
@@ -402,29 +469,24 @@ function mlRenderDetail() {
           '<span class="hd-badge-pool">PRO DATA</span>' +
           (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
         '</div>' +
-      '</div>' +
-      '<div class="hd-top-right" style="display:flex;flex-direction:column;justify-content:center;padding:20px 16px;">' +
-        '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:6px;">WIN RATE</div>' +
-        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:64px;letter-spacing:1px;line-height:0.9;color:' + wrColor + ';">' + wr + '<span style="font-size:28px;color:var(--grey-5);">%</span></div>' +
-        '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:8px;">' + stats.wins + 'W · ' + (stats.games - stats.wins) + 'L</div>' +
-        '<div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-          '<div>' +
-            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);">PICK RATE</div>' +
-            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;">' + (stats.pickRate * 100).toFixed(1) + '%</div>' +
-          '</div>' +
-          '<div>' +
-            '<div style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);">BAN RATE</div>' +
-            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;">' + (stats.banRate * 100).toFixed(1) + '%</div>' +
-          '</div>' +
+        '<div style="margin-top:auto;padding-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;">' +
+          miniStat('WIN RATE', wr + '%', wrColor) +
+          miniStat('PICK RATE', (stats.pickRate * 100).toFixed(0) + '%', 'var(--white)') +
+          miniStat('BAN RATE', (stats.banRate * 100).toFixed(0) + '%', 'var(--white)') +
+          miniStat('KDA', stats.games > 0 ? stats.kda.toFixed(2) : '—', 'var(--white)') +
         '</div>' +
+      '</div>' +
+      '<div class="hd-top-right" style="padding:10px 12px;display:flex;flex-direction:column;">' +
+        radarHtml +
       '</div>' +
     '</div>';
 
-  // Tab bar — matches hero-role-tabs / hero-role-tab
-  var tabLabels = {overview:'Overview', stats:'Stats', style:'Style', players:'Players', matchups:'Matchups'};
+  // Tab bar — no Style tab
+  if (ML_DETAIL_TAB === 'style') ML_DETAIL_TAB = 'overview';
+  var tabLabels = {overview:'Overview', stats:'Stats', players:'Players', matchups:'Matchups'};
   var tabBar =
     '<div class="hero-role-tabs">' +
-    ['overview','stats','style','players','matchups'].map(function(t) {
+    ['overview','stats','players','matchups'].map(function(t) {
       return '<button class="hero-role-tab' + (t === ML_DETAIL_TAB ? ' active' : '') + '" onclick="ML_DETAIL_TAB=\'' + t + '\';mlRenderDetail();">' + tabLabels[t] + '</button>';
     }).join('') +
     '</div>';
@@ -432,15 +494,15 @@ function mlRenderDetail() {
   var body;
   if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats);
   else if (ML_DETAIL_TAB === 'stats')     body = _mlStats(stats);
-  else if (ML_DETAIL_TAB === 'style')     body = _mlStyleShell();
   else if (ML_DETAIL_TAB === 'players')   body = _mlPlayers(games);
   else if (ML_DETAIL_TAB === 'matchups')  body = _mlMatchups(games);
   else body = '';
 
   el.innerHTML = topHtml + tabBar + body;
 
-  if (ML_DETAIL_TAB === 'style') {
-    setTimeout(function() { _mlDrawRadar(stats, games); }, 30);
+  // Draw radar after DOM update
+  if (stats.games > 0) {
+    setTimeout(function() { mlDrawHeroRadar(heroRadarStats, refStats, radarCaps); }, 30);
   }
 }
 
@@ -531,106 +593,95 @@ function _mlStats(s) {
   );
 }
 
-// ── Style tab (radar) ────────────────────────────────────────
+// ── Hero card radar (blue-green, position reference) ─────────
 
-var _ML_RADAR_AXES = [
-  {key:'dmgPerMin',   label:'DMG/min',   fmt:_mlFk},
-  {key:'dtkPerMin',   label:'DTK/min',   fmt:_mlFk},
-  {key:'kda',         label:'KDA',       fmt:function(v){return v.toFixed(2);}},
-  {key:'avgDur',      label:'Game Len',  fmt:function(v){return v.toFixed(1)+'m';}},
-  {key:'minPerDeath', label:'Min/death', fmt:function(v){return v.toFixed(1);}},
-  {key:'mvpRate',     label:'MVP Rate',  fmt:function(v){return (v*100).toFixed(0)+'%';}}
+var _ML_HERO_RADAR_AXES = [
+  {key:'wr',        label:'Win Rate',  fmt:function(v){return Math.round(v*100)+'%';}},
+  {key:'presence',  label:'Presence',  fmt:function(v){return Math.round(v*100)+'%';}},
+  {key:'kda',       label:'KDA',       fmt:function(v){return v.toFixed(2);}},
+  {key:'dmgPerMin', label:'DMG/min',   fmt:function(v){return (v/1000).toFixed(1)+'k';}},
+  {key:'dtkPerMin', label:'DTK/min',   fmt:function(v){return (v/1000).toFixed(1)+'k';}},
+  {key:'kp',        label:'Kill Part', fmt:function(v){return v.toFixed(0)+'%';}}
 ];
 
-function _mlStyleShell() {
-  return (
-    _mlSectionHdr('STYLE PROFILE', 'Percentile within pro pool · heroes ≥10 games') +
-    '<div style="padding:14px;">' +
-      '<div class="hd-radar-canvas-wrap" style="min-height:260px;">' +
-        '<canvas id="ml-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;display:block;margin:0 auto;"></canvas>' +
-      '</div>' +
-    '</div>'
-  );
+function _mlHeroPrimaryRole(hero, games) {
+  var roleCount = {};
+  games.forEach(function(g) {
+    g.picks.forEach(function(pk) {
+      if (pk.hero === hero && pk.role) roleCount[pk.role] = (roleCount[pk.role] || 0) + 1;
+    });
+  });
+  var keys = Object.keys(roleCount);
+  if (!keys.length) return null;
+  return keys.reduce(function(a, b) { return roleCount[a] > roleCount[b] ? a : b; });
 }
 
-function _mlDrawRadar(heroStats, games) {
-  var canvas = document.getElementById('ml-radar-canvas');
-  if (!canvas) return;
-
+function _mlProRoleRef(role, games) {
   var allH = _mlAllHeroes(games);
-  var pool = allH.map(function(h) { return _mlGetStats(h, games); }).filter(function(s) { return s.games >= 10; });
-
-  function percentileRank(val, key) {
-    if (!pool.length) return 0.5;
-    var vals = pool.map(function(s) { return s[key]; })
-      .filter(function(v) { return v != null && !isNaN(v); })
-      .sort(function(a, b) { return a - b; });
-    if (!vals.length) return 0.5;
-    return vals.filter(function(v) { return v < val; }).length / vals.length;
-  }
-
-  var fracs = _ML_RADAR_AXES.map(function(ax) { return percentileRank(heroStats[ax.key], ax.key); });
-
-  var dpr = window.devicePixelRatio || 1;
-  var W = canvas.offsetWidth || 280, H = canvas.offsetHeight || 280;
-  canvas.width  = W * dpr; canvas.height = H * dpr;
-  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-  var ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-
-  var n = _ML_RADAR_AXES.length;
-  var cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 54;
-
-  function ang(i) { return (Math.PI * 2 * i / n) - Math.PI / 2; }
-  function pt(i, r) { return {x: cx + r * Math.cos(ang(i)), y: cy + r * Math.sin(ang(i))}; }
-
-  ctx.clearRect(0, 0, W, H);
-
-  // Grid rings
-  [0.25, 0.5, 0.75, 1].forEach(function(f) {
-    ctx.beginPath();
-    for (var i = 0; i < n; i++) { var p = pt(i, R*f); i === 0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); }
-    ctx.closePath();
-    ctx.strokeStyle = f === 1 ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1; ctx.stroke();
+  var keys = ['wr','presence','kda','dmgPerMin','dtkPerMin','kp'];
+  var sums = {wr:0,presence:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
+  var cnts = {wr:0,presence:0,kda:0,dmgPerMin:0,dtkPerMin:0,kp:0};
+  allH.forEach(function(h) {
+    var s = mlHeroStatsForRole(h, games, role);
+    if (s.games < 3) return;
+    keys.forEach(function(k) {
+      if (s[k] != null && !isNaN(s[k])) { sums[k] += s[k]; cnts[k]++; }
+    });
   });
-  // Spokes
-  for (var i = 0; i < n; i++) {
-    var ep = pt(i, R);
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ep.x, ep.y);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+  var result = {};
+  keys.forEach(function(k) { result[k] = cnts[k] > 0 ? sums[k] / cnts[k] : null; });
+  return result;
+}
+
+function _mlHeroRadarCaps(games) {
+  var allH = _mlAllHeroes(games);
+  var caps = {wr:0.75, presence:0.9, kda:3, dmgPerMin:2000, dtkPerMin:2000, kp:60};
+  allH.forEach(function(h) {
+    var s = mlHeroStats(h, games);
+    if (s.games < 3) return;
+    ['wr','presence','kda','dmgPerMin','dtkPerMin','kp'].forEach(function(k) {
+      if (s[k] != null && !isNaN(s[k]) && s[k] > caps[k]) caps[k] = s[k];
+    });
+  });
+  Object.keys(caps).forEach(function(k) { caps[k] *= 1.1; });
+  return caps;
+}
+
+function mlDrawHeroRadar(heroStats, refStats, caps) {
+  var canvas = document.getElementById('ml-hero-radar-canvas');
+  if (!canvas) return;
+  var dpr = window.devicePixelRatio || 1;
+  var dW = canvas.offsetWidth || 260, dH = canvas.offsetHeight || 260;
+  canvas.width = dW * dpr; canvas.height = dH * dpr;
+  canvas.style.width = dW + 'px'; canvas.style.height = dH + 'px';
+  var ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+  var n = _ML_HERO_RADAR_AXES.length;
+  var cx = dW/2, cy = dH/2, R = Math.min(dW,dH)/2 - 52;
+  ctx.clearRect(0, 0, dW, dH);
+  function ang(i) { return (Math.PI*2*i/n) - Math.PI/2; }
+  function pt(i, r) { return {x: cx + r*Math.cos(ang(i)), y: cy + r*Math.sin(ang(i))}; }
+  [0.25,0.5,0.75,1].forEach(function(f) {
+    ctx.beginPath();
+    for (var i=0;i<n;i++){var p=pt(i,R*f);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);}
+    ctx.closePath();
+    ctx.strokeStyle=f===1?'rgba(255,255,255,0.14)':'rgba(255,255,255,0.06)';
+    ctx.lineWidth=1;ctx.stroke();
+  });
+  for (var i=0;i<n;i++){var ep=pt(i,R);ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ep.x,ep.y);ctx.strokeStyle='rgba(255,255,255,0.1)';ctx.lineWidth=1;ctx.stroke();}
+  function norm(val,key){if(val==null||isNaN(val))return 0;return Math.min(val/(caps[key]||1),1);}
+  function drawPoly(vals,fillCol,strokeCol,dotCol,dotR){
+    ctx.beginPath();
+    _ML_HERO_RADAR_AXES.forEach(function(ax,i){var frac=Math.max(norm(vals[ax.key],ax.key),0.03);var p=pt(i,R*frac);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);});
+    ctx.closePath();ctx.fillStyle=fillCol;ctx.fill();ctx.strokeStyle=strokeCol;ctx.lineWidth=2;ctx.stroke();
+    _ML_HERO_RADAR_AXES.forEach(function(ax,i){if(vals[ax.key]==null)return;var frac=Math.max(norm(vals[ax.key],ax.key),0.03);var p=pt(i,R*frac);ctx.beginPath();ctx.arc(p.x,p.y,dotR,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();});
   }
-  // Hero polygon
-  ctx.beginPath();
-  for (var i = 0; i < n; i++) {
-    var p = pt(i, R * Math.max(fracs[i], 0.04));
-    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
-  }
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(100,180,255,0.15)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(100,180,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
-  // Dots
-  for (var i = 0; i < n; i++) {
-    var p = pt(i, R * Math.max(fracs[i], 0.04));
-    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
-    ctx.fillStyle = 'rgba(100,180,255,1)'; ctx.fill();
-  }
-  // Labels
-  _ML_RADAR_AXES.forEach(function(ax, i) {
-    var p = pt(i, R + 40);
-    ctx.textAlign = 'center';
-    ctx.font = '500 8.5px DM Sans,sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(ax.label, p.x, p.y);
-    var rawVal = heroStats[ax.key];
-    if (rawVal != null && !isNaN(rawVal)) {
-      ctx.font = 'bold 10px "Bebas Neue",sans-serif';
-      ctx.fillStyle = 'rgba(100,180,255,1)';
-      ctx.fillText(ax.fmt(rawVal), p.x, p.y + 12);
-    }
-    ctx.font = '500 7.5px DM Sans,sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.fillText(Math.round(fracs[i] * 100) + 'th', p.x, p.y + 23);
+  if(refStats) drawPoly(refStats,'rgba(80,220,140,0.08)','rgba(80,220,140,0.5)','rgba(80,220,140,0.75)',3);
+  drawPoly(heroStats,'rgba(100,180,255,0.15)','rgba(100,180,255,0.95)','rgba(100,180,255,1)',4.5);
+  _ML_HERO_RADAR_AXES.forEach(function(ax,i){
+    var p=pt(i,R+44);var val=heroStats[ax.key];
+    ctx.textAlign='center';
+    ctx.font='500 9px DM Sans,sans-serif';ctx.fillStyle='rgba(255,255,255,0.6)';ctx.fillText(ax.label,p.x,p.y);
+    if(val!=null&&!isNaN(val)){ctx.font='bold 10.5px "Bebas Neue",sans-serif';ctx.fillStyle='rgba(100,180,255,1)';ctx.fillText(ax.fmt(val),p.x,p.y+13);}
   });
 }
 
@@ -697,16 +748,10 @@ function _mlPlayers(games) {
   }).join('');
 }
 
-// ── Matchups tab ─────────────────────────────────────────────
+// ── Matchups tab — allies and enemies side by side ────────────
 
 function _mlMatchups(games) {
-  var subBar =
-    '<div style="padding:10px 14px;border-bottom:var(--border);display:flex;gap:4px;">' +
-      '<button class="tier-mode-btn' + (ML_MATCHUP_MODE === 'allies'  ? ' active' : '') + '" onclick="ML_MATCHUP_MODE=\'allies\';mlRenderDetail();">Allies</button>' +
-      '<button class="tier-mode-btn' + (ML_MATCHUP_MODE === 'enemies' ? ' active' : '') + '" onclick="ML_MATCHUP_MODE=\'enemies\';mlRenderDetail();">Enemies</button>' +
-    '</div>';
-
-  var countMap = {};
+  var allyMap = {}, enemyMap = {};
   games.forEach(function(g) {
     var myPick = null;
     g.picks.forEach(function(pk) { if (pk.hero === ML_SELECTED) myPick = pk; });
@@ -715,44 +760,53 @@ function _mlMatchups(games) {
     g.picks.forEach(function(pk) {
       if (pk.hero === ML_SELECTED || !pk.hero) return;
       var isAlly = pk.side === myPick.side;
-      if (ML_MATCHUP_MODE === 'allies'  && !isAlly) return;
-      if (ML_MATCHUP_MODE === 'enemies' && isAlly)  return;
-      if (!countMap[pk.hero]) countMap[pk.hero] = {games: 0, wins: 0};
-      countMap[pk.hero].games++;
-      if (myWon) countMap[pk.hero].wins++;
+      var map = isAlly ? allyMap : enemyMap;
+      if (!map[pk.hero]) map[pk.hero] = {games: 0, wins: 0};
+      map[pk.hero].games++;
+      if (myWon) map[pk.hero].wins++;
     });
   });
 
-  var matchups = Object.keys(countMap).map(function(h) {
-    var m = countMap[h];
-    return {hero: h, games: m.games, wr: m.games > 0 ? m.wins / m.games : 0};
-  }).sort(function(a, b) { return b.games - a.games; });
-
-  if (!matchups.length) {
-    return subBar + '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:14px;">No matchup data</div>';
+  function toList(map) {
+    return Object.keys(map).map(function(h) {
+      var m = map[h];
+      return {hero: h, games: m.games, wr: m.games > 0 ? m.wins / m.games : 0};
+    }).sort(function(a, b) { return b.games - a.games; });
   }
+
+  var allies  = toList(allyMap);
+  var enemies = toList(enemyMap);
 
   function renderRow(m) {
     var pwr = Math.round(m.wr * 100);
     var pc  = m.wr >= 0.55 ? 'var(--success)' : m.wr <= 0.45 ? 'var(--danger)' : 'var(--grey-5)';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:var(--border);">' +
-      '<div style="flex:1;font-family:\'Bebas Neue\',sans-serif;font-size:14px;">' + m.hero + '</div>' +
-      '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">' + m.games + 'G</div>' +
-      '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:' + pc + ';">' + pwr + '%</div>' +
+    return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:var(--border);">' +
+      '<div style="flex-shrink:0;">' + heroPortraitHtml(m.hero, 28, false) + '</div>' +
+      '<div style="flex:1;font-family:\'Bebas Neue\',sans-serif;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + m.hero + '</div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);flex-shrink:0;">' + m.games + 'G</div>' +
+      '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:' + pc + ';flex-shrink:0;min-width:28px;text-align:right;">' + pwr + '%</div>' +
     '</div>';
   }
 
-  var top5 = matchups.slice(0, 5);
-  var rest  = matchups.slice(5);
-  var html  = subBar + top5.map(renderRow).join('');
+  var alliesHtml  = allies.length  ? allies.map(renderRow).join('')  : '<div style="padding:12px 10px;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">No data</div>';
+  var enemiesHtml = enemies.length ? enemies.map(renderRow).join('') : '<div style="padding:12px 10px;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">No data</div>';
 
-  if (rest.length) {
-    if (ML_MATCHUP_EXP) {
-      html += rest.map(renderRow).join('');
-      html += '<div style="padding:8px 14px;"><button class="tier-mode-btn" onclick="ML_MATCHUP_EXP=false;mlRenderDetail();">▲ Collapse</button></div>';
-    } else {
-      html += '<div style="padding:8px 14px;"><button class="tier-mode-btn" onclick="ML_MATCHUP_EXP=true;mlRenderDetail();">+ Show ' + rest.length + ' more</button></div>';
-    }
-  }
-  return html;
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;">' +
+    '<div style="border-right:var(--border);">' +
+      '<div style="padding:7px 10px;border-bottom:var(--border);display:flex;align-items:center;gap:6px;">' +
+        '<span style="width:6px;height:6px;border-radius:50%;background:var(--success);flex-shrink:0;"></span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--success);">ALLIES</span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);margin-left:auto;">' + allies.length + ' heroes</span>' +
+      '</div>' +
+      alliesHtml +
+    '</div>' +
+    '<div>' +
+      '<div style="padding:7px 10px;border-bottom:var(--border);display:flex;align-items:center;gap:6px;">' +
+        '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex-shrink:0;"></span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1.5px;color:var(--danger);">ENEMIES</span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);margin-left:auto;">' + enemies.length + ' heroes</span>' +
+      '</div>' +
+      enemiesHtml +
+    '</div>' +
+  '</div>';
 }
