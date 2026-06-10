@@ -336,6 +336,7 @@ function mlRenderList() {
     var safeName = x.hero.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     return '<div style="padding:10px 14px;border-bottom:var(--border);cursor:pointer;display:flex;align-items:center;gap:8px;' +
       (isSel ? 'background:var(--grey-1);' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
+      heroPortraitHtml(x.hero, 36, false) +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:15px;line-height:1.2;">' + x.hero +
           (isLow ? '<span style="font-size:8px;color:var(--warn);margin-left:5px;font-family:\'DM Mono\',monospace;vertical-align:middle;">low n</span>' : '') +
@@ -387,7 +388,10 @@ function mlRenderDetail() {
 
   el.innerHTML =
     '<div style="padding:12px 14px;border-bottom:var(--border);">' +
-      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;margin-bottom:8px;">' + ML_SELECTED + '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+        heroPortraitHtml(ML_SELECTED, 56, false) +
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;">' + ML_SELECTED + '</div>' +
+      '</div>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;">' + tabBar + '</div>' +
     '</div>' +
     '<div style="padding:14px;">' + body + '</div>';

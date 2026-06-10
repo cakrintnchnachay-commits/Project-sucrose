@@ -276,7 +276,12 @@ const HERO_IMG_MAP={
   'Wukong':'Wu_Kong','The Flash':'The_Flash','Brunhilda':'Celica',
   'Arthur':'Mortos','Jinnar':'Jinna','Lu Bu':'Lu_Bu',
   'Wonder Woman':'Wonder_Woman','Bolt Baron':'Bolt_Baron',"Y'bneth":'Y_bneth',
-  'Flowborn':'v1775747198/Flowborn.png'
+  'Flowborn':'v1775747198/Flowborn.png',
+  'Flowborn Marksman':'v1775747198/Flowborn.png',
+  'FlowbornMarksman':'v1775747198/Flowborn.png',
+  'Flowborn Mage':'v1775747198/Flowborn.png',
+  'Flowborn (Marksman)':'v1775747198/Flowborn.png',
+  'Flowborn (Mage)':'v1775747198/Flowborn.png'
 };
 
 function heroImgUrl(name){
