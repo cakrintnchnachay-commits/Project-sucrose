@@ -642,7 +642,7 @@ function _mlProRoleRef(role, games) {
 }
 
 function _mlHeroRadarCaps() {
-  return {wr: 0.75, mvpRate: 0.40, kda: 5, dmgPerMin: 7500, dtkPerMin: 7500, kp: 75};
+  return {wr: 0.75, mvpRate: 0.30, kda: 5, dmgPerMin: 7500, dtkPerMin: 7500, kp: 75};
 }
 
 function mlDrawHeroRadar(heroStats, refStats, caps) {
