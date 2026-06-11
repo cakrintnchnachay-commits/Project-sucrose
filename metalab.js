@@ -846,8 +846,8 @@ function _mlPlayers(games) {
     var teamAbbr = playerTeam[r.player] || '';
     var logoUrl  = _ML_TEAM_LOGOS[teamAbbr] || '';
     var avatarHtml = logoUrl
-      ? '<img src="' + logoUrl + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
-      : '<div style="width:28px;height:28px;border-radius:50%;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-5);margin-right:10px;flex-shrink:0;">' + (r.player[0]||'?') + '</div>';
+      ? '<img src="' + logoUrl + '" style="width:28px;height:28px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
+      : '<div style="width:28px;height:28px;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-5);margin-right:10px;flex-shrink:0;">' + (r.player[0]||'?') + '</div>';
 
     return '<div style="border-bottom:var(--border);">' +
       '<div class="hd-player-row" style="padding:10px 14px;cursor:pointer;" onclick="ML_PLAYERS_EXP[' + idx + ']=!ML_PLAYERS_EXP[' + idx + '];mlRenderDetail();">' +
