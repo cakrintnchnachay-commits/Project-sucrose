@@ -719,14 +719,15 @@ function showPage(id){
   var pg=document.getElementById(id);if(pg) pg.classList.add('active');
   // Clear all nav active states
   document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
+  document.querySelectorAll('.top-nav-tab').forEach(function(b){b.classList.remove('active');});
   // Highlight mobile tab
   var mobileMap={'page-home':'nav-home','page-roster':'nav-roster','page-heroes':'nav-heroes'};
-  var drawerMap={'page-log':'drawer-log','page-history':'drawer-history','page-tiers':'drawer-tiers','page-settings':'drawer-settings','page-benchmarks':'drawer-benchmarks'};
+  var drawerMap={'page-log':'drawer-log','page-history':'drawer-history','page-data-center':'drawer-tiers','page-settings':'drawer-settings','page-benchmarks':'drawer-benchmarks'};
   if(mobileMap[id]) document.getElementById(mobileMap[id])?.classList.add('active');
   else if(drawerMap[id]||id==='page-match') document.getElementById('nav-more-btn')?.classList.add('active');
-  // Highlight desktop sidebar
-  var desktopMap={'page-home':'nav-home-d','page-log':'nav-log','page-roster':'nav-roster-d','page-history':'nav-history','page-tiers':'nav-tiers','page-heroes':'nav-heroes-d','page-benchmarks':'nav-benchmarks-d'};
-  if(desktopMap[id]) document.getElementById(desktopMap[id])?.classList.add('active');
+  // Highlight top navigation tabs (desktop)
+  var topNavMap={'page-home':'nav-home-d','page-log':'nav-log','page-roster':'nav-roster-d','page-history':'nav-history','page-data-center':'nav-tiers'};
+  if(topNavMap[id]) document.getElementById(topNavMap[id])?.classList.add('active');
   // Highlight drawer items
   document.querySelectorAll('.more-drawer-item').forEach(function(el){el.classList.remove('active-drawer-item');});
   if(drawerMap[id]) document.getElementById(drawerMap[id])?.classList.add('active-drawer-item');
@@ -735,7 +736,7 @@ function showPage(id){
   if(id==='page-history') renderHistory();
   if(id==='page-log')     initLog();
   if(id==='page-compare') renderCompare();
-  if(id==='page-tiers')   initTiers();
+  if(id==='page-data-center')   initTiers();
   if(id==='page-heroes')  renderHeroes();
   if(id==='page-settings'){updateDBStatusCard();}
   if(typeof updateCoachFab==='function') updateCoachFab();

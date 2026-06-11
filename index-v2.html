@@ -58,16 +58,23 @@
     <div class="topbar-coach">COACH CHAKARIN</div>
   </div>
 
-  <!-- NAV (bottom on mobile = 4 tabs, top bar on desktop = all tabs) -->
-  <nav class="nav" id="main-nav">
-    <!-- Desktop-only logo block -->
-    <div class="nav-logo" id="nav-logo-block" style="display:none;">
-      <div class="nav-logo-text">PROJECT SUCROSE</div>
-      <div class="nav-logo-sub">AOV COACHING SYSTEM</div>
-      <div class="nav-logo-coach">COACH CHAKARIN</div>
+  <!-- TOP NAVIGATION BAR -->
+  <nav class="top-nav" id="main-nav">
+    <div class="top-nav-logo">
+      <div class="top-nav-logo-text">PROJECT SUCROSE</div>
+      <div class="top-nav-logo-sub">AOV COACHING SYSTEM</div>
     </div>
+    <div class="top-nav-tabs">
+      <button class="top-nav-tab active" id="nav-home-d" onclick="showPage('page-home')">HOME</button>
+      <button class="top-nav-tab" id="nav-log" onclick="showPage('page-log')">LOG</button>
+      <button class="top-nav-tab" id="nav-roster-d" onclick="showPage('page-roster')">ROSTER</button>
+      <button class="top-nav-tab" id="nav-history" onclick="showPage('page-history')">HISTORY</button>
+      <button class="top-nav-tab" id="nav-tiers" onclick="showPage('page-data-center')">DATA CENTER</button>
+    </div>
+  </nav>
 
-    <!-- MOBILE: only 4 tabs visible -->
+  <!-- MOBILE BOTTOM NAV (hidden on desktop) -->
+  <nav class="nav mobile-bottom-nav" id="mobile-nav">
     <button class="nav-btn active mobile-nav-btn" onclick="showPage('page-home')" id="nav-home">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
       Home
@@ -76,44 +83,13 @@
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
       Roster
     </button>
-    <button class="nav-btn mobile-nav-btn" onclick="showPage('page-data-center')" id="nav-datacenter">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-      Data
+    <button class="nav-btn mobile-nav-btn" onclick="showPage('page-heroes')" id="nav-heroes">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+      Heroes
     </button>
     <button class="nav-btn mobile-nav-btn" id="nav-more-btn" onclick="openMoreDrawer()">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
       More
-    </button>
-
-    <!-- DESKTOP: all nav items (hidden on mobile via CSS) -->
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-home')" id="nav-home-d">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-      Home
-    </button>
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-log')" id="nav-log">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-      Log
-    </button>
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-roster')" id="nav-roster-d">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
-      Roster
-    </button>
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-history')" id="nav-history">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-      History
-    </button>
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-data-center')" id="nav-datacenter-d">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zm0 5h16M9 4v16"/></svg>
-      Data Center
-    </button>
-    <button class="nav-btn desktop-nav-btn" onclick="showPage('page-benchmarks')" id="nav-benchmarks-d">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-      Benchmarks
-    </button>
-    <div class="nav-spacer" id="nav-spacer" style="display:none;"></div>
-    <button class="nav-settings-btn" id="nav-settings-btn" style="display:none;" onclick="showPage('page-settings')">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-      Settings
     </button>
   </nav>
 
