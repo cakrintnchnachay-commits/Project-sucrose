@@ -400,6 +400,7 @@
           <button class="tier-mode-btn" id="dc-tab-tiers" onclick="dcSetTab('tiers')">Tiers</button>
           <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
           <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
+          <button class="tier-mode-btn" id="dc-tab-playerlab" onclick="dcSetTab('playerlab')">Players</button>
         </div>
       </div>
       <!-- Heroes controls (shown only when heroes tab is active) -->
@@ -536,6 +537,19 @@
           <div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div>
         </div>
         <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- PLAYER LAB sub-section -->
+    <div id="dc-section-playerlab" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-bottom:var(--border);flex-shrink:0;">
+        <div id="pl-tour-bar" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+        <div id="pl-sort-bar" style="display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;"></div>
+      </div>
+      <div id="pl-role-tabs" style="display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:var(--border);flex-shrink:0;"></div>
+      <div style="display:flex;flex:1;overflow:hidden;">
+        <div id="pl-player-list" class="heroes-pool-side" style="width:220px;flex-shrink:0;border-right:var(--border);overflow-y:auto;"></div>
+        <div id="pl-detail" class="heroes-detail-side" style="flex:1;overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -779,6 +793,7 @@
 <script src="ui.js?v=20260530a"></script>
 <script src="app.js?v=20260530a"></script>
 <script src="metalab.js"></script>
+<script src="playerlab.js"></script>
 
 <style>
 /* ── Field hints ── */
@@ -1095,11 +1110,12 @@ function dcRenderActiveTab(tab) {
   if (tab === 'heroes')   { if (typeof renderHeroes === 'function') renderHeroes(); }
   if (tab === 'tiers')    { if (typeof initTiers === 'function')    initTiers(); }
   if (tab === 'probench') pbRenderCurrentRole();
-  if (tab === 'metalab')  { if (typeof mlInit === 'function')       mlInit(); }
+  if (tab === 'metalab')   { if (typeof mlInit === 'function')  mlInit(); }
+  if (tab === 'playerlab') { if (typeof plInit === 'function')  plInit(); }
 }
 
 function dcSetTab(tab) {
-  var tabs = ['heroes', 'tiers', 'probench', 'metalab'];
+  var tabs = ['heroes', 'tiers', 'probench', 'metalab', 'playerlab'];
   tabs.forEach(function(t) {
     var btn = document.getElementById('dc-tab-' + t);
     var sec = document.getElementById('dc-section-' + t);
