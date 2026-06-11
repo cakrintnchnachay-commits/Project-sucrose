@@ -54,7 +54,7 @@ body{background:var(--black);color:var(--white);font-family:'DM Sans',sans-serif
 
 .top-nav-logo-text{
   font-family:'Bebas Neue',sans-serif;
-  font-size:20px;
+  font-size:30px;
   letter-spacing:3px;
   line-height:1;
   color:var(--white);
@@ -80,7 +80,7 @@ body{background:var(--black);color:var(--white);font-family:'DM Sans',sans-serif
   background:none;
   color:var(--grey-5);
   font-family:'Bebas Neue',sans-serif;
-  font-size:20px;
+  font-size:30px;
   letter-spacing:2px;
   text-transform:uppercase;
   cursor:pointer;
