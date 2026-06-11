@@ -303,7 +303,7 @@ function plPlayerHeroStats(playerIGN, hero, games) {
 // ── Radar caps ───────────────────────────────────────────────
 
 function _plRadarCaps() {
-  return {wr: 0.75, mvpRate: 0.30, kda: 5, dmgPerMin: 7500, dtkPerMin: 7500, kp: 75};
+  return {wr: 0.75, mvpRate: 0.30, kda: 8, dmgPerMin: 7500, dtkPerMin: 7500, kp: 90};
 }
 
 var _PL_RADAR_AXES = [
