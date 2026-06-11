@@ -9,14 +9,15 @@
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--black);color:var(--white);font-family:'DM Sans',sans-serif;font-size:14px;min-height:100vh;overflow-x:hidden;}
 
-/* Mobile: show only mobile-nav-btn, hide desktop-nav-btn */
-.desktop-nav-btn{display:none!important;}
+/* Mobile: show only mobile-nav-btn, hide top-nav */
+.top-nav{display:none!important;}
+.mobile-bottom-nav{display:flex;}
 .mobile-nav-btn{display:flex;}
 
-/* Desktop: show desktop-nav-btn, hide mobile-nav-btn and more button */
+/* Desktop: show top-nav, hide mobile-bottom-nav */
 @media(min-width:768px){
-  .mobile-nav-btn{display:none!important;}
-  .desktop-nav-btn{display:flex!important;}
+  .top-nav{display:flex!important;}
+  .mobile-bottom-nav{display:none!important;}
 }
 
 /* ── MOBILE LAYOUT ── */
@@ -27,7 +28,82 @@ body{background:var(--black);color:var(--white);font-family:'DM Sans',sans-serif
 .topbar-sub{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:2px;text-transform:uppercase;margin-top:2px;}
 .topbar-coach{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);}
 
-.nav{display:flex;border-top:var(--border);position:sticky;bottom:0;background:var(--black);z-index:100;}
+/* NEW TOP NAVIGATION */
+.top-nav{
+  display:none;
+  width:100%;
+  min-height:60px;
+  border-bottom:var(--border);
+  position:sticky;
+  top:0;
+  background:var(--black);
+  z-index:100;
+  align-items:stretch;
+  justify-content:space-between;
+  padding:0 32px;
+}
+
+.top-nav-logo{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding-right:24px;
+  border-right:var(--border);
+  flex-shrink:0;
+}
+
+.top-nav-logo-text{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;
+  letter-spacing:3px;
+  line-height:1;
+  color:var(--white);
+}
+
+.top-nav-logo-sub{
+  font-family:'DM Mono',monospace;
+  font-size:8px;
+  color:var(--grey-5);
+  letter-spacing:2px;
+  margin-top:3px;
+}
+
+.top-nav-tabs{
+  display:flex;
+  align-items:stretch;
+  gap:0;
+  margin-left:auto;
+}
+
+.top-nav-tab{
+  border:none;
+  background:none;
+  color:var(--grey-5);
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  cursor:pointer;
+  padding:0 18px;
+  display:flex;
+  align-items:center;
+  border-bottom:3px solid transparent;
+  transition:all 0.2s ease;
+  white-space:nowrap;
+}
+
+.top-nav-tab:hover{
+  color:var(--white);
+}
+
+.top-nav-tab.active{
+  color:var(--white);
+  border-bottom-color:var(--success);
+  font-weight:600;
+}
+
+/* MOBILE BOTTOM NAV */
+.mobile-bottom-nav{display:flex;border-top:var(--border);position:sticky;bottom:0;background:var(--black);z-index:100;}
 .nav-btn{flex:1;padding:14px 2px 12px;border:none;background:none;color:var(--grey-5);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;transition:color 0.2s;border-top:2px solid transparent;}
 .nav-btn.active{color:var(--white);border-top-color:var(--white);}
 .nav-btn svg{width:18px;height:18px;}
@@ -40,23 +116,6 @@ body{background:var(--black);color:var(--white);font-family:'DM Sans',sans-serif
 @media(min-width:768px){
   body{overflow-x:hidden;}
   .app{max-width:100%;flex-direction:column;min-height:100vh;}
-
-  /* Top bar replaces sidebar */
-  .nav{flex-direction:row;width:100%;min-height:60px;border-top:none;border-bottom:var(--border);position:sticky;top:0;background:var(--black);padding:0 24px;align-items:center;gap:4px;justify-content:flex-start;z-index:100;}
-  .nav-btn{flex:0 0 auto;flex-direction:row;justify-content:center;align-self:stretch;padding:0 14px;border-top:none;border-left:none;border-bottom:2px solid transparent;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;gap:8px;border-radius:0;width:auto;}
-  .nav-btn.active{border-top-color:transparent;border-left-color:transparent;border-bottom-color:var(--white);}
-  .nav-btn svg{width:15px;height:15px;flex-shrink:0;}
-  .nav-logo{display:flex!important;flex-direction:column;justify-content:center;align-self:stretch;padding:0 22px 0 0;margin-right:8px;border-bottom:none;border-right:var(--border);}
-  .nav-logo-text{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:3px;line-height:1;}
-  .nav-logo-sub{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;margin-top:3px;}
-  .nav-logo-coach{display:none;}
-  .nav-spacer{flex:1;display:block!important;}
-  .nav-settings-btn{width:auto;padding:0 16px;align-self:stretch;border:none;border-left:var(--border);background:none;color:var(--grey-5);cursor:pointer;display:flex!important;align-items:center;gap:8px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;border-top:none;transition:color 0.2s;}
-  .nav-settings-btn:hover{color:var(--white);}
-  .nav-settings-btn svg{width:15px;height:15px;}
-
-  /* Hide Benchmarks from nav (no use yet) */
-  #nav-benchmarks-d,#drawer-benchmarks{display:none!important;}
 
   /* Main content area */
   .desktop-main{flex:1;min-width:0;display:flex;flex-direction:column;}
