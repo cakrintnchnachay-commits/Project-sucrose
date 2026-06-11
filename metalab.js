@@ -394,8 +394,8 @@ function mlRenderList() {
     var wr = Math.round(s.wr * 100);
     var wrColor = s.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
     var presStr = (s.presence * 100).toFixed(0) + '%';
-    var barPct = Math.min(Math.round(s.presence * 100), 100);
-    var barColor = barPct >= 70 ? 'rgba(100,180,255,0.75)' : barPct >= 40 ? 'rgba(100,180,255,0.5)' : 'rgba(100,180,255,0.3)';
+    var barPct = s.games > 0 ? Math.min(wr, 100) : 0;
+    var barColor = s.games > 0 ? (wr >= 60 ? 'rgba(68,255,136,0.7)' : wr >= 50 ? 'rgba(244,244,240,0.45)' : 'rgba(255,68,68,0.55)') : 'rgba(100,180,255,0.2)';
     return '<div class="ml-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
       '<div class="ml-item-img">' + heroPortraitHtml(x.hero, 40, false) + '</div>' +
       '<div class="ml-item-body">' +
@@ -548,8 +548,10 @@ function mlRenderDetail() {
     }).join('') +
     '</div>';
 
+  var rankInfo = stats.games > 0 ? _mlHeroPresenceRank(ML_SELECTED, games, primaryRole) : null;
+
   var body;
-  if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats);
+  if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats, rankInfo, games.length);
   else if (ML_DETAIL_TAB === 'stats')     body = _mlStats(stats);
   else if (ML_DETAIL_TAB === 'players')   body = _mlPlayers(games);
   else if (ML_DETAIL_TAB === 'matchups')  body = _mlMatchups(games);
@@ -608,15 +610,92 @@ function _mlSectionLbl(text) {
 
 // ── Overview tab ─────────────────────────────────────────────
 
-function _mlOverview(s) {
-  return '<div class="hd-stat-boxes">' +
-    _mlStatBox('WIN RATE',   _mlPct(s.wr, 1),       s.wins + '/' + s.games + ' games') +
-    _mlStatBox('PICK RATE',  _mlPct(s.pickRate, 1),  s.games + ' picks') +
-    _mlStatBox('BAN RATE',   _mlPct(s.banRate, 1),   s.bans + ' bans') +
-    _mlStatBox('PRESENCE',   _mlPct(s.presence, 1),  'pick + ban') +
-    _mlStatBox('GAMES',      String(s.games),          s.games < 10 ? 'low sample' : '') +
-    _mlStatBox('MVP RATE',   _mlPct(s.mvpRate, 1),   '') +
-  '</div>';
+function _mlOverview(s, rankInfo, totalGames) {
+  if (!s.games) {
+    return '<div style="padding:24px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;">No games in this filter</div>';
+  }
+
+  var wr     = s.wr * 100;
+  var wrRnd  = Math.round(wr);
+  var presPct = Math.min(Math.round(s.presence * 100), 100);
+  var wrPct   = Math.min(wrRnd, 100);
+  var wrColor = wrRnd >= 60 ? 'var(--success)' : wrRnd >= 50 ? 'var(--white)' : 'var(--danger)';
+  var rankText = (rankInfo && rankInfo.rank > 0 && rankInfo.role)
+    ? '#' + rankInfo.rank + ' ' + rankInfo.role
+    : 'pick + ban';
+
+  var header =
+    '<div class="ml-ov-header">' +
+      '<div class="ml-ov-header-top">' +
+        '<span class="ml-ov-dot"></span>' +
+        '<span class="ml-ov-title">META CORE</span>' +
+        '<span class="ml-ov-pres"> · ' + (s.presence * 100).toFixed(1) + '% PRES</span>' +
+      '</div>' +
+      '<div class="ml-ov-sub">Based on ' + (totalGames || s.games) + ' games · all tournaments</div>' +
+    '</div>';
+
+  var twoCol =
+    '<div class="ml-ov-two-col">' +
+      '<div class="ml-ov-metric">' +
+        '<div class="ml-ov-metric-lbl">WIN RATE</div>' +
+        '<div class="ml-ov-metric-big" style="color:' + wrColor + ';">' + wr.toFixed(1) + '%</div>' +
+        '<div class="ml-ov-bar-wrap"><div class="ml-ov-bar-fill" style="width:' + wrPct + '%;background:' + wrColor + ';opacity:0.8;"></div></div>' +
+        '<div class="ml-ov-metric-sub">' + s.wins + 'W / ' + (s.games - s.wins) + 'L</div>' +
+      '</div>' +
+      '<div class="ml-ov-metric" style="border-left:var(--border);">' +
+        '<div class="ml-ov-metric-lbl">PRESENCE</div>' +
+        '<div class="ml-ov-metric-big" style="color:rgba(100,180,255,0.9);">' + (s.presence * 100).toFixed(1) + '%</div>' +
+        '<div class="ml-ov-bar-wrap"><div class="ml-ov-bar-fill" style="width:' + presPct + '%;background:rgba(100,180,255,0.75);"></div></div>' +
+        '<div class="ml-ov-metric-sub">' + rankText + '</div>' +
+      '</div>' +
+    '</div>';
+
+  var sideSplit = '';
+  if (s.wrBlue != null || s.wrRed != null) {
+    var bPct = s.wrBlue != null ? Math.round(s.wrBlue * 100) : 0;
+    var rPct = s.wrRed  != null ? Math.round(s.wrRed  * 100) : 0;
+    var bCol = bPct >= 55 ? 'var(--success)' : bPct >= 45 ? 'rgba(100,180,255,0.8)' : 'var(--danger)';
+    var rCol = rPct >= 55 ? 'var(--success)' : rPct >= 45 ? 'rgba(255,120,120,0.8)' : 'var(--danger)';
+    sideSplit =
+      '<div class="ml-ov-section">' +
+        '<div class="ml-ov-section-lbl">SIDE WIN RATE</div>' +
+        '<div class="ml-ov-side-row">' +
+          '<div class="ml-ov-side-name" style="color:rgba(80,120,255,0.9);">BLUE</div>' +
+          '<div class="ml-ov-bar-wrap" style="flex:1;margin:0 10px;"><div class="ml-ov-bar-fill" style="width:' + bPct + '%;background:rgba(80,120,255,0.55);"></div></div>' +
+          '<div class="ml-ov-side-val" style="color:' + bCol + ';">' + (s.wrBlue != null ? bPct + '%' : '—') + '</div>' +
+        '</div>' +
+        '<div class="ml-ov-side-row">' +
+          '<div class="ml-ov-side-name" style="color:rgba(255,100,100,0.9);">RED</div>' +
+          '<div class="ml-ov-bar-wrap" style="flex:1;margin:0 10px;"><div class="ml-ov-bar-fill" style="width:' + rPct + '%;background:rgba(255,100,100,0.5);"></div></div>' +
+          '<div class="ml-ov-side-val" style="color:' + rCol + ';">' + (s.wrRed != null ? rPct + '%' : '—') + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  var durSection = '';
+  if (s.avgDur > 0) {
+    durSection =
+      '<div class="ml-ov-section">' +
+        '<div class="ml-ov-dur-row">' +
+          '<div><span class="ml-ov-dur-big">' + s.avgDur.toFixed(1) + '</span><span class="ml-ov-dur-unit"> MIN</span></div>' +
+          '<div class="ml-ov-dur-lbl">STANDARD LENGTH</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  var bottomBar =
+    '<div class="ml-ov-bottom">' +
+      '<div class="ml-ov-wr-bar-track"><div class="ml-ov-wr-bar-fill" style="width:' + wrPct + '%;background:' + wrColor + ';opacity:0.7;"></div></div>' +
+      '<div class="ml-ov-wr-bar-meta">' +
+        '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;color:' + wrColor + ';">' + wrRnd + '%</span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;margin-left:6px;">WIN RATE</span>' +
+        '<span style="flex:1;"></span>' +
+        '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;">' + s.games + '</span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;margin-left:6px;">GAMES</span>' +
+      '</div>' +
+    '</div>';
+
+  return header + twoCol + sideSplit + durSection + bottomBar;
 }
 
 // ── Stats tab ────────────────────────────────────────────────
@@ -671,6 +750,22 @@ function _mlHeroPrimaryRole(hero, games) {
   var keys = Object.keys(roleCount);
   if (!keys.length) return null;
   return keys.reduce(function(a, b) { return roleCount[a] > roleCount[b] ? a : b; });
+}
+
+function _mlHeroPresenceRank(hero, games, role) {
+  var allH = _mlAllHeroes(games);
+  var scope = role ? allH.filter(function(h) {
+    return games.some(function(g) {
+      return g.picks.some(function(pk) { return pk.hero === h && pk.role === role; });
+    });
+  }) : allH;
+  var ranked = scope.map(function(h) {
+    var s = role ? mlHeroStatsForRole(h, games, role) : mlHeroStats(h, games);
+    return { hero: h, presence: s.presence };
+  }).sort(function(a, b) { return b.presence - a.presence; });
+  var idx = -1;
+  for (var i = 0; i < ranked.length; i++) { if (ranked[i].hero === hero) { idx = i; break; } }
+  return { rank: idx >= 0 ? idx + 1 : 0, role: role, total: ranked.length };
 }
 
 function _mlProRoleRef(role, games) {
