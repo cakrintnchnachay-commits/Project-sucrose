@@ -846,7 +846,7 @@ function _mlPlayers(games) {
     var teamAbbr = playerTeam[r.player] || '';
     var logoUrl  = _ML_TEAM_LOGOS[teamAbbr] || '';
     var avatarHtml = logoUrl
-      ? '<img src="' + logoUrl + '" style="width:28px;height:28px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
+      ? '<img src="' + logoUrl + '" style="width:28px;height:28px;object-fit:contain;background:var(--grey-8);padding:2px;box-sizing:border-box;margin-right:10px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
       : '<div style="width:28px;height:28px;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-5);margin-right:10px;flex-shrink:0;">' + (r.player[0]||'?') + '</div>';
 
     return '<div style="border-bottom:var(--border);">' +
