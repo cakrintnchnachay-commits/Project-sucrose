@@ -760,6 +760,33 @@ function _mlSetupHeroRadarEvents() {
 
 // ── Players tab ──────────────────────────────────────────────
 
+var _ML_TEAM_LOGOS = {
+  BAC: 'https://cdnr.escharts.com/uploads/public/633/180/963/6331809632832834626864.png',
+  EA:  'https://cdnr.escharts.com/uploads/public/641/d93/139/641d931390169216480804.png',
+  TEN: 'https://cdnr.escharts.com/uploads/public/696/441/177/696441177637d478458365.png',
+  HD:  'https://cdnr.escharts.com/uploads/public/65b/8ab/67d/65b8ab67d3130531356310.png',
+  FS:  'https://cdnr.escharts.com/uploads/public/670/bcf/c23/670bcfc235e78874074390.png',
+  KOG: 'https://cdnr.escharts.com/uploads/public/65b/8ab/2e6/65b8ab2e6c191639738634.png',
+  BRU: 'https://cdnr.escharts.com/uploads/public/698/e5d/003/698e5d0030bd1935492008.png',
+  SLX: 'https://cdnr.escharts.com/uploads/public/696/19e/221/69619e2214035062986431.png',
+  GJC: 'https://cdn-api.pandascore.co/images/team/image/138019/godji_check_allmode.png',
+  FW:  'https://cdnr.escharts.com/uploads/public/5e3/9ff/28d/5e39ff28df00d239605591.png',
+  BMG: 'https://cdnr.escharts.com/uploads/public/65d/ede/d85/65deded853423327188368.png',
+  ONE: 'https://cdnr.escharts.com/uploads/public/632/9e8/1c6/6329e81c623c2125032095.png',
+  HKA: 'https://cdnr.escharts.com/uploads/public/5ce/598/81c/5ce59881cbc48326077977.png',
+  ANK: 'https://cdnr.escharts.com/uploads/public/65d/edf/029/65dedf029c6ef904387850.png',
+  DCG: 'https://cdnr.escharts.com/uploads/public/659/be1/e66/659be1e66fffd240293207.png',
+  LIT: 'https://cdnr.escharts.com/uploads/public/696/659/26d/69665926d712f401697976.png',
+  SGP: 'https://cdnr.escharts.com/uploads/public/665/232/a25/665232a257ceb043723956.png',
+  '1S':'https://cdnr.escharts.com/uploads/public/65d/ef7/7d4/65def77d41f86056197699.png',
+  FPT: 'https://cdnr.escharts.com/uploads/public/5ba/238/e7f/5ba238e7f2dca149694156.png',
+  GAM: 'https://cdnr.escharts.com/uploads/public/697/d4d/92e/697d4d92e1716581967983.png',
+  SPN: 'https://cdnr.escharts.com/uploads/public/682/1ea/474/6821ea474b5b2434399793.png',
+  BOX: 'https://cdnr.escharts.com/uploads/public/68d/ecc/251/68decc2513852541929810.png',
+  FPL: 'https://cdnr.escharts.com/uploads/public/67b/c39/f27/67bc39f27dcb9554580293.png',
+  TS:  'https://cdnr.escharts.com/uploads/public/5ce/819/ef4/5ce819ef4ad89755496819.png'
+};
+
 function _mlPlayers(games) {
   var playerMap = {};
   games.forEach(function(g) {
@@ -768,6 +795,15 @@ function _mlPlayers(games) {
       if (!playerMap[pk.player]) playerMap[pk.player] = {player: pk.player, games: 0, wins: 0};
       playerMap[pk.player].games++;
       if (g.winSide === pk.side) playerMap[pk.player].wins++;
+    });
+  });
+
+  var playerTeam = {};
+  games.forEach(function(g) {
+    g.picks.forEach(function(pk) {
+      if (pk.player && g.teams && g.teams[pk.side]) {
+        playerTeam[pk.player] = g.teams[pk.side];
+      }
     });
   });
 
@@ -807,8 +843,15 @@ function _mlPlayers(games) {
         '</div>';
     }
 
+    var teamAbbr = playerTeam[r.player] || '';
+    var logoUrl  = _ML_TEAM_LOGOS[teamAbbr] || '';
+    var avatarHtml = logoUrl
+      ? '<img src="' + logoUrl + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
+      : '<div style="width:28px;height:28px;border-radius:50%;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-5);margin-right:10px;flex-shrink:0;">' + (r.player[0]||'?') + '</div>';
+
     return '<div style="border-bottom:var(--border);">' +
       '<div class="hd-player-row" style="padding:10px 14px;cursor:pointer;" onclick="ML_PLAYERS_EXP[' + idx + ']=!ML_PLAYERS_EXP[' + idx + '];mlRenderDetail();">' +
+        avatarHtml +
         '<div style="flex:1;min-width:0;">' +
           '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;">' + nameHtml + '</div>' +
           '<div class="hd-wl">' + r.games + ' games · ' + r.wins + 'W / ' + (r.games - r.wins) + 'L</div>' +
