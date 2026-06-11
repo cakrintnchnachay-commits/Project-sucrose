@@ -1227,11 +1227,11 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .ml-sort-row{display:flex;gap:3px;}
 
 /* ── META LAB detail header ────────────────────────────────────────────── */
-.ml-detail-hero-hdr{display:flex;gap:0;border-bottom:var(--border);background:var(--grey-1);flex-shrink:0;}
-.ml-detail-hero-portrait{width:100px;max-height:100px;flex-shrink:0;position:relative;background:var(--grey-2);overflow:hidden;}
+.ml-detail-hero-hdr{display:flex;flex-direction:column;gap:0;border-bottom:var(--border);background:var(--grey-1);flex-shrink:0;align-items:center;}
+.ml-detail-hero-portrait{width:100px;height:100px;flex-shrink:0;position:relative;background:var(--grey-2);overflow:hidden;margin-top:16px;}
 .ml-detail-hero-portrait img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;}
 .ml-detail-hero-portrait-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--grey-5);}
-.ml-detail-hero-info{width:175px;flex-shrink:0;padding:14px 16px;display:flex;flex-direction:column;border-right:var(--border);}
+.ml-detail-hero-info{width:100%;flex-shrink:0;padding:14px 16px;display:flex;flex-direction:column;align-items:center;text-align:center;border-right:none;border-bottom:var(--border);}
 .ml-detail-hero-name{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;line-height:1;word-break:break-word;}
 .ml-detail-hero-sub{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;margin-top:4px;}
 .ml-detail-hero-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:10px;border-top:var(--border);padding-top:10px;}
@@ -1239,7 +1239,7 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .ml-kpi-val{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;line-height:1;}
 .ml-kpi-lbl{font-family:'DM Mono',monospace;font-size:6px;color:var(--grey-5);letter-spacing:1.5px;margin-top:2px;text-transform:uppercase;}
 /* Middle column — 2×2 mini-stat grid + side WR rows */
-.ml-detail-hero-mid{flex:1;min-width:0;padding:16px 18px;border-right:var(--border);display:flex;flex-direction:column;gap:14px;}
+.ml-detail-hero-mid{width:100%;min-width:0;padding:16px 18px;border-right:none;border-bottom:var(--border);display:flex;flex-direction:column;gap:14px;}
 .ml-mid-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;}
 .ml-mid-stat-val{font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1;letter-spacing:1px;}
 .ml-mid-stat-lbl{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1.5px;color:var(--grey-5);margin-top:3px;text-transform:uppercase;}
@@ -1249,9 +1249,9 @@ input[type=range].pillar-slider::-moz-range-thumb{width:16px;height:16px;backgro
 .ml-mid-wr-bar{flex:1;height:6px;background:var(--grey-2);border-radius:3px;overflow:hidden;}
 .ml-mid-wr-fill{height:100%;border-radius:3px;}
 .ml-mid-wr-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-6);width:32px;text-align:right;flex-shrink:0;}
-.ml-detail-hero-radar{width:340px;flex-shrink:0;padding:14px 12px;display:flex;flex-direction:column;border-left:var(--border);}
+.ml-detail-hero-radar{width:100%;flex-shrink:0;padding:14px 12px;display:flex;flex-direction:column;border-left:none;border-bottom:var(--border);}
 @media(max-width:700px){.ml-detail-hero-radar{display:none;}}
-@media(max-width:580px){.ml-detail-hero-hdr{flex-wrap:wrap;}.ml-detail-hero-portrait{width:80px;min-height:80px;}.ml-detail-hero-info{width:auto;flex:1;border-right:none;padding:10px 12px;}.ml-detail-hero-name{font-size:20px;}.ml-detail-hero-mid{display:none;}}
+@media(max-width:580px){.ml-detail-hero-portrait{width:80px;height:80px;margin-top:12px;}.ml-detail-hero-info{padding:10px 16px;}.ml-detail-hero-name{font-size:20px;}.ml-detail-hero-mid{padding:12px 16px;}}
 
 /* ── META LAB overview — verdict system ────────────────────────────────── */
 .ml-verdict-banner{border-left:3px solid var(--grey-5);padding:12px 16px;border-bottom:var(--border);}
