@@ -521,7 +521,7 @@ function mlRenderDetail() {
       // Portrait column
       '<div class="ml-detail-hero-portrait" style="min-height:120px;">' +
         '<div class="ml-detail-hero-portrait-fallback">' + init + '</div>' +
-        (heroImgUrl(ML_SELECTED) ? '<img src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;"/>' : '') +
+        (heroImgUrl(ML_SELECTED) ? '<img src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;z-index:1;"/>' : '') +
       '</div>' +
       // Info + KPIs column
       '<div class="ml-detail-hero-info">' +
