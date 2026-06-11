@@ -205,13 +205,20 @@ function _mlAllHeroes(games) {
 
 // ── Stats computation ────────────────────────────────────────
 
-function _mlStatsFromPicks(picks, games, totalGames, bans) {
+function _mlStatsFromPicks(picks, games, totalGames, bans, hero) {
   var n = picks.length;
   var wins = 0;
   var sumK=0,sumD=0,sumA=0,sumDmg=0,sumDtk=0,sumDur=0;
   var kpSum=0,kpCount=0,mvpCount=0;
   var picksA=0,winsA=0,picksB=0,winsB=0;
   var winGoldDiffs=[];
+
+  // Per-side ban counts (for side-split overview)
+  var bansA = 0, bansB = 0;
+  games.forEach(function(g) {
+    if (g.bans && g.bans.A && g.bans.A.indexOf(hero) >= 0) bansA++;
+    if (g.bans && g.bans.B && g.bans.B.indexOf(hero) >= 0) bansB++;
+  });
 
   picks.forEach(function(entry) {
     var pk = entry.pk, g = entry.g;
@@ -251,7 +258,13 @@ function _mlStatsFromPicks(picks, games, totalGames, bans) {
     avgDur:    n > 0 ? sumDur / n : 0,
     wgdpm:     winGoldDiffs.length > 0 ? winGoldDiffs.reduce(function(a,b){return a+b;},0)/winGoldDiffs.length : null,
     wrBlue:    picksA > 0 ? winsA / picksA : null,
-    wrRed:     picksB > 0 ? winsB / picksB : null
+    wrRed:     picksB > 0 ? winsB / picksB : null,
+    bansA:     bansA,
+    bansB:     bansB,
+    pickRateBlue: totalGames > 0 ? picksA / totalGames : 0,
+    pickRateRed:  totalGames > 0 ? picksB / totalGames : 0,
+    banRateBlue:  totalGames > 0 ? bansA  / totalGames : 0,
+    banRateRed:   totalGames > 0 ? bansB  / totalGames : 0
   };
 }
 
@@ -267,7 +280,7 @@ function mlHeroStats(hero, games) {
       if (pk.hero === hero && g.dur > 0) pairs.push({pk: pk, g: g});
     });
   });
-  return _mlStatsFromPicks(pairs, games, totalGames, bans);
+  return _mlStatsFromPicks(pairs, games, totalGames, bans, hero);
 }
 
 function mlHeroStatsForRole(hero, games, role) {
@@ -282,7 +295,7 @@ function mlHeroStatsForRole(hero, games, role) {
       if (pk.hero === hero && pk.role === role && g.dur > 0) pairs.push({pk: pk, g: g});
     });
   });
-  return _mlStatsFromPicks(pairs, games, totalGames, bans);
+  return _mlStatsFromPicks(pairs, games, totalGames, bans, hero);
 }
 
 function _mlGetStats(hero, games) {
@@ -394,8 +407,8 @@ function mlRenderList() {
     var wr = Math.round(s.wr * 100);
     var wrColor = s.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
     var presStr = (s.presence * 100).toFixed(0) + '%';
-    var barPct = s.games > 0 ? Math.min(wr, 100) : 0;
-    var barColor = s.games > 0 ? (wr >= 60 ? 'rgba(68,255,136,0.7)' : wr >= 50 ? 'rgba(244,244,240,0.45)' : 'rgba(255,68,68,0.55)') : 'rgba(100,180,255,0.2)';
+    var barPct = Math.min(Math.round(s.presence * 100), 100);
+    var barColor = barPct >= 70 ? 'rgba(100,180,255,0.75)' : barPct >= 40 ? 'rgba(100,180,255,0.5)' : 'rgba(100,180,255,0.3)';
     return '<div class="ml-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
       '<div class="ml-item-img">' + heroPortraitHtml(x.hero, 40, false) + '</div>' +
       '<div class="ml-item-body">' +
@@ -493,7 +506,7 @@ function mlRenderDetail() {
         (primaryRole ? '<span class="hd-radar-section-sub"> · ' + primaryRole + '</span>' : '') +
       '</div>' +
       '<div class="hd-radar-canvas-wrap" style="flex:1;min-height:220px;position:relative;">' +
-        '<canvas id="ml-hero-radar-canvas" width="280" height="280" style="width:100%;max-width:280px;display:block;margin:0 auto;"></canvas>' +
+        '<canvas id="ml-hero-radar-canvas" width="280" height="280" style="width:100%;max-width:320px;display:block;margin:0 auto;"></canvas>' +
         '<div class="hd-radar-tip" id="ml-hero-radar-tip">' +
           '<div class="hd-radar-tip-lbl" id="ml-hero-radar-tip-lbl"></div>' +
           '<div class="hd-radar-tip-val" id="ml-hero-radar-tip-val"></div>' +
@@ -515,7 +528,35 @@ function mlRenderDetail() {
     radarHtml = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:9px;">NO GAMES YET</div>';
   }
 
-  // Top card: portrait | name+meta+badge | radar
+  // Middle column: 2×2 mini-stat grid + divider + Blue/Red WR rows
+  function midStat(lbl, val, col) {
+    return '<div class="ml-mid-stat">' +
+      '<div class="ml-mid-stat-val" style="color:' + (col || 'var(--white)') + ';">' + val + '</div>' +
+      '<div class="ml-mid-stat-lbl">' + lbl + '</div>' +
+    '</div>';
+  }
+  function midWrRow(lbl, v, col) {
+    var pct = (v != null && !isNaN(v)) ? Math.round(v * 100) : null;
+    return '<div class="ml-mid-wr-row">' +
+      '<div class="ml-mid-wr-lbl">' + lbl + '</div>' +
+      '<div class="ml-mid-wr-bar"><div class="ml-mid-wr-fill" style="width:' + (pct != null ? Math.min(pct, 100) : 0) + '%;background:' + col + ';"></div></div>' +
+      '<div class="ml-mid-wr-pct">' + (pct != null ? pct + '%' : '—') + '</div>' +
+    '</div>';
+  }
+  var midHtml =
+    '<div class="ml-detail-hero-mid">' +
+      '<div class="ml-mid-stat-grid">' +
+        midStat('WIN RATE',  stats.games > 0 ? wr + '%' : '—', wrColor) +
+        midStat('PICK RATE', _mlPct(stats.pickRate, 0), 'var(--white)') +
+        midStat('BAN RATE',  _mlPct(stats.banRate, 0),  'var(--white)') +
+        midStat('KDA',       _mlF(stats.kda, 2),        'var(--white)') +
+      '</div>' +
+      '<div class="ml-mid-divider"></div>' +
+      midWrRow('BLUE WR', stats.wrBlue, 'rgba(68,119,255,0.8)') +
+      midWrRow('RED WR',  stats.wrRed,  'rgba(255,80,80,0.8)') +
+    '</div>';
+
+  // Top card: portrait | name+meta+badge | mini-stats | radar
   var topHtml =
     '<div class="ml-detail-hero-hdr">' +
       // Portrait column
@@ -532,6 +573,8 @@ function mlRenderDetail() {
           (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
         '</div>' +
       '</div>' +
+      // Middle column (mini-stats + side WR; hidden on narrow screens via CSS)
+      midHtml +
       // Radar column (hidden on narrow screens via CSS)
       '<div class="ml-detail-hero-radar">' +
         radarHtml +
@@ -548,10 +591,14 @@ function mlRenderDetail() {
     }).join('') +
     '</div>';
 
-  var rankInfo = stats.games > 0 ? _mlHeroPresenceRank(ML_SELECTED, games, primaryRole) : null;
+  // Meta-wide average game duration (for duration context in overview)
+  var metaAvgDur = 0;
+  if (games.length) {
+    metaAvgDur = games.reduce(function(s, g) { return s + (g.dur || 0); }, 0) / games.length;
+  }
 
   var body;
-  if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats, rankInfo, games.length);
+  if      (ML_DETAIL_TAB === 'overview')  body = _mlOverview(stats, metaAvgDur);
   else if (ML_DETAIL_TAB === 'stats')     body = _mlStats(stats);
   else if (ML_DETAIL_TAB === 'players')   body = _mlPlayers(games);
   else if (ML_DETAIL_TAB === 'matchups')  body = _mlMatchups(games);
@@ -608,94 +655,125 @@ function _mlSectionLbl(text) {
   return '<div style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:2px;padding:10px 14px 4px;border-bottom:var(--border);">' + text + '</div>';
 }
 
-// ── Overview tab ─────────────────────────────────────────────
+// ── Overview tab — calculated verdict system ─────────────────
 
-function _mlOverview(s, rankInfo, totalGames) {
-  if (!s.games) {
-    return '<div style="padding:24px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);text-align:center;">No games in this filter</div>';
+// Tint colour (≈0.06 opacity) for each verdict colour — used as banner background
+function _mlTint(col) {
+  var map = {
+    'var(--success)':       'rgba(68,255,136,0.06)',
+    'var(--danger)':        'rgba(255,68,68,0.06)',
+    'var(--warn)':          'rgba(255,204,68,0.06)',
+    'var(--auto)':          'rgba(68,136,255,0.06)',
+    'var(--grey-5)':        'rgba(160,160,150,0.06)',
+    '#66ffaa':              'rgba(102,255,170,0.06)',
+    'rgba(68,136,255,0.8)': 'rgba(68,136,255,0.06)'
+  };
+  return map[col] || 'rgba(255,255,255,0.04)';
+}
+
+// Verdict tier (evaluate in order, first match wins)
+function _mlVerdict(s) {
+  var pres = s.presence, wr = s.wr, n = s.games;
+  if (n <= 4)                                  return {tier:7, label:'LOW SAMPLE · UNRATED',                       col:'var(--grey-5)'};
+  if (wr < 0.44)                               return {tier:6, label:'WEAK META · '+Math.round(wr*100)+'% WR',     col:'var(--danger)'};
+  if (pres >= 0.50)                            return {tier:1, label:'META CORE · '+Math.round(pres*100)+'% PRES', col:'var(--success)'};
+  if (pres >= 0.25 && wr >= 0.52)              return {tier:2, label:'STRONG PICK · '+Math.round(wr*100)+'% WR',   col:'#66ffaa'};
+  if (pres >= 0.25 && wr >= 0.45)              return {tier:3, label:'CONTESTED',                                  col:'var(--warn)'};
+  if (pres >= 0.10 || (n >= 5 && wr >= 0.55))  return {tier:4, label:'SITUATIONAL · BO7 POOL',                     col:'var(--auto)'};
+  if (n >= 3 && wr >= 0.58)                    return {tier:5, label:'NICHE PICK · HIGH WR',                       col:'rgba(68,136,255,0.8)'};
+  return                                              {tier:7, label:'LOW SAMPLE · UNRATED',                       col:'var(--grey-5)'};
+}
+
+function _mlOverview(s, metaAvgDur) {
+  metaAvgDur = metaAvgDur || 0;
+  var v = _mlVerdict(s);
+  var filterLabel = ML_TOUR === 'All' ? 'ALL TOURNAMENTS' : ML_TOUR;
+  var html = '';
+
+  // Block 1 — verdict banner
+  html += '<div class="ml-verdict-banner" style="border-left-color:' + v.col + ';background:' + _mlTint(v.col) + ';">' +
+    '<div class="ml-verdict-label">' +
+      '<div class="ml-verdict-dot" style="background:' + v.col + ';"></div>' +
+      v.label +
+    '</div>' +
+    '<div class="ml-verdict-sub">Based on ' + s.games + ' games · ' + filterLabel + '</div>' +
+  '</div>';
+
+  // Block 2 — Win Rate + Presence
+  var wrPct   = Math.round(s.wr * 100);
+  var presPct = Math.round(s.presence * 100);
+  var wrBarCol = s.wr >= 0.52 ? 'var(--success)' : s.wr >= 0.48 ? 'var(--warn)' : 'var(--danger)';
+  html += '<div class="ml-ov-two-col">' +
+    '<div class="ml-ov-cell">' +
+      '<div class="ml-ov-lbl">WIN RATE</div>' +
+      '<div class="ml-ov-big">' + (s.games > 0 ? wrPct + '%' : '—') + '</div>' +
+      '<div class="ml-ov-bar-track"><div class="ml-ov-bar-fill" style="width:' + (s.games > 0 ? Math.min(wrPct, 100) : 0) + '%;background:' + wrBarCol + ';"></div></div>' +
+      '<div class="ml-ov-sub">' + s.wins + 'W / ' + (s.games - s.wins) + 'L</div>' +
+    '</div>' +
+    '<div class="ml-ov-cell">' +
+      '<div class="ml-ov-lbl">PRESENCE</div>' +
+      '<div class="ml-ov-big">' + presPct + '%</div>' +
+      '<div class="ml-ov-bar-track"><div class="ml-ov-bar-fill" style="width:' + Math.min(presPct, 100) + '%;background:var(--auto);"></div></div>' +
+      '<div class="ml-ov-sub">pick + ban</div>' +
+    '</div>' +
+  '</div>';
+
+  // Block 3 — Side split (independent bars, may not sum to 100)
+  var sideRates = [
+    {lbl:'BLUE PICK', v:s.pickRateBlue, col:'rgba(68,119,255,0.85)'},
+    {lbl:'RED PICK',  v:s.pickRateRed,  col:'rgba(255,80,80,0.85)'},
+    {lbl:'BLUE BAN',  v:s.banRateBlue,  col:'rgba(68,119,255,0.85)'},
+    {lbl:'RED BAN',   v:s.banRateRed,   col:'rgba(255,80,80,0.85)'}
+  ];
+  var allZero = sideRates.every(function(r) { return !r.v; });
+  html += _mlSectionLbl('SIDE SPLIT');
+  if (allZero) {
+    html += '<div class="ml-side-split"><div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--grey-5);text-align:center;">—</div></div>';
+  } else {
+    html += '<div class="ml-side-split">' +
+      sideRates.map(function(r) {
+        var pct = Math.round((r.v || 0) * 100);
+        return '<div class="ml-side-row">' +
+          '<div class="ml-side-label">' + r.lbl + '</div>' +
+          '<div class="ml-side-bar-wrap"><div class="ml-side-bar-fill" style="width:' + Math.min(pct, 100) + '%;background:' + r.col + ';"></div></div>' +
+          '<div class="ml-side-pct">' + pct + '%</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
   }
 
-  var wr     = s.wr * 100;
-  var wrRnd  = Math.round(wr);
-  var presPct = Math.min(Math.round(s.presence * 100), 100);
-  var wrPct   = Math.min(wrRnd, 100);
-  var wrColor = wrRnd >= 60 ? 'var(--success)' : wrRnd >= 50 ? 'var(--white)' : 'var(--danger)';
-  var rankText = (rankInfo && rankInfo.rank > 0 && rankInfo.role)
-    ? '#' + rankInfo.rank + ' ' + rankInfo.role
-    : 'pick + ban';
-
-  var header =
-    '<div class="ml-ov-header">' +
-      '<div class="ml-ov-header-top">' +
-        '<span class="ml-ov-dot"></span>' +
-        '<span class="ml-ov-title">META CORE</span>' +
-        '<span class="ml-ov-pres"> · ' + (s.presence * 100).toFixed(1) + '% PRES</span>' +
-      '</div>' +
-      '<div class="ml-ov-sub">Based on ' + (totalGames || s.games) + ' games · all tournaments</div>' +
+  // Block 4 — Game duration
+  html += _mlSectionLbl('GAME DURATION');
+  if (!s.avgDur) {
+    html += '<div class="ml-dur-block"><div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--grey-5);">—</div></div>';
+  } else {
+    var diff = s.avgDur - metaAvgDur;
+    var ctxLabel = diff < -2 ? 'EARLY CLOSER' : diff > 2 ? 'LATEGAME SCALING' : 'STANDARD LENGTH';
+    var sign = diff >= 0 ? '+' : '-';
+    var durPct = Math.min(Math.max(s.avgDur / 30, 0), 1) * 100;
+    html += '<div class="ml-dur-block">' +
+      '<div class="ml-dur-context-label">' + ctxLabel + '</div>' +
+      '<div class="ml-dur-big">' + s.avgDur.toFixed(1) + 'm</div>' +
+      '<div class="ml-dur-bar-track"><div class="ml-ov-bar-fill" style="width:' + durPct + '%;background:var(--warn);"></div></div>' +
+      '<div class="ml-ov-sub">Meta avg ' + metaAvgDur.toFixed(1) + 'm · ' + sign + Math.abs(diff).toFixed(1) + 'm</div>' +
     '</div>';
-
-  var twoCol =
-    '<div class="ml-ov-two-col">' +
-      '<div class="ml-ov-metric">' +
-        '<div class="ml-ov-metric-lbl">WIN RATE</div>' +
-        '<div class="ml-ov-metric-big" style="color:' + wrColor + ';">' + wr.toFixed(1) + '%</div>' +
-        '<div class="ml-ov-bar-wrap"><div class="ml-ov-bar-fill" style="width:' + wrPct + '%;background:' + wrColor + ';opacity:0.8;"></div></div>' +
-        '<div class="ml-ov-metric-sub">' + s.wins + 'W / ' + (s.games - s.wins) + 'L</div>' +
-      '</div>' +
-      '<div class="ml-ov-metric" style="border-left:var(--border);">' +
-        '<div class="ml-ov-metric-lbl">PRESENCE</div>' +
-        '<div class="ml-ov-metric-big" style="color:rgba(100,180,255,0.9);">' + (s.presence * 100).toFixed(1) + '%</div>' +
-        '<div class="ml-ov-bar-wrap"><div class="ml-ov-bar-fill" style="width:' + presPct + '%;background:rgba(100,180,255,0.75);"></div></div>' +
-        '<div class="ml-ov-metric-sub">' + rankText + '</div>' +
-      '</div>' +
-    '</div>';
-
-  var sideSplit = '';
-  if (s.wrBlue != null || s.wrRed != null) {
-    var bPct = s.wrBlue != null ? Math.round(s.wrBlue * 100) : 0;
-    var rPct = s.wrRed  != null ? Math.round(s.wrRed  * 100) : 0;
-    var bCol = bPct >= 55 ? 'var(--success)' : bPct >= 45 ? 'rgba(100,180,255,0.8)' : 'var(--danger)';
-    var rCol = rPct >= 55 ? 'var(--success)' : rPct >= 45 ? 'rgba(255,120,120,0.8)' : 'var(--danger)';
-    sideSplit =
-      '<div class="ml-ov-section">' +
-        '<div class="ml-ov-section-lbl">SIDE WIN RATE</div>' +
-        '<div class="ml-ov-side-row">' +
-          '<div class="ml-ov-side-name" style="color:rgba(80,120,255,0.9);">BLUE</div>' +
-          '<div class="ml-ov-bar-wrap" style="flex:1;margin:0 10px;"><div class="ml-ov-bar-fill" style="width:' + bPct + '%;background:rgba(80,120,255,0.55);"></div></div>' +
-          '<div class="ml-ov-side-val" style="color:' + bCol + ';">' + (s.wrBlue != null ? bPct + '%' : '—') + '</div>' +
-        '</div>' +
-        '<div class="ml-ov-side-row">' +
-          '<div class="ml-ov-side-name" style="color:rgba(255,100,100,0.9);">RED</div>' +
-          '<div class="ml-ov-bar-wrap" style="flex:1;margin:0 10px;"><div class="ml-ov-bar-fill" style="width:' + rPct + '%;background:rgba(255,100,100,0.5);"></div></div>' +
-          '<div class="ml-ov-side-val" style="color:' + rCol + ';">' + (s.wrRed != null ? rPct + '%' : '—') + '</div>' +
-        '</div>' +
-      '</div>';
   }
 
-  var durSection = '';
-  if (s.avgDur > 0) {
-    durSection =
-      '<div class="ml-ov-section">' +
-        '<div class="ml-ov-dur-row">' +
-          '<div><span class="ml-ov-dur-big">' + s.avgDur.toFixed(1) + '</span><span class="ml-ov-dur-unit"> MIN</span></div>' +
-          '<div class="ml-ov-dur-lbl">STANDARD LENGTH</div>' +
-        '</div>' +
-      '</div>';
-  }
+  // Block 5 — Secondary stats row
+  var blueWr = s.wrBlue != null ? Math.round(s.wrBlue * 100) + '%' : '—';
+  var redWr  = s.wrRed  != null ? Math.round(s.wrRed  * 100) + '%' : '—';
+  html += '<div class="ml-sec-row">' +
+    '<div class="ml-sec-cell"><div class="ml-sec-val">' + s.games + '</div><div class="ml-sec-lbl">GAMES</div></div>' +
+    '<div class="ml-sec-cell"><div class="ml-sec-val">' + _mlF(s.kda, 2) + '</div><div class="ml-sec-lbl">KDA</div></div>' +
+    '<div class="ml-sec-cell"><div class="ml-sec-val">' + _mlPct(s.mvpRate, 0) + '</div><div class="ml-sec-lbl">MVP RATE</div></div>' +
+    '<div class="ml-sec-cell"><div class="ml-sec-val">' +
+      '<span style="color:rgba(68,119,255,0.9);">' + blueWr + '</span>' +
+      '<span style="color:var(--grey-5);"> / </span>' +
+      '<span style="color:rgba(255,80,80,0.9);">' + redWr + '</span>' +
+    '</div><div class="ml-sec-lbl">BLUE / RED WR</div></div>' +
+  '</div>';
 
-  var bottomBar =
-    '<div class="ml-ov-bottom">' +
-      '<div class="ml-ov-wr-bar-track"><div class="ml-ov-wr-bar-fill" style="width:' + wrPct + '%;background:' + wrColor + ';opacity:0.7;"></div></div>' +
-      '<div class="ml-ov-wr-bar-meta">' +
-        '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;color:' + wrColor + ';">' + wrRnd + '%</span>' +
-        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;margin-left:6px;">WIN RATE</span>' +
-        '<span style="flex:1;"></span>' +
-        '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;">' + s.games + '</span>' +
-        '<span style="font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);letter-spacing:1.5px;margin-left:6px;">GAMES</span>' +
-      '</div>' +
-    '</div>';
-
-  return header + twoCol + sideSplit + durSection + bottomBar;
+  return html;
 }
 
 // ── Stats tab ────────────────────────────────────────────────
@@ -750,22 +828,6 @@ function _mlHeroPrimaryRole(hero, games) {
   var keys = Object.keys(roleCount);
   if (!keys.length) return null;
   return keys.reduce(function(a, b) { return roleCount[a] > roleCount[b] ? a : b; });
-}
-
-function _mlHeroPresenceRank(hero, games, role) {
-  var allH = _mlAllHeroes(games);
-  var scope = role ? allH.filter(function(h) {
-    return games.some(function(g) {
-      return g.picks.some(function(pk) { return pk.hero === h && pk.role === role; });
-    });
-  }) : allH;
-  var ranked = scope.map(function(h) {
-    var s = role ? mlHeroStatsForRole(h, games, role) : mlHeroStats(h, games);
-    return { hero: h, presence: s.presence };
-  }).sort(function(a, b) { return b.presence - a.presence; });
-  var idx = -1;
-  for (var i = 0; i < ranked.length; i++) { if (ranked[i].hero === hero) { idx = i; break; } }
-  return { rank: idx >= 0 ? idx + 1 : 0, role: role, total: ranked.length };
 }
 
 function _mlProRoleRef(role, games) {
