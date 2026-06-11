@@ -15,10 +15,58 @@ var _ML_TOURS = ['All', 'RPL Summer', 'GCS Spring', 'AOG Spring', 'APL'];
 var _ML_ROLES = ['All', 'DSL', 'JUG', 'MID', 'ADL', 'SUP'];
 var _ML_PICK_ROLES = ['DSL', 'JUG', 'MID', 'ADL', 'SUP'];
 
+// ── Height fix (JS fallback for environments where CSS flex chain isn't anchored) ──
+// Only applies in desktop (row) layout. Mobile uses max-height via CSS instead.
+
+function mlFixHeight() {
+  var sec = document.getElementById('dc-section-metalab');
+  if (!sec || window.getComputedStyle(sec).display === 'none') return;
+
+  var split = sec.querySelector('.heroes-split');
+  if (!split) return;
+
+  var isRow = window.getComputedStyle(split).flexDirection === 'row';
+
+  var list = document.getElementById('ml-hero-list');
+  var detail = document.getElementById('ml-detail');
+  var pool = sec.querySelector('.heroes-pool-side');
+
+  if (!isRow) {
+    // Mobile/column: reset any desktop-applied heights; CSS handles max-height
+    if (pool)   { pool.style.height = ''; }
+    if (list)   { list.style.height = ''; }
+    if (detail) { detail.style.height = ''; }
+    return;
+  }
+
+  // Desktop (row) layout: compute constrained heights from viewport
+  var secRect = sec.getBoundingClientRect();
+  if (secRect.height === 0) return;
+
+  var filterEl = sec.querySelector('.ml-filter-section');
+  var filterH = filterEl ? filterEl.offsetHeight : 0;
+  var poolHeader = sec.querySelector('.ml-pool-header');
+  var poolHeaderH = poolHeader ? poolHeader.offsetHeight : 0;
+
+  // Available height = viewport minus everything above the filter section
+  var availH = Math.max(200, window.innerHeight - secRect.top - filterH);
+  var listH = Math.max(100, availH - poolHeaderH);
+
+  if (pool)   { pool.style.height = availH + 'px'; }
+  if (list)   { list.style.height = listH + 'px'; list.style.overflowY = 'auto'; }
+  if (detail) { detail.style.height = availH + 'px'; detail.style.overflowY = 'auto'; }
+}
+
 // ── Init (fetch + cache) ────────────────────────────────────
 
 function mlInit() {
-  if (ML_GAMES !== null) { mlRenderBars(); mlRenderList(); return; }
+  // Set up resize listener once
+  if (!window._mlResizeBound) {
+    window._mlResizeBound = true;
+    window.addEventListener('resize', function() { mlFixHeight(); });
+  }
+
+  if (ML_GAMES !== null) { mlRenderBars(); mlRenderList(); mlFixHeight(); return; }
   var listEl = document.getElementById('ml-hero-list');
   var detEl  = document.getElementById('ml-detail');
   if (listEl) listEl.innerHTML = '<div style="padding:20px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:1px;">Loading pro data…</div>';
@@ -29,6 +77,7 @@ function mlInit() {
       ML_GAMES = mlBuildGames(txt);
       mlRenderBars();
       mlRenderList();
+      setTimeout(mlFixHeight, 50);
     })
     .catch(function(err) {
       if (listEl) listEl.innerHTML = '<div style="padding:20px;color:var(--danger);font-family:\'DM Mono\',monospace;font-size:10px;">Failed to load data.<br>' + err.message + '</div>';
@@ -288,18 +337,21 @@ function mlSortHeroes(list) {
 // ── Bar rendering ────────────────────────────────────────────
 
 function mlRenderBars() {
+  // Tournament filter
   var tourEl = document.getElementById('ml-tour-bar');
   if (tourEl) {
     tourEl.innerHTML = _ML_TOURS.map(function(t) {
       return '<button class="tier-mode-btn' + (t === ML_TOUR ? ' active' : '') + '" onclick="ML_TOUR=\'' + t + '\';mlRenderBars();mlRenderList();">' + t + '</button>';
     }).join('');
   }
+  // Sort bar (inside pool header)
   var sortEl = document.getElementById('ml-sort-bar');
   if (sortEl) {
     sortEl.innerHTML = [['presence','Presence'],['winrate','Win Rate'],['games','Games']].map(function(s) {
       return '<button class="tier-mode-btn' + (s[0] === ML_SORT ? ' active' : '') + '" onclick="ML_SORT=\'' + s[0] + '\';mlRenderBars();mlRenderList();">' + s[1] + '</button>';
     }).join('');
   }
+  // Role/position filter
   var roleEl = document.getElementById('ml-role-tabs');
   if (roleEl) {
     roleEl.innerHTML = _ML_ROLES.map(function(r) {
@@ -342,21 +394,20 @@ function mlRenderList() {
     var wr = Math.round(s.wr * 100);
     var wrColor = s.games > 0 ? (wr >= 60 ? 'var(--success)' : wr >= 50 ? 'var(--white)' : 'var(--danger)') : 'var(--grey-5)';
     var presStr = (s.presence * 100).toFixed(0) + '%';
-    return '<div class="hp-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
-      '<div class="hp-item-img">' + heroPortraitHtml(x.hero, 44, false) + '</div>' +
-      '<div class="hp-item-body">' +
-        '<div class="hp-item-name">' + x.hero.toUpperCase() +
+    var barPct = Math.min(Math.round(s.presence * 100), 100);
+    var barColor = barPct >= 70 ? 'rgba(100,180,255,0.75)' : barPct >= 40 ? 'rgba(100,180,255,0.5)' : 'rgba(100,180,255,0.3)';
+    return '<div class="ml-item' + (isSel ? ' active' : '') + '" onclick="mlSelectHero(\'' + safeName + '\')">' +
+      '<div class="ml-item-img">' + heroPortraitHtml(x.hero, 40, false) + '</div>' +
+      '<div class="ml-item-body">' +
+        '<div class="ml-item-name">' + x.hero.toUpperCase() +
           (isLow ? '<span style="font-size:7px;color:var(--warn);margin-left:6px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>' : '') +
         '</div>' +
-        '<div class="hp-item-meta">' + s.games + 'G' + (s.games > 0 ? ' · ' + presStr + ' PRES' : '') + '</div>' +
+        '<div class="ml-item-meta">' + s.games + 'G' + (s.games > 0 ? ' · ' + presStr + ' PRES' : '') + '</div>' +
+        '<div class="ml-item-bar"><div class="ml-item-bar-fill" style="width:' + barPct + '%;background:' + barColor + ';"></div></div>' +
       '</div>' +
-      '<div class="hp-item-wr-col">' +
-        '<div class="hp-item-wr" style="color:' + wrColor + ';">' + wr + '%</div>' +
-        '<div class="hp-item-wr-lbl">WR</div>' +
-      '</div>' +
-      '<div class="hp-item-rtg">' +
-        '<div class="hp-item-rtg-val" style="font-size:13px;">' + presStr + '</div>' +
-        '<div class="hp-item-rtg-lbl">PRES</div>' +
+      '<div class="ml-item-wr">' +
+        '<div class="ml-item-wr-val" style="color:' + wrColor + ';">' + (s.games > 0 ? wr + '%' : '—') + '</div>' +
+        '<div class="ml-item-wr-lbl">WIN RATE</div>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -381,8 +432,9 @@ function mlRenderDetail() {
   if (!ML_SELECTED) {
     el.innerHTML =
       '<div class="hd-placeholder-inner" style="min-height:300px;">' +
+        '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7"/></svg>' +
         '<div class="ph-title">META LAB</div>' +
-        '<div class="ph-sub">SELECT A HERO FROM THE LIST</div>' +
+        '<div class="ph-sub">Select a hero to see pro stats</div>' +
       '</div>';
     return;
   }
@@ -463,28 +515,33 @@ function mlRenderDetail() {
     radarHtml = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:9px;">NO GAMES YET</div>';
   }
 
-  // Top layout — portrait left + radar right
+  // Top card — redesigned: portrait | info+KPIs | radar
   var topHtml =
-    '<div class="hd-top-layout">' +
-      '<div class="hd-top-left">' +
-        '<div class="hd-square-portrait">' +
-          '<div class="hd-square-portrait-fallback">' + init + '</div>' +
-          (heroImgUrl(ML_SELECTED) ? '<img class="hd-square-portrait-img" src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'"/>' : '') +
+    '<div class="ml-detail-hero-hdr">' +
+      // Portrait column
+      '<div class="ml-detail-hero-portrait" style="min-height:120px;">' +
+        '<div class="ml-detail-hero-portrait-fallback">' + init + '</div>' +
+        (heroImgUrl(ML_SELECTED) ? '<img src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;"/>' : '') +
+      '</div>' +
+      // Info + KPIs column
+      '<div class="ml-detail-hero-info">' +
+        '<div>' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<div class="ml-detail-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
+            '<span class="hd-badge-pool">PRO DATA</span>' +
+            (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
+          '</div>' +
+          '<div class="ml-detail-hero-sub">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence rate' + (primaryRole ? ' · ' + primaryRole : '') + '</div>' +
         '</div>' +
-        '<div class="hd-top-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
-        '<div class="hd-hdr-meta">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence</div>' +
-        '<div class="hd-top-badges">' +
-          '<span class="hd-badge-pool">PRO DATA</span>' +
-          (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
-        '</div>' +
-        '<div style="margin-top:auto;padding-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;">' +
-          miniStat('WIN RATE', wr + '%', wrColor) +
-          miniStat('PICK RATE', (stats.pickRate * 100).toFixed(0) + '%', 'var(--white)') +
-          miniStat('BAN RATE', (stats.banRate * 100).toFixed(0) + '%', 'var(--white)') +
-          miniStat('KDA', stats.games > 0 ? stats.kda.toFixed(2) : '—', 'var(--white)') +
+        '<div class="ml-detail-hero-kpis">' +
+          '<div class="ml-kpi"><div class="ml-kpi-val" style="color:' + wrColor + ';">' + (stats.games > 0 ? wr + '%' : '—') + '</div><div class="ml-kpi-lbl">Win Rate</div></div>' +
+          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.pickRate * 100).toFixed(0) + '%</div><div class="ml-kpi-lbl">Pick Rate</div></div>' +
+          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.banRate * 100).toFixed(0) + '%</div><div class="ml-kpi-lbl">Ban Rate</div></div>' +
+          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.games > 0 ? stats.kda.toFixed(2) : '—') + '</div><div class="ml-kpi-lbl">KDA</div></div>' +
         '</div>' +
       '</div>' +
-      '<div class="hd-top-right" style="padding:10px 12px;display:flex;flex-direction:column;">' +
+      // Radar column (hidden on narrow screens via CSS)
+      '<div class="ml-detail-hero-radar">' +
         radarHtml +
       '</div>' +
     '</div>';
