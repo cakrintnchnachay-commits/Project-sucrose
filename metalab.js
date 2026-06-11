@@ -515,29 +515,21 @@ function mlRenderDetail() {
     radarHtml = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:9px;">NO GAMES YET</div>';
   }
 
-  // Top card — redesigned: portrait | info+KPIs | radar
+  // Top card: portrait | name+meta+badge | radar
   var topHtml =
     '<div class="ml-detail-hero-hdr">' +
       // Portrait column
-      '<div class="ml-detail-hero-portrait" style="min-height:120px;">' +
+      '<div class="ml-detail-hero-portrait">' +
         '<div class="ml-detail-hero-portrait-fallback">' + init + '</div>' +
         (heroImgUrl(ML_SELECTED) ? '<img src="' + heroImgUrl(ML_SELECTED) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;z-index:1;"/>' : '') +
       '</div>' +
-      // Info + KPIs column
+      // Info column
       '<div class="ml-detail-hero-info">' +
-        '<div>' +
-          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-            '<div class="ml-detail-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
-            '<span class="hd-badge-pool">PRO DATA</span>' +
-            (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
-          '</div>' +
-          '<div class="ml-detail-hero-sub">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence rate' + (primaryRole ? ' · ' + primaryRole : '') + '</div>' +
-        '</div>' +
-        '<div class="ml-detail-hero-kpis">' +
-          '<div class="ml-kpi"><div class="ml-kpi-val" style="color:' + wrColor + ';">' + (stats.games > 0 ? wr + '%' : '—') + '</div><div class="ml-kpi-lbl">Win Rate</div></div>' +
-          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.pickRate * 100).toFixed(0) + '%</div><div class="ml-kpi-lbl">Pick Rate</div></div>' +
-          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.banRate * 100).toFixed(0) + '%</div><div class="ml-kpi-lbl">Ban Rate</div></div>' +
-          '<div class="ml-kpi" style="border-left:var(--border);"><div class="ml-kpi-val">' + (stats.games > 0 ? stats.kda.toFixed(2) : '—') + '</div><div class="ml-kpi-lbl">KDA</div></div>' +
+        '<div class="ml-detail-hero-name">' + ML_SELECTED.toUpperCase() + '</div>' +
+        '<div class="ml-detail-hero-sub">' + stats.games + ' games · ' + (stats.presence * 100).toFixed(0) + '% presence' + (primaryRole ? ' · ' + primaryRole : '') + '</div>' +
+        '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<span class="hd-badge-pool">PRO DATA</span>' +
+          (stats.games < 10 ? '<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>' : '') +
         '</div>' +
       '</div>' +
       // Radar column (hidden on narrow screens via CSS)
