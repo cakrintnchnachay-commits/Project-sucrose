@@ -513,30 +513,30 @@
     </div>
 
     <!-- META LAB sub-section -->
-    <div id="dc-section-metalab" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-      <!-- Competition + Position selectors on same row -->
-      <div style="padding:10px 14px 8px;border-bottom:var(--border);flex-shrink:0;">
-        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:4px;">COMPETITION</div>
-            <div id="ml-tour-bar" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
-          </div>
-          <div>
-            <div style="font-family:'DM Mono',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin-bottom:4px;">POSITION</div>
-            <div id="ml-role-tabs" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
-          </div>
+    <div id="dc-section-metalab" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;">
+      <!-- Competition + Position filter bar -->
+      <div class="ml-filter-section">
+        <div class="ml-filter-group">
+          <div class="ml-filter-label">Competition</div>
+          <div id="ml-tour-bar" class="ml-filter-row"></div>
+        </div>
+        <div class="ml-filter-group">
+          <div class="ml-filter-label">Position</div>
+          <div id="ml-role-tabs" class="ml-filter-row"></div>
         </div>
       </div>
-      <div class="heroes-split">
-        <!-- Left panel: search + sort + scrollable list -->
-        <div class="heroes-pool-side" style="display:flex;flex-direction:column;">
-          <div style="padding:8px 10px;border-bottom:var(--border);flex-shrink:0;">
-            <input class="input" id="ml-search" placeholder="Search hero..." oninput="mlRenderList()" style="margin:0 0 6px;"/>
-            <div id="ml-sort-bar" style="display:flex;gap:3px;"></div>
+      <!-- Split: list left, detail right -->
+      <div class="heroes-split" style="flex:1;min-height:0;overflow:hidden;">
+        <!-- Left panel: search + sort + independently-scrollable hero list -->
+        <div class="heroes-pool-side" style="display:flex;flex-direction:column;overflow:hidden;">
+          <div class="ml-pool-header">
+            <input class="ml-pool-search" id="ml-search" placeholder="Search hero…" oninput="mlRenderList()"/>
+            <div id="ml-sort-bar" class="ml-sort-row"></div>
           </div>
-          <div class="hp-list" id="ml-hero-list" style="overflow-y:auto;flex:1;"></div>
+          <div id="ml-hero-list" style="overflow-y:auto;flex:1;min-height:0;"></div>
         </div>
-        <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;"></div>
+        <!-- Right panel: hero detail -->
+        <div class="heroes-detail-side" id="ml-detail" style="overflow-y:auto;flex:1;min-height:0;"></div>
       </div>
     </div>
 
