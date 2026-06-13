@@ -107,6 +107,8 @@ function _mlStr(row, idx) {
 function _mlNormalize(name) {
   if (!name) return name;
   if (name === 'FlowbornMarksman') return 'Flowborn Marksman';
+  if (name === 'WuKong') return 'Wukong';            // CSV spelling → hero DB / image map
+  if (name === 'Diao chan') return 'Diaochan';       // CSV spelling → hero DB / image map
   return name;
 }
 
@@ -174,7 +176,7 @@ function mlBuildGames(csvText) {
     });
 
     games.push({
-      tour: tour, dur: dur, winSide: winSide,
+      tour: tour, week: get(row, 'WEEK'), dur: dur, winSide: winSide,
       teams: {A: teamA, B: teamB},
       bans:  {A: bansA, B: bansB},
       picks: picks, teamKills: teamKills,
