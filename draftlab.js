@@ -1,5 +1,9 @@
 // ═══════════════════════════════════════════════════════════
-// DRAFT LAB v2 — AoV series draft simulator with live intel
+// DRAFT LAB v3 — AoV series draft simulator with live intel
+//
+// v3: categorized intel (COUNTER/COMBO/STEAL/META picks and
+//     mirrored ban categories), recency-weighted meta, key-player
+//     ban targeting, threat flags + answers, Roster-style visuals.
 //
 // Sequence (4-ban): BB1 RB1 BB2 RB2 | BP1 RP1 RP2 BP2 BP3 RP3
 //                   RB3 BB3 RB4 BB4 | RP4 BP4 BP5 RP5 | swap
@@ -35,9 +39,12 @@ var _DL_CSS_DONE = false;
 
 var _DL_ROLES = ['DSL','JUG','MID','ADL','SUP'];
 var _DL_FLEX_MIN_G = 5;         // ≥5 games in a role = real flex threat
-var _DL_PAIR_MIN_G = 8;         // min games to trust a pair stat
+var _DL_PAIR_MIN_G = 8;         // min games to trust an ALLY pair stat
+var _DL_CTR_MIN_G  = 4;         // counter hints from ≥4 shared games ('thin' below 8)
+var _DL_REC_HALF   = 3;         // meta recency half-life, in week buckets
 var _DL_TIME_PICK = 60;
 var _DL_TIME_BAN  = 40;
+var _DL_BUCKETS = ['W1','W2','W3','W4','W5','W6','W7','PO'];
 
 var _DL_SEQ = [
   {side:'B',type:'ban', n:1}, {side:'R',type:'ban', n:1},
@@ -60,7 +67,9 @@ var _DL_SEQ = [
 
 var _DL_ALIAS = {
   'flowbornmage':     'Flowborn (Mage)',
-  'flowbornmarksman': 'Flowborn (Marksman)'
+  'flowbornmarksman': 'Flowborn (Marksman)',
+  'wukong':           'Wukong',     // CSV 'WuKong' → hero DB spelling
+  'diaochan':         'Diaochan'    // CSV 'Diao chan' → hero DB spelling
 };
 var _DL_HIDDEN = { 'flowborn': 1 };   // ambiguous bare entry from hero DB
 
@@ -311,11 +320,37 @@ function dlRoleClick(side, n) {
 
 // ── Pro-data aggregation (canonical names) ───────────────────
 
+// 'w3d2' → 'W3', 'po1' → 'PO' (same buckets as datalab-core)
+function _dlWeekBucket(wk) {
+  if (!wk) return null;
+  var m = /^w(\d+)/i.exec(wk);
+  if (m) return 'W' + Math.min(+m[1], 7);
+  if (/^po/i.test(wk)) return 'PO';
+  return null;
+}
+
 function _dlBuildAgg(games) {
   var agg = {total: games.length, blueWins: 0, heroes: {}, teams: {},
-             pairAlly: {}, pairEnemy: {}};
+             pairAlly: {}, pairEnemy: {}, wTotal: 0, meanLift: {}};
+
+  // recency weights: half-life of _DL_REC_HALF buckets back from the
+  // latest bucket in the data. Games without WEEK get a mild discount;
+  // if NO game has WEEK info, every weight is 1 (v2 behaviour).
+  var maxIdx = -1;
+  games.forEach(function(g) {
+    var i = _DL_BUCKETS.indexOf(_dlWeekBucket(g.week));
+    if (i > maxIdx) maxIdx = i;
+  });
+  function recW(g) {
+    if (maxIdx < 0) return 1;
+    var i = _DL_BUCKETS.indexOf(_dlWeekBucket(g.week));
+    if (i < 0) return 0.5;
+    return Math.pow(0.5, (maxIdx - i) / _DL_REC_HALF);
+  }
+
   function H(h) {
-    if (!agg.heroes[h]) agg.heroes[h] = {g:0, w:0, bans:0, roles:{}, players:{}};
+    if (!agg.heroes[h]) agg.heroes[h] = {g:0, w:0, bans:0, roles:{}, players:{},
+                                         wg:0, ww:0, wbans:0};
     return agg.heroes[h];
   }
   function T(t) {
@@ -326,10 +361,14 @@ function _dlBuildAgg(games) {
 
   games.forEach(function(g) {
     if (g.winSide === 'A') agg.blueWins++;
+    var rw = recW(g);
+    agg.wTotal += rw;
     ['A','B'].forEach(function(S) {
       var abbr = g.teams[S];
       if (abbr) { var tm = T(abbr); tm.g++; if (g.winSide === S) tm.w++; }
-      (g.bans[S] || []).forEach(function(h){ if (h) H(dlCanon(h)).bans++; });
+      (g.bans[S] || []).forEach(function(h){
+        if (h) { var hb = H(dlCanon(h)); hb.bans++; hb.wbans += rw; }
+      });
     });
     var sidePicks = {A:[], B:[]};
     g.picks.forEach(function(pk) {
@@ -339,6 +378,7 @@ function _dlBuildAgg(games) {
       var h = H(hero);
       var won = g.winSide === pk.side;
       h.g++; if (won) h.w++;
+      h.wg += rw; if (won) h.ww += rw;
       if (pk.role) h.roles[pk.role] = (h.roles[pk.role] || 0) + 1;
       if (pk.player) {
         if (!h.players[pk.player]) h.players[pk.player] = {g:0, w:0, team:''};
@@ -381,6 +421,29 @@ function _dlBuildAgg(games) {
       });
     });
   });
+
+  // mean ally-pair lift per hero (≥8G pairs). Used to centre combo
+  // scores: a hero that lifts EVERYONE (Annette) only surfaces for
+  // duos above its own norm.
+  var acc = {};
+  Object.keys(agg.pairAlly).forEach(function(k) {
+    var p = agg.pairAlly[k];
+    if (p.g < _DL_PAIR_MIN_G) return;
+    var hs = k.split('|');
+    var a = agg.heroes[hs[0]], b = agg.heroes[hs[1]];
+    if (!a || !b) return;
+    var exp = (_dlShrunkWR(a.w, a.g) + _dlShrunkWR(b.w, b.g)) / 2;
+    var lift = _dlShrunkWR(p.w, p.g, 8) - exp;
+    hs.forEach(function(h) {
+      if (!acc[h]) acc[h] = {s:0, n:0};
+      acc[h].s += lift; acc[h].n++;
+    });
+  });
+  agg.meanLiftN = {};
+  Object.keys(acc).forEach(function(h) {
+    agg.meanLift[h] = acc[h].s / acc[h].n;
+    agg.meanLiftN[h] = acc[h].n;
+  });
   return agg;
 }
 
@@ -403,15 +466,102 @@ function dlAllyLift(h, ally) {
   var exp = (_dlShrunkWR(ha.w, ha.g) + _dlShrunkWR(hb.w, hb.g)) / 2;
   return {lift: _dlShrunkWR(p.w, p.g, 8) - exp, g: p.g, wr: p.w / p.g};
 }
-// counter lift of hero h against one enemy (positive = h beats enemy)
+// counter lift of hero h against one enemy (positive = h beats enemy).
+// ≥4 shared games; 4–7G get heavier shrinkage and a thin-data flag.
 function dlCounterLift(h, enemy) {
   if (!DL_AGG) return null;
   var first = h < enemy;
   var k = first ? h + '|' + enemy : enemy + '|' + h;
   var p = DL_AGG.pairEnemy[k];
-  if (!p || p.g < _DL_PAIR_MIN_G) return null;
+  if (!p || p.g < _DL_CTR_MIN_G) return null;
   var wins = first ? p.wFirst : p.g - p.wFirst;
-  return {lift: _dlShrunkWR(wins, p.g, 8) - 0.5, g: p.g, wr: wins / p.g};
+  var thin = p.g < _DL_PAIR_MIN_G;
+  return {lift: _dlShrunkWR(wins, p.g, thin ? 12 : 8) - 0.5,
+          g: p.g, wr: wins / p.g, thin: thin};
+}
+
+// combo lift centred on the hero's own average lift across partners —
+// the 'Annette fix': only above-her-norm duos count as combo signal.
+// The centre is shrunk by partner count so a hero with ONE strong duo
+// (n=1 → centre ≈ lift/4) still surfaces, while a lifts-everyone hero
+// (large n → centre ≈ mean) gets flattened.
+function dlExcessLift(h, ally) {
+  var L = dlAllyLift(h, ally);
+  if (!L) return null;
+  var n = (DL_AGG.meanLiftN || {})[h] || 0;
+  var centre = (DL_AGG.meanLift[h] || 0) * (n / (n + 3));
+  L.excess = L.lift - centre;
+  return L;
+}
+
+// recency-weighted presence / winrate (half-life _DL_REC_HALF buckets)
+function _dlWPresence(h) {
+  if (!DL_AGG || !DL_AGG.heroes[h] || !DL_AGG.wTotal) return 0;
+  var x = DL_AGG.heroes[h];
+  return (x.wg + x.wbans) / DL_AGG.wTotal;
+}
+function _dlWWR(h) {
+  if (!DL_AGG || !DL_AGG.heroes[h]) return 0.5;
+  var x = DL_AGG.heroes[h];
+  return _dlShrunkWR(x.ww, x.wg);
+}
+
+// most bannable enemy player: narrow signature pool × WR × volume
+function dlKeyPlayer(abbr) {
+  if (!abbr || !DL_AGG || !DL_AGG.teams[abbr]) return null;
+  var best = null;
+  var ps = DL_AGG.teams[abbr].players;
+  Object.keys(ps).forEach(function(ign) {
+    var pl = ps[ign];
+    if (pl.g < 8) return;
+    var counts = Object.keys(pl.heroes).map(function(h){ return pl.heroes[h].g; });
+    var tot = 0, w = 0;
+    Object.keys(pl.heroes).forEach(function(h){ tot += pl.heroes[h].g; w += pl.heroes[h].w; });
+    if (!tot) return;
+    var top3 = counts.sort(function(a,b){ return b - a; }).slice(0, 3)
+                     .reduce(function(a,b){ return a + b; }, 0);
+    var conc = top3 / tot;
+    var score = conc * _dlShrunkWR(w, tot) * Math.log(1 + tot);
+    if (!best || score > best.score)
+      best = {ign: ign, score: score, conc: conc, wr: w / tot, g: tot};
+  });
+  return best;
+}
+
+// threat flags on the OPPONENT's picks (from OUR perspective).
+// flagged when (a) high WR and nothing of ours beats it, or
+// (b) it counters ≥2 of our picks. Includes best available answers.
+function dlThreats() {
+  if (!DL_AGG || DL_VIEW !== null) return [];
+  var E = DL_US === 'B' ? 'R' : 'B';
+  var myPicks = dlPicksFor(DL_US).map(function(p){ return p.hero; });
+  var enemyPicks = dlPicksFor(E).map(function(p){ return p.hero; });
+  var out = [];
+  enemyPicks.forEach(function(e) {
+    var x = DL_AGG.heroes[e];
+    var wr = x ? _dlShrunkWR(x.w, x.g) : 0.5;
+    var answered = myPicks.some(function(m) {
+      var C = dlCounterLift(m, e);
+      return C && C.lift >= 0.02;
+    });
+    var beatsUs = myPicks.filter(function(m) {
+      var C = dlCounterLift(e, m);
+      return C && C.lift >= 0.04;
+    }).length;
+    var why = null;
+    if (beatsUs >= 2) why = 'counters ' + beatsUs + ' of our picks';
+    else if (wr >= 0.55 && !answered) why = Math.round((x.w / x.g) * 100) + '% WR, unanswered';
+    if (!why) return;
+    var answers = [];
+    Object.keys(DL_AGG.heroes).forEach(function(h) {
+      if (!dlAvailable(h)) return;
+      var C = dlCounterLift(h, e);
+      if (C && C.lift >= 0.04) answers.push({hero: h, C: C});
+    });
+    answers.sort(function(a,b){ return b.C.lift - a.C.lift; });
+    out.push({hero: e, why: why, answers: answers.slice(0, 3)});
+  });
+  return out;
 }
 
 function _dlTeamComfort(abbr, hero) {
@@ -425,110 +575,250 @@ function _dlTeamComfort(abbr, hero) {
   return best;
 }
 
-// ── Intel: suggestions for the current step ──────────────────
+// ── Intel: categorized suggestions for the current step ──────
+//
+// Picks: COUNTER / COMBO / STEAL / META.  Bans mirror the same
+// thinking: PROTECT / BREAK COMBO / TARGET player / DENY FLEX /
+// META BAN.  A hero may appear in several sections.
 
-function dlSuggestions(limit) {
-  var st = dlCurStep();
-  if (!st || !DL_AGG || DL_VIEW !== null) return {label:'', items:[]};
-  var heroes = Object.keys(DL_AGG.heroes).filter(dlAvailable);
-  var items = [];
+function _dlPct(x) { return Math.round(x * 100); }
 
-  if (st.type === 'ban') {
-    var enemy = st.side === 'B' ? 'R' : 'B';
-    var enemyTeam = DL_TEAM[enemy];
-    var enemyOpen = dlRoleOpenness(enemy);
-    var enemyDead = dlSeriesDead(enemy);
-    heroes.forEach(function(h) {
-      var x = DL_AGG.heroes[h];
-      var wr = _dlShrunkWR(x.w, x.g);
-      var pres = _dlPresence(h);
-      var comfort = _dlTeamComfort(enemyTeam, h);
-      // how open is this hero's role for the ENEMY (flex-aware)?
-      var prob = dlRoleProb(h);
-      var openFactor = 0;
-      Object.keys(prob).forEach(function(r){ openFactor += prob[r] * (enemyOpen[r] || 0); });
-      if (enemyDead[h]) openFactor = 0.05;       // they can't use it anyway
-      var score = (pres * 0.55 + wr * 0.45) * (0.15 + 0.85 * openFactor);
-      var reason = Math.round(pres * 100) + '% PRES · ' + Math.round((x.g ? x.w / x.g : 0) * 100) + '% WR (' + x.g + 'G)';
-      if (comfort && comfort.w / comfort.g >= 0.5) {
-        score += 0.22 * Math.min(comfort.g / 10, 1) * openFactor;
-        reason += ' · ' + comfort.ign + ' ' + comfort.g + 'G';
-      }
-      if (openFactor < 0.35) reason += ' · role taken';
-      items.push({hero:h, score:score, reason:reason, roles:dlFlexRoles(h),
-                  flex:dlIsFlex(h), warn:false});
-    });
-    items.sort(function(a,b){ return b.score - a.score; });
-    return {label:'BAN TARGETS — DENY ' + (enemyTeam || (enemy === 'B' ? 'BLUE' : 'RED')),
-            items: items.slice(0, limit)};
-  }
+// anti-synergy check vs our own locked picks (shared by sections)
+function _dlClash(h, myPicks) {
+  var worst = null;
+  myPicks.forEach(function(a) {
+    var L = dlAllyLift(h, a);
+    if (L && (!worst || L.lift < worst.L.lift)) worst = {ally:a, L:L};
+  });
+  return (worst && worst.L.lift <= -0.08) ? worst : null;
+}
 
-  // ── pick step ──
+function _dlItem(h, score, reason, fits, extra) {
+  var it = {hero:h, score:score, reason:reason,
+            roles: fits && fits.length ? fits : dlFlexRoles(h),
+            flex: dlIsFlex(h), warn:false, thin:false};
+  if (extra) Object.keys(extra).forEach(function(k){ it[k] = extra[k]; });
+  return it;
+}
+
+function _dlPickSections(st) {
   var S = st.side, E = S === 'B' ? 'R' : 'B';
   var roles = dlComputedRoles(S);
   var covered = {};
   Object.keys(roles).forEach(function(n){ covered[roles[n]] = 1; });
   var needed = _DL_ROLES.filter(function(r){ return !covered[r]; });
-  var ownTeam = DL_TEAM[S];
+  var ownTeam = DL_TEAM[S], enemyTeam = DL_TEAM[E];
   var myPicks = dlPicksFor(S).map(function(p){ return p.hero; });
   var enemyPicks = dlPicksFor(E).map(function(p){ return p.hero; });
 
-  heroes.forEach(function(h) {
+  // candidate pool: available + fills a role we still need
+  var cands = [];
+  Object.keys(DL_AGG.heroes).forEach(function(h) {
+    if (!dlAvailable(h)) return;
     var x = DL_AGG.heroes[h];
     if (x.g < 2) return;
-    var flex = dlFlexRoles(h);
-    var fits = flex.filter(function(r){ return needed.indexOf(r) >= 0; });
+    var fits = dlFlexRoles(h).filter(function(r){ return needed.indexOf(r) >= 0; });
     if (needed.length && !fits.length) return;
-    var wr = _dlShrunkWR(x.w, x.g);
-    var conf = Math.min(x.g / 20, 1);
-    var score = wr * (0.65 + 0.35 * conf);
-    var bits = [Math.round((x.w / x.g) * 100) + '% WR (' + x.g + 'G)'];
-    var warn = false;
+    cands.push({h:h, fits:fits});
+  });
 
-    // synergy with what we already have
-    var liftSum = 0, liftN = 0, bestCombo = null, worstCombo = null;
-    myPicks.forEach(function(a) {
-      var L = dlAllyLift(h, a);
-      if (!L) return;
-      liftSum += L.lift; liftN++;
-      if (!bestCombo || L.lift > bestCombo.lift) bestCombo = {ally:a, L:L};
-      if (!worstCombo || L.lift < worstCombo.lift) worstCombo = {ally:a, L:L};
-    });
-    if (liftN) {
-      score += 1.2 * (liftSum / liftN);
-      if (bestCombo && bestCombo.L.lift >= 0.06)
-        bits.push('COMBO ' + bestCombo.ally + ' ' + bestCombo.L.g + 'G ' + Math.round(bestCombo.L.wr * 100) + '%');
-      if (worstCombo && worstCombo.L.lift <= -0.08) {
-        warn = true;
-        bits.push('⚠ ' + worstCombo.ally + ' ' + worstCombo.L.g + 'G ' + Math.round(worstCombo.L.wr * 100) + '%');
+  var counter = [], combo = [], steal = [], meta = [];
+
+  cands.forEach(function(c) {
+    var h = c.h;
+    var clash = _dlClash(h, myPicks);
+    var clashTxt = clash ? ' · ⚠ clashes with ' + clash.ally + ' (' + _dlPct(clash.L.wr) + '% in ' + clash.L.g + 'G)' : '';
+
+    // COUNTER — beats what they've locked
+    if (enemyPicks.length) {
+      var cSum = 0, cN = 0, bestC = null;
+      enemyPicks.forEach(function(e) {
+        var C = dlCounterLift(h, e);
+        if (!C) return;
+        cSum += C.lift; cN++;
+        if (!bestC || C.lift > bestC.C.lift) bestC = {enemy:e, C:C};
+      });
+      if (bestC && bestC.C.lift >= 0.04) {
+        counter.push(_dlItem(h, cSum / cN,
+          'Beats ' + bestC.enemy + ' — ' + _dlPct(bestC.C.wr) + '% in ' + bestC.C.g + 'G' + clashTxt,
+          c.fits, {thin: bestC.C.thin, warn: !!clash}));
       }
     }
-    // counters vs enemy picks
-    var cSum = 0, cN = 0, bestC = null;
-    enemyPicks.forEach(function(e) {
-      var C = dlCounterLift(h, e);
-      if (!C) return;
-      cSum += C.lift; cN++;
-      if (!bestC || Math.abs(C.lift) > Math.abs(bestC.C.lift)) bestC = {enemy:e, C:C};
-    });
-    if (cN) {
-      score += 0.8 * (cSum / cN);
-      if (bestC && Math.abs(bestC.C.lift) >= 0.06)
-        bits.push((bestC.C.lift > 0 ? 'BEATS ' : '⚠ LOSES ') + bestC.enemy + ' ' + Math.round(bestC.C.wr * 100) + '%');
-      if (bestC && bestC.C.lift <= -0.08) warn = true;
+
+    // COMBO — excess lift with what we've locked (Annette-corrected)
+    if (myPicks.length) {
+      var xSum = 0, xN = 0, bestX = null;
+      myPicks.forEach(function(a) {
+        var L = dlExcessLift(h, a);
+        if (!L) return;
+        xSum += L.excess; xN++;
+        if (!bestX || L.excess > bestX.L.excess) bestX = {ally:a, L:L};
+      });
+      if (bestX && bestX.L.lift >= 0.04 && bestX.L.excess >= 0.02) {
+        combo.push(_dlItem(h, xSum / xN,
+          'Pairs with ' + bestX.ally + ' — ' + _dlPct(bestX.L.wr) + '% in ' + bestX.L.g + 'G (+' + _dlPct(bestX.L.lift) + ' lift)',
+          c.fits, {warn: false}));
+      }
     }
-    // own-team comfort
-    var comfort = _dlTeamComfort(ownTeam, h);
-    if (comfort) {
-      score += 0.18 * Math.min(comfort.g / 10, 1) * (comfort.w / comfort.g);
-      bits.push(comfort.ign + ' ' + comfort.g + 'G ' + Math.round((comfort.w / comfort.g) * 100) + '%');
+
+    // STEAL — their comfort, our role need
+    var cf = _dlTeamComfort(enemyTeam, h);
+    if (cf && cf.g >= 4 && cf.w / cf.g >= 0.5 && c.fits.length) {
+      steal.push(_dlItem(h, Math.min(cf.g / 10, 1) * _dlShrunkWR(cf.w, cf.g),
+        'Denies ' + cf.ign + ' (' + cf.g + 'G ' + _dlPct(cf.w / cf.g) + '%) · fits our ' + c.fits.join('/') + clashTxt,
+        c.fits, {warn: !!clash}));
     }
-    items.push({hero:h, score:score, reason:bits.join(' · '),
-                roles: fits.length ? fits : flex, flex: dlIsFlex(h), warn: warn});
+
+    // META — recency-weighted strength
+    var wPres = _dlWPresence(h), pres = _dlPresence(h);
+    if (wPres >= 0.03) {
+      var trend = wPres > pres * 1.25 ? ' · ↑ rising' : (wPres < pres * 0.75 ? ' · ↓ fading' : '');
+      var own = _dlTeamComfort(ownTeam, h);
+      var ownTxt = own ? ' · ' + own.ign + ' ' + own.g + 'G' : '';
+      meta.push(_dlItem(h, wPres * 0.55 + (_dlWWR(h) - 0.5) * 1.6,
+        _dlPct(wPres) + '% presence · ' + _dlPct(_dlWWR(h)) + '% WR lately' + trend + ownTxt + clashTxt,
+        c.fits, {warn: !!clash}));
+    }
   });
-  items.sort(function(a,b){ return b.score - a.score; });
-  var lbl = 'PICK SUGGESTIONS' + (needed.length ? ' — NEED ' + needed.join(' / ') : '');
-  return {label:lbl, items: items.slice(0, limit)};
+
+  function top(arr) { arr.sort(function(a,b){ return b.score - a.score; }); return arr; }
+  return {
+    label: 'PICK ' + st.n + (needed.length ? ' — NEED ' + needed.join(' / ') : ''),
+    kp: null,
+    sections: [
+      {key:'counter', title:'COUNTER PICK', cls:'ctr', items: top(counter)},
+      {key:'combo',   title:'COMBO PICK',   cls:'cmb', items: top(combo)},
+      {key:'steal',   title:'STEAL PICK',   cls:'stl', items: top(steal)},
+      {key:'meta',    title:'META PICK',    cls:'mta', items: top(meta)}
+    ].filter(function(s){ return s.items.length; })
+  };
+}
+
+function _dlBanSections(st) {
+  var E = st.side === 'B' ? 'R' : 'B';           // side being denied
+  var S = st.side;
+  var enemyTeam = DL_TEAM[E];
+  var enemyOpen = dlRoleOpenness(E);
+  var enemyDead = dlSeriesDead(E);
+  var myPicks = dlPicksFor(S).map(function(p){ return p.hero; });
+  var enemyPicks = dlPicksFor(E).map(function(p){ return p.hero; });
+
+  function openFactor(h) {
+    if (enemyDead[h]) return 0.05;
+    var prob = dlRoleProb(h), f = 0;
+    Object.keys(prob).forEach(function(r){ f += prob[r] * (enemyOpen[r] || 0); });
+    return f;
+  }
+
+  var avail = Object.keys(DL_AGG.heroes).filter(dlAvailable);
+
+  // our 'plan': locked picks, else top meta candidates for roles we need
+  var plan = myPicks.slice();
+  if (!plan.length) {
+    var myRoles = dlComputedRoles(S), cov = {};
+    Object.keys(myRoles).forEach(function(n){ cov[myRoles[n]] = 1; });
+    var need = _DL_ROLES.filter(function(r){ return !cov[r]; });
+    plan = avail.filter(function(h) {
+      return dlFlexRoles(h).some(function(r){ return need.indexOf(r) >= 0; });
+    }).sort(function(a,b){ return _dlWPresence(b) * _dlWWR(b) - _dlWPresence(a) * _dlWWR(a); })
+      .slice(0, 5);
+  }
+
+  var protect = [], breakC = [], target = [], flex = [], metaB = [];
+  var kp = dlKeyPlayer(enemyTeam);
+
+  avail.forEach(function(h) {
+    var f = openFactor(h);
+    if (f < 0.15) return;                        // they can't really use it
+
+    // PROTECT OUR PLAN — h would counter what we have / intend
+    var bestP = null;
+    plan.forEach(function(our) {
+      var C = dlCounterLift(h, our);
+      if (C && C.lift >= 0.04 && (!bestP || C.lift > bestP.C.lift)) bestP = {our:our, C:C};
+    });
+    if (bestP) {
+      protect.push(_dlItem(h, bestP.C.lift * f,
+        'Counters our ' + bestP.our + ' — ' + _dlPct(bestP.C.wr) + '% in ' + bestP.C.g + 'G',
+        null, {thin: bestP.C.thin}));
+    }
+
+    // BREAK THEIR COMBO — h pairs hard with what they've locked
+    if (enemyPicks.length) {
+      var bestB = null;
+      enemyPicks.forEach(function(ep) {
+        var L = dlExcessLift(h, ep);
+        if (L && L.lift >= 0.05 && (!bestB || L.excess > bestB.L.excess)) bestB = {ep:ep, L:L};
+      });
+      if (bestB && bestB.L.excess >= 0.02) {
+        breakC.push(_dlItem(h, bestB.L.excess * f,
+          'Combos with their ' + bestB.ep + ' — ' + _dlPct(bestB.L.wr) + '% in ' + bestB.L.g + 'G',
+          null, {}));
+      }
+    }
+
+    // TARGET key player — his comfort pool
+    if (kp && enemyTeam && DL_AGG.teams[enemyTeam]) {
+      var hs = DL_AGG.teams[enemyTeam].players[kp.ign].heroes[h];
+      if (hs && hs.g >= 4) {
+        target.push(_dlItem(h, Math.min(hs.g / 12, 1) * _dlShrunkWR(hs.w, hs.g) * f,
+          kp.ign + "'s pool — " + hs.g + 'G ' + _dlPct(hs.w / hs.g) + '%',
+          null, {}));
+      }
+    }
+
+    // DENY FLEX — kill their draft flexibility
+    if (dlIsFlex(h)) {
+      flex.push(_dlItem(h, _dlWPresence(h) * _dlWWR(h) * f,
+        'Flex ' + dlFlexRoles(h).join('/') + ' · ' + _dlPct(_dlWPresence(h)) + '% presence',
+        null, {}));
+    }
+
+    // META BAN — recency-weighted power (v2 formula, weighted stats)
+    var score = (_dlWPresence(h) * 0.55 + _dlWWR(h) * 0.45) * (0.15 + 0.85 * f);
+    var reason = _dlPct(_dlWPresence(h)) + '% presence · ' + _dlPct(_dlWWR(h)) + '% WR lately';
+    var cf = _dlTeamComfort(enemyTeam, h);
+    if (cf && cf.w / cf.g >= 0.5) {
+      score += 0.22 * Math.min(cf.g / 10, 1) * f;
+      reason += ' · ' + cf.ign + ' ' + cf.g + 'G';
+    }
+    if (_dlWPresence(h) >= 0.05) metaB.push(_dlItem(h, score, reason, null, {}));
+  });
+
+  function top(arr) { arr.sort(function(a,b){ return b.score - a.score; }); return arr; }
+  return {
+    label: 'BAN ' + st.n + ' — DENY ' + (enemyTeam || (E === 'B' ? 'BLUE' : 'RED')),
+    kp: kp,
+    sections: [
+      {key:'protect', title:'PROTECT OUR PLAN',  cls:'ctr', items: top(protect)},
+      {key:'break',   title:'BREAK THEIR COMBO', cls:'cmb', items: top(breakC)},
+      {key:'target',  title: kp ? 'TARGET ' + kp.ign.toUpperCase() : 'TARGET PLAYER', cls:'stl', items: top(target)},
+      {key:'flex',    title:'DENY FLEX',         cls:'flx', items: top(flex)},
+      {key:'metaban', title:'META BAN',          cls:'mta', items: top(metaB)}
+    ].filter(function(s){ return s.items.length; })
+  };
+}
+
+function dlIntelSections() {
+  var st = dlCurStep();
+  if (!st || !DL_AGG || DL_VIEW !== null) return null;
+  return st.type === 'ban' ? _dlBanSections(st) : _dlPickSections(st);
+}
+
+// flat adapter — used for highlighting suggested cards in the grid
+function dlSuggestions(limit) {
+  var sec = dlIntelSections();
+  if (!sec) return {label:'', items:[]};
+  var seen = {}, items = [];
+  var per = Math.max(1, Math.ceil(limit / Math.max(sec.sections.length, 1)));
+  sec.sections.forEach(function(s) {
+    s.items.slice(0, per).forEach(function(it) {
+      if (seen[it.hero]) return;
+      seen[it.hero] = 1;
+      items.push(it);
+    });
+  });
+  return {label: sec.label, items: items.slice(0, limit)};
 }
 
 function dlOpenThreats(limit) {
@@ -880,25 +1170,64 @@ function _dlRenderIntel() {
     return;
   }
 
-  var sug = dlSuggestions(DL_INTEL_EXP ? 18 : 6);
-  var chips = sug.items.map(function(it) {
-    return '<div class="dl-intel-chip' + (it.warn ? ' warn' : '') + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
-      _dlPortrait(it.hero, 32) +
-      '<div class="dl-intel-chip-body">' +
-        '<div class="dl-intel-chip-name">' + _dlEsc(it.hero) +
+  var sec = dlIntelSections();
+  if (!sec) { el.innerHTML = ''; return; }
+  var perSec = DL_INTEL_EXP ? 6 : 3;
+
+  function rowHtml(it) {
+    return '<div class="dl3-row' + (it.warn ? ' warn' : '') + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
+      '<div class="dl3-row-img">' + _dlPortrait(it.hero, 34) + '</div>' +
+      '<div class="dl3-row-body">' +
+        '<div class="dl3-row-name">' + _dlEsc(it.hero) +
           (it.roles.length ? ' <span class="dl-role-mini">' + it.roles.join('/') + '</span>' : '') +
           (it.flex ? ' <span class="dl-flex-tag">FLEX</span>' : '') +
+          (it.thin ? ' <span class="dl3-thin-tag" title="4–7 shared games — treat with care">THIN</span>' : '') +
         '</div>' +
-        '<div class="dl-intel-chip-sub">' + it.reason + '</div>' +
+        '<div class="dl3-row-sub">' + it.reason + '</div>' +
       '</div>' +
     '</div>';
-  }).join('') || '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);padding:6px;">No data-backed suggestions</div>';
+  }
 
-  var threats = dlOpenThreats(4);
+  var secHtml = sec.sections.map(function(s) {
+    return '<div class="dl3-sec">' +
+      '<div class="dl3-sec-head ' + s.cls + '"><span class="dl3-sec-dot"></span>' + _dlEsc(s.title) + '</div>' +
+      '<div class="dl3-sec-body">' + s.items.slice(0, perSec).map(rowHtml).join('') + '</div>' +
+    '</div>';
+  }).join('') || '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:10px;">No data-backed suggestions</div>';
+
+  // key-player card during bans
+  var kpHtml = sec.kp ?
+    '<span class="dl3-kp" title="Most bannable: narrow signature pool × winrate × volume">' +
+      'TARGET <b>' + _dlEsc(sec.kp.ign) + '</b> — ' + _dlPct(sec.kp.conc) + '% of games on 3 heroes · ' +
+      _dlPct(sec.kp.wr) + '% WR (' + sec.kp.g + 'G)</span>' : '';
+
+  // 'answer this' banner — flagged enemy picks + best available answers
+  var threats = dlThreats();
+  var st2 = dlCurStep();
+  var canApply = st2 && st2.type === 'pick' && st2.side === DL_US;
   var threatHtml = threats.length ?
+    '<div class="dl3-alert">' +
+      '<span class="dl3-alert-tag">⚠ ANSWER THIS</span>' +
+      threats.map(function(t) {
+        return '<div class="dl3-alert-item">' +
+          _dlPortrait(t.hero, 22) +
+          '<span class="dl3-alert-name">' + _dlEsc(t.hero) + '</span>' +
+          '<span class="dl3-alert-why">' + _dlEsc(t.why) + '</span>' +
+          (t.answers.length ?
+            '<span class="dl3-alert-ans">→ ' + t.answers.map(function(a) {
+              return '<span class="dl3-ans-chip"' + (canApply ? ' data-dl-hero="' + _dlEsc(a.hero) + '" title="Click to pick"' : '') + '>' +
+                _dlEsc(a.hero) + ' ' + _dlPct(a.C.wr) + '%' + (a.C.thin ? '*' : '') + '</span>';
+            }).join(' ') + '</span>' : '<span class="dl3-alert-ans">no data-backed answer open</span>') +
+        '</div>';
+      }).join('') +
+    '</div>' : '';
+
+  // opponent comfort still open (compact strip)
+  var open = dlOpenThreats(4);
+  var openHtml = open.length ?
     '<div class="dl-threats">' +
       '<div class="dl-intel-label" style="color:var(--warn);">OPP COMFORT OPEN</div>' +
-      threats.map(function(t) {
+      open.map(function(t) {
         return '<div class="dl-threat-row">' + _dlPortrait(t.hero, 20) +
           '<span class="dl-threat-name">' + _dlEsc(t.hero) + '</span>' +
           '<span class="dl-threat-meta">' + _dlEsc(t.ign) + ' ' + t.g + 'G ' + Math.round(t.wr * 100) + '%</span></div>';
@@ -908,11 +1237,12 @@ function _dlRenderIntel() {
   el.innerHTML =
     '<div class="dl-intel-inner">' +
       '<div class="dl-intel-head">' +
-        '<div class="dl-intel-label">' + sug.label + '</div>' +
+        '<div class="dl-intel-label">' + sec.label + '</div>' +
+        kpHtml +
         '<button class="tier-mode-btn" style="font-size:7px;padding:2px 8px;" onclick="DL_INTEL_EXP=!DL_INTEL_EXP;dlRender()">' + (DL_INTEL_EXP ? 'LESS' : 'MORE') + '</button>' +
       '</div>' +
-      '<div class="dl-intel-chips">' + chips + '</div>' +
-    '</div>' + threatHtml;
+      '<div class="dl3-secs">' + secHtml + '</div>' +
+    '</div>' + threatHtml + openHtml;
 }
 
 function _dlRenderSide(S) {
@@ -935,6 +1265,12 @@ function _dlRenderSide(S) {
     return '<div class="dl-ban-slot' + (isCur ? ' cur' : '') + '">B' + n + '</div>';
   }).join('');
 
+  // threat flags only decorate the OPPONENT side (from US perspective)
+  var threatMap = {};
+  if (live && S !== DL_US) {
+    dlThreats().forEach(function(t){ threatMap[t.hero] = t.why; });
+  }
+
   var picksHtml = [1,2,3,4,5].map(function(n) {
     var a = picks.find(function(x){ return x.n === n; });
     var isCur = st && st.type === 'pick' && st.side === S && st.n === n && DL_STARTED;
@@ -942,13 +1278,15 @@ function _dlRenderSide(S) {
     if (a) {
       var role = (roles && roles[n]) || '—';
       var flex = dlIsFlex(a.hero);
-      return '<div class="dl-pick-slot filled side-' + S + '">' +
+      var threat = threatMap[a.hero];
+      return '<div class="dl-pick-slot filled side-' + S + (threat ? ' threat' : '') + '">' +
         _dlPortrait(a.hero, 46) +
         '<div class="dl-pick-body">' +
           '<div class="dl-pick-name">' + _dlEsc(a.hero) + (flex ? ' <span class="dl-flex-tag">FLEX</span>' : '') + '</div>' +
           '<button class="dl-role-badge' + (selSwap ? ' sel' : '') + '" data-dl-role="' + S + ':' + n + '" title="Tap two role tags to swap">' + role + '</button>' +
         '</div>' +
         '<span class="dl-pick-order">P' + n + '</span>' +
+        (threat ? '<span class="dl3-threat-tag" title="' + _dlEsc(threat) + '">⚠ ANSWER</span>' : '') +
       '</div>';
     }
     return '<div class="dl-pick-slot' + (isCur ? ' cur' : '') + '"><div class="dl-pick-ph">P' + n + '</div></div>';
@@ -1085,15 +1423,47 @@ function _dlInjectCss() {
   '#dl-intel{flex-shrink:0;}' +
   '.dl-intel-inner{padding:6px 12px;border-bottom:var(--border);}' +
   '.dl-intel-head{display:flex;align-items:center;justify-content:space-between;}' +
-  '.dl-intel-label{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);padding:2px 0;}' +
+  '.dl-intel-label{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-6);padding:2px 0;}' +
   '.dl-intel-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}' +
   '.dl-intel-chip{display:flex;align-items:center;gap:6px;padding:4px 8px 4px 4px;border:1px solid rgba(255,255,255,0.12);cursor:pointer;background:rgba(255,255,255,0.02);transition:all .15s;}' +
   '.dl-intel-chip:hover{border-color:rgba(100,180,255,0.6);background:rgba(100,180,255,0.07);transform:translateY(-1px);}' +
   '.dl-intel-chip.warn{border-color:rgba(255,204,68,0.45);}' +
   '.dl-intel-chip-name{font-family:\'Bebas Neue\',sans-serif;font-size:13px;color:var(--white);white-space:nowrap;}' +
-  '.dl-intel-chip-sub{font-family:\'DM Mono\',monospace;font-size:7px;color:var(--grey-5);white-space:nowrap;}' +
+  '.dl-intel-chip-sub{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-6);white-space:nowrap;}' +
   '.dl-role-mini{font-family:\'DM Mono\',monospace;font-size:7px;color:rgba(100,180,255,0.9);letter-spacing:0;}' +
   '.dl-flex-tag{font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(188,140,255,0.15);color:rgba(188,140,255,0.95);border:1px solid rgba(188,140,255,0.4);vertical-align:middle;}' +
+  /* v3 categorized intel — Roster-style section cards */
+  '.dl3-secs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:flex-start;}' +
+  '.dl3-sec{flex:1 1 230px;min-width:215px;background:var(--grey-1);border:1px solid var(--grey-3);border-radius:3px;overflow:hidden;}' +
+  '.dl3-sec-head{display:flex;align-items:center;gap:6px;padding:5px 9px;background:var(--black);border-bottom:1px solid var(--grey-3);font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-6);}' +
+  '.dl3-sec-dot{width:6px;height:6px;border-radius:50%;background:var(--grey-5);flex-shrink:0;}' +
+  '.dl3-sec-head.ctr{color:var(--warn);} .dl3-sec-head.ctr .dl3-sec-dot{background:var(--warn);}' +
+  '.dl3-sec-head.cmb{color:var(--success);} .dl3-sec-head.cmb .dl3-sec-dot{background:var(--success);}' +
+  '.dl3-sec-head.stl{color:rgba(188,140,255,0.95);} .dl3-sec-head.stl .dl3-sec-dot{background:rgba(188,140,255,0.95);}' +
+  '.dl3-sec-head.flx{color:rgba(255,150,80,0.95);} .dl3-sec-head.flx .dl3-sec-dot{background:rgba(255,150,80,0.95);}' +
+  '.dl3-sec-head.mta{color:rgba(100,180,255,0.95);} .dl3-sec-head.mta .dl3-sec-dot{background:rgba(100,180,255,0.95);}' +
+  '.dl3-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;border-left:2px solid transparent;transition:background .12s,border-left-color .12s;}' +
+  '.dl3-row:last-child{border-bottom:none;}' +
+  '.dl3-row:hover{background:rgba(100,180,255,0.07);border-left-color:rgba(100,180,255,0.8);}' +
+  '.dl3-row.warn{border-left-color:rgba(255,204,68,0.6);}' +
+  '.dl3-row-img{flex-shrink:0;line-height:0;}' +
+  '.dl3-row-body{flex:1;min-width:0;}' +
+  '.dl3-row-name{font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:0.5px;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+  '.dl3-row-sub{font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-6);margin-top:2px;line-height:1.35;}' +
+  '.dl3-thin-tag{font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,204,68,0.12);color:var(--warn);border:1px solid rgba(255,204,68,0.4);vertical-align:middle;}' +
+  '.dl3-kp{font-family:\'DM Mono\',monospace;font-size:9px;color:rgba(188,140,255,0.95);border:1px solid rgba(188,140,255,0.4);background:rgba(188,140,255,0.08);padding:3px 9px;margin:0 8px;white-space:nowrap;}' +
+  '.dl3-kp b{color:var(--white);font-weight:600;}' +
+  '.dl3-alert{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 12px;border-bottom:var(--border);background:rgba(255,90,90,0.05);}' +
+  '.dl3-alert-tag{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--danger);border:1px solid rgba(255,90,90,0.5);padding:3px 8px;background:rgba(255,90,90,0.1);}' +
+  '.dl3-alert-item{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}' +
+  '.dl3-alert-name{font-family:\'Bebas Neue\',sans-serif;font-size:13px;}' +
+  '.dl3-alert-why{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--danger);}' +
+  '.dl3-alert-ans{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-6);display:flex;gap:4px;align-items:center;flex-wrap:wrap;}' +
+  '.dl3-ans-chip{border:1px solid rgba(80,220,140,0.4);color:var(--success);padding:1px 6px;background:rgba(80,220,140,0.07);}' +
+  '.dl3-ans-chip[data-dl-hero]{cursor:pointer;}' +
+  '.dl3-ans-chip[data-dl-hero]:hover{background:rgba(80,220,140,0.18);}' +
+  '.dl3-threat-tag{position:absolute;bottom:2px;right:4px;font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,90,90,0.15);color:var(--danger);border:1px solid rgba(255,90,90,0.5);}' +
+  '.dl-pick-slot.threat{border-color:rgba(255,90,90,0.55)!important;}' +
   '.dl-threats{padding:4px 12px 6px;border-bottom:var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;}' +
   '.dl-threat-row{display:flex;align-items:center;gap:5px;}' +
   '.dl-threat-name{font-family:\'Bebas Neue\',sans-serif;font-size:11px;}' +

@@ -36,6 +36,14 @@ function mlInit(){
   });
 }
 
+// Normalize inconsistent hero name spellings from CSV
+function _mlNormalize(name) {
+  if (!name) return name;
+  if (name === 'FlowbornMarksman') return 'Flowborn Marksman';
+  if (name === 'WuKong') return 'Wukong';            // CSV spelling → hero DB / image map
+  if (name === 'Diao chan') return 'Diaochan';       // CSV spelling → hero DB / image map
+  return name;
+}
 function mlAgg(){ return dlcAgg(ML_TOUR); }
 function mlGames(){ return (DLC_GAMES||[]).filter(function(g){ return ML_TOUR==='All'||g.tour===ML_TOUR; }); }
 
@@ -56,6 +64,15 @@ function mlRenderBars(){
     return '<button class="tier-mode-btn'+(t===ML_TOUR?' active':'')+'" onclick="ML_TOUR=\''+t+'\';mlRenderBars();mlRenderList();mlRenderDetail();dlcRenderCmp();">'+t+'</button>';
   }).join('');
 
+    games.push({
+      tour: tour, week: get(row, 'WEEK'), dur: dur, winSide: winSide,
+      teams: {A: teamA, B: teamB},
+      bans:  {A: bansA, B: bansB},
+      picks: picks, teamKills: teamKills,
+      goldA: goldA, goldB: goldB,
+      mvpHero:   _mlNormalize(get(row, 'MVP Hero')),
+      mvpPlayer: get(row, 'MVP')
+    });
   var sortEl=document.getElementById('ml-sort-bar');
   if (sortEl){
     var modeBtns='<span style="display:inline-flex;gap:2px;margin-right:10px;">'+
