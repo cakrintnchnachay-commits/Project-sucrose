@@ -818,69 +818,6 @@ function dlSuggestions(limit) {
       items.push(it);
     });
   });
-    }
-
-    // TARGET key player — his comfort pool
-    if (kp && enemyTeam && DL_AGG.teams[enemyTeam]) {
-      var hs = DL_AGG.teams[enemyTeam].players[kp.ign].heroes[h];
-      if (hs && hs.g >= 4) {
-        target.push(_dlItem(h, Math.min(hs.g / 12, 1) * _dlShrunkWR(hs.w, hs.g) * f,
-          kp.ign + "'s pool — " + hs.g + 'G ' + _dlPct(hs.w / hs.g) + '%',
-          null, {}));
-      }
-    }
-
-    // DENY FLEX — kill their draft flexibility
-    if (dlIsFlex(h)) {
-      flex.push(_dlItem(h, _dlWPresence(h) * _dlWWR(h) * f,
-        'Flex ' + dlFlexRoles(h).join('/') + ' · ' + _dlPct(_dlWPresence(h)) + '% presence',
-        null, {}));
-    }
-
-    // META BAN — recency-weighted power (v2 formula, weighted stats)
-    var score = (_dlWPresence(h) * 0.55 + _dlWWR(h) * 0.45) * (0.15 + 0.85 * f);
-    var reason = _dlPct(_dlWPresence(h)) + '% presence · ' + _dlPct(_dlWWR(h)) + '% WR lately';
-    var cf = _dlTeamComfort(enemyTeam, h);
-    if (cf && cf.w / cf.g >= 0.5) {
-      score += 0.22 * Math.min(cf.g / 10, 1) * f;
-      reason += ' · ' + cf.ign + ' ' + cf.g + 'G';
-    }
-    if (_dlWPresence(h) >= 0.05) metaB.push(_dlItem(h, score, reason, null, {}));
-  });
-
-  function top(arr) { arr.sort(function(a,b){ return b.score - a.score; }); return arr; }
-  return {
-    label: 'BAN ' + st.n + ' — DENY ' + (enemyTeam || (E === 'B' ? 'BLUE' : 'RED')),
-    kp: kp,
-    sections: [
-      {key:'protect', title:'PROTECT OUR PLAN',  cls:'ctr', items: top(protect)},
-      {key:'break',   title:'BREAK THEIR COMBO', cls:'cmb', items: top(breakC)},
-      {key:'target',  title: kp ? 'TARGET ' + kp.ign.toUpperCase() : 'TARGET PLAYER', cls:'stl', items: top(target)},
-      {key:'flex',    title:'DENY FLEX',         cls:'flx', items: top(flex)},
-      {key:'metaban', title:'META BAN',          cls:'mta', items: top(metaB)}
-    ].filter(function(s){ return s.items.length; })
-  };
-}
-
-function dlIntelSections() {
-  var st = dlCurStep();
-  if (!st || !DL_AGG || DL_VIEW !== null) return null;
-  return st.type === 'ban' ? _dlBanSections(st) : _dlPickSections(st);
-}
-
-// flat adapter — used for highlighting suggested cards in the grid
-function dlSuggestions(limit) {
-  var sec = dlIntelSections();
-  if (!sec) return {label:'', items:[]};
-  var seen = {}, items = [];
-  var per = Math.max(1, Math.ceil(limit / Math.max(sec.sections.length, 1)));
-  sec.sections.forEach(function(s) {
-    s.items.slice(0, per).forEach(function(it) {
-      if (seen[it.hero]) return;
-      seen[it.hero] = 1;
-      items.push(it);
-    });
-  });
   return {label: sec.label, items: items.slice(0, limit)};
 }
 
