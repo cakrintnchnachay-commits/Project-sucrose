@@ -967,6 +967,66 @@ function _dlPortrait(hero, size) {
     '<span class="dl-portrait-tag">' + tag + '</span></div>';
 }
 
+// ── Role icons (replace DSL/JUG/MID/ADL/SUP text) ────────────
+// monochrome inline SVGs, inherit currentColor.
+var _DL_ROLE_NAME = {DSL:'Darkslayer', JUG:'Jungle', MID:'Mid', ADL:'Dragon Lane', SUP:'Support'};
+var _DL_ROLE_SVG = {
+  // sword — solo lane fighter
+  DSL: '<path d="M14.5 17.5 4 7V4h3l10.5 10.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>',
+  // pine tree — jungle
+  JUG: '<path d="M12 3 7 10h3l-4 6h5v5h2v-5h5l-4-6h3z"/>',
+  // star — mid mage
+  MID: '<path d="M12 3l2.3 6.2 6.7.3-5.2 4.1 1.8 6.4L12 16.9 6.4 20.4l1.8-6.4L3 9.5l6.7-.3z"/>',
+  // crosshair — marksman
+  ADL: '<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>',
+  // shield — support
+  SUP: '<path d="M12 3l7 2.5V11c0 4.6-3.1 8.2-7 9.7C8.1 19.2 5 15.6 5 11V5.5z"/><path d="M9 12l2 2 4-4"/>'
+};
+function _dlRoleIcon(code, size) {
+  size = size || 14;
+  var p = _DL_ROLE_SVG[code];
+  if (!p) return _dlEsc(code || '—');
+  return '<svg class="dl-role-ic" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ' +
+    'aria-label="' + _DL_ROLE_NAME[code] + '"><title>' + _DL_ROLE_NAME[code] + '</title>' + p + '</svg>';
+}
+
+// ── UI icons (replace emoji glyphs on buttons/tags) ──────────
+// monochrome inline SVGs, inherit currentColor.
+var _DL_ICON_SVG = {
+  play:    '<path d="M7 5v14l11-7z"/>',
+  next:    '<path d="M7 5l9 7-9 7z"/><path d="M18 5v14"/>',
+  undo:    '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12H8"/>',
+  skip:    '<path d="M6 5l9 7-9 7z"/><path d="M19 5v14"/>',
+  bolt:    '<path d="M13 3 4 14h7l-1 7 9-11h-7z"/>',
+  clock:   '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  folder:  '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  save:    '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v4h7"/><path d="M8 20v-6h8v6"/>',
+  swap:    '<path d="M4 9h13l-3-3"/><path d="M20 15H7l3 3"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 6"/><path d="M20 4v6h-6"/>',
+  warn:    '<path d="M12 3 22 20H2z"/><path d="M12 10v4"/><path d="M12 17.5v.5"/>'
+};
+function _dlIcon(name, size) {
+  size = size || 15;
+  var p = _DL_ICON_SVG[name];
+  if (!p) return '';
+  return '<svg class="dl-ic" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+}
+
+// team crest for the selected team (falls back to abbreviation tile)
+function _dlTeamLogo(abbr, size) {
+  size = size || 42;
+  var url = (typeof window !== 'undefined' && window._ML_TEAM_LOGOS) ? window._ML_TEAM_LOGOS[abbr] : null;
+  if (url) {
+    return '<div class="dl-team-logo" style="width:' + size + 'px;height:' + size + 'px;">' +
+      '<img src="' + url + '" alt="' + _dlEsc(abbr) + '" ' +
+      'onerror="this.parentNode.classList.add(\'noimg\');this.parentNode.textContent=this.alt;"/></div>';
+  }
+  return '<div class="dl-team-logo noimg" style="width:' + size + 'px;height:' + size + 'px;">' +
+    (abbr ? _dlEsc(abbr).slice(0, 3) : '—') + '</div>';
+}
+
 // ── Init / data load ─────────────────────────────────────────
 
 function dlInit() {
@@ -1112,33 +1172,52 @@ function _dlRenderBar() {
   el.innerHTML =
     '<div class="dl-bar-row">' +
       '<div class="dl-team-box blue">' +
-        '<select class="dl-team-sel" onchange="DL_TEAM.B=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.B) + '</select>' +
-        (DL_US === 'B' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
+        _dlTeamLogo(DL_TEAM.B, 44) +
+        '<div class="dl-team-id">' +
+          '<select class="dl-team-sel" onchange="DL_TEAM.B=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.B) + '</select>' +
+          (DL_US === 'B' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
+        '</div>' +
       '</div>' +
-      '<button class="tier-mode-btn" onclick="dlSwapSides()" title="Swap sides">⇄</button>' +
+      '<button class="tier-mode-btn dl-swap-btn" onclick="dlSwapSides()" title="Swap sides">' + _dlIcon('swap', 16) + '</button>' +
       '<div class="dl-step-box' + stepCls + '">' +
         '<div class="dl-step-main">' + stepText + '</div>' +
         (live && DL_STARTED && st ? '<div id="dl-timer" class="dl-step-timer"' + (DL_TIMER_ON ? '' : ' style="display:none;"') + '>0:' + String(DL_TIMER_LEFT).padStart(2, '0') + '</div>' : '') +
       '</div>' +
       '<div class="dl-team-box red">' +
-        (DL_US === 'R' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
-        '<select class="dl-team-sel" onchange="DL_TEAM.R=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.R) + '</select>' +
+        '<div class="dl-team-id" style="text-align:right;">' +
+          '<select class="dl-team-sel" onchange="DL_TEAM.R=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.R) + '</select>' +
+          (DL_US === 'R' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
+        '</div>' +
+        _dlTeamLogo(DL_TEAM.R, 44) +
       '</div>' +
     '</div>' +
     '<div class="dl-seq-row">' + seqHtml + '</div>' +
-    '<div class="dl-ctrl-row">' +
-      '<button class="tier-mode-btn active" onclick="dlNewDraft()"' + (seriesOver && !DL_STARTED ? ' disabled' : '') + '>▶ ' + (DL_ACTIONS.length ? 'RESTART GAME' : 'NEW DRAFT') + '</button>' +
-      (done ? '<button class="tier-mode-btn dl-next-btn" onclick="dlNextGame()">NEXT GAME ➔</button>' : '') +
-      '<button class="tier-mode-btn" onclick="dlUndo()"' + (DL_ACTIONS.length && live ? '' : ' disabled') + '>↩ UNDO</button>' +
-      '<button class="tier-mode-btn" onclick="dlSkipBan()"' + (st && st.type === 'ban' && live ? '' : ' disabled') + '>⏭ SKIP BAN</button>' +
-      '<button class="tier-mode-btn" onclick="dlAutoSwap(\'B\');dlAutoSwap(\'R\')" title="Best-fit positions from pro data">⚡ AUTO-SWAP</button>' +
-      '<button class="tier-mode-btn" onclick="dlResetSeries()">RESET SERIES</button>' +
-      '<span style="flex:1;"></span>' +
-      '<button class="tier-mode-btn' + (DL_TIMER_ON ? ' active' : '') + '" onclick="dlToggleTimer()" title="60s pick / 40s ban">⏱</button>' +
-      '<button class="tier-mode-btn" onclick="dlOpenScenarios()">📚</button>' +
-      '<button class="tier-mode-btn" onclick="dlOpenSaveModal()"' + (DL_ACTIONS.length || DL_SERIES.length ? '' : ' disabled') + '>💾 SAVE</button>' +
-      (done ? '<span class="dl-done-hint">tap two role tags to swap positions, then NEXT GAME</span>' : '') +
-    '</div>';
+    (function() {
+      var sideColor = (st && st.side === 'R') ? 'red' : 'blue';
+      var newSuggest = (!DL_STARTED && !seriesOver);
+      var skipSuggest = (st && st.type === 'ban' && live);
+      function tile(cls, oc, dis, ttl, icon, label) {
+        return '<button class="dl-tile' + (cls ? ' ' + cls : '') + '"' +
+          (dis ? ' disabled' : '') + (ttl ? ' title="' + ttl + '"' : '') +
+          ' onclick="' + oc + '">' + _dlIcon(icon, 22) + '<span>' + label + '</span></button>';
+      }
+      return '<div class="dl-ctrl-row">' +
+        tile(newSuggest ? 'suggest blue' : '', 'dlNewDraft()', seriesOver && !DL_STARTED, '',
+             'play', DL_ACTIONS.length ? 'Restart game' : 'New draft') +
+        (done ? tile('suggest go', 'dlNextGame()', false, '', 'next', 'Next game') : '') +
+        tile('', 'dlUndo()', !(DL_ACTIONS.length && live), '', 'undo', 'Undo') +
+        tile(skipSuggest ? 'suggest ' + sideColor : '', 'dlSkipBan()',
+             !(st && st.type === 'ban' && live), '', 'skip', 'Skip ban') +
+        tile('', 'dlAutoSwap(\'B\');dlAutoSwap(\'R\')', false, 'Best-fit positions from pro data',
+             'bolt', 'Auto-swap') +
+        tile('danger', 'dlResetSeries()', false, '', 'refresh', 'Reset series') +
+        '<span class="dl-tile-sep"></span>' +
+        tile(DL_TIMER_ON ? 'on' : '', 'dlToggleTimer()', false, '60s pick / 40s ban', 'clock', 'Timer') +
+        tile('', 'dlOpenScenarios()', false, 'Saved series', 'folder', 'Saved') +
+        tile('', 'dlOpenSaveModal()', !(DL_ACTIONS.length || DL_SERIES.length), '', 'save', 'Save') +
+        (done ? '<span class="dl-done-hint">Tap two role tags to swap positions, then Next game</span>' : '') +
+      '</div>';
+    })();
 }
 
 function _dlRenderIntel() {
@@ -1207,7 +1286,7 @@ function _dlRenderIntel() {
   var canApply = st2 && st2.type === 'pick' && st2.side === DL_US;
   var threatHtml = threats.length ?
     '<div class="dl3-alert">' +
-      '<span class="dl3-alert-tag">⚠ ANSWER THIS</span>' +
+      '<span class="dl3-alert-tag">' + _dlIcon('warn', 11) + ' ANSWER THIS</span>' +
       threats.map(function(t) {
         return '<div class="dl3-alert-item">' +
           _dlPortrait(t.hero, 22) +
@@ -1283,10 +1362,10 @@ function _dlRenderSide(S) {
         _dlPortrait(a.hero, 46) +
         '<div class="dl-pick-body">' +
           '<div class="dl-pick-name">' + _dlEsc(a.hero) + (flex ? ' <span class="dl-flex-tag">FLEX</span>' : '') + '</div>' +
-          '<button class="dl-role-badge' + (selSwap ? ' sel' : '') + '" data-dl-role="' + S + ':' + n + '" title="Tap two role tags to swap">' + role + '</button>' +
+          '<button class="dl-role-badge' + (selSwap ? ' sel' : '') + '" data-dl-role="' + S + ':' + n + '" title="' + (_DL_ROLE_NAME[role] || role) + ' · tap two role tags to swap">' + (_DL_ROLE_SVG[role] ? _dlRoleIcon(role, 16) : _dlEsc(role)) + '</button>' +
         '</div>' +
         '<span class="dl-pick-order">P' + n + '</span>' +
-        (threat ? '<span class="dl3-threat-tag" title="' + _dlEsc(threat) + '">⚠ ANSWER</span>' : '') +
+        (threat ? '<span class="dl3-threat-tag" title="' + _dlEsc(threat) + '">' + _dlIcon('warn', 9) + ' ANSWER</span>' : '') +
       '</div>';
     }
     return '<div class="dl-pick-slot' + (isCur ? ' cur' : '') + '"><div class="dl-pick-ph">P' + n + '</div></div>';
@@ -1359,7 +1438,8 @@ function _dlRenderCenter() {
   }).join('');
 
   var roleTabs = ['All'].concat(_DL_ROLES).map(function(r) {
-    return '<button class="tier-mode-btn' + (r === DL_GRID_ROLE ? ' active' : '') + '" onclick="DL_GRID_ROLE=\'' + r + '\';dlRender()">' + r + '</button>';
+    var inner = r === 'All' ? 'ALL' : _dlRoleIcon(r, 16);
+    return '<button class="tier-mode-btn dl-role-tab' + (r === DL_GRID_ROLE ? ' active' : '') + '" title="' + (_DL_ROLE_NAME[r] || r) + '" onclick="DL_GRID_ROLE=\'' + r + '\';dlRender()">' + inner + '</button>';
   }).join('');
 
   el.innerHTML =
@@ -1393,11 +1473,17 @@ function _dlInjectCss() {
   '.dl-review-tag{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--warn);border:1px solid rgba(255,204,68,0.4);padding:3px 8px;}' +
   /* main bar */
   '.dl-bar-row{display:flex;align-items:center;gap:8px;padding:10px 12px 4px;}' +
-  '.dl-team-box{display:flex;align-items:center;gap:6px;padding:4px 8px;border:var(--border);}' +
-  '.dl-team-box.blue{border-left:3px solid rgba(100,180,255,0.8);box-shadow:inset 8px 0 18px -12px rgba(100,180,255,0.5);}' +
-  '.dl-team-box.red{border-right:3px solid rgba(255,110,110,0.8);box-shadow:inset -8px 0 18px -12px rgba(255,110,110,0.5);}' +
-  '.dl-team-sel{background:transparent;color:var(--white);border:none;font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:1px;outline:none;cursor:pointer;}' +
-  '.dl-team-sel option{background:#111;}' +
+  '.dl-team-box{display:flex;align-items:center;gap:10px;padding:7px 12px;border:var(--border);border-radius:10px;min-width:150px;}' +
+  '.dl-team-box.blue{border-left:3px solid rgba(100,180,255,0.85);box-shadow:inset 8px 0 18px -12px rgba(100,180,255,0.5);}' +
+  '.dl-team-box.red{border-right:3px solid rgba(255,110,110,0.85);box-shadow:inset -8px 0 18px -12px rgba(255,110,110,0.5);justify-content:flex-end;}' +
+  '.dl-team-id{display:flex;flex-direction:column;gap:3px;min-width:0;}' +
+  '.dl-team-box.red .dl-team-id{align-items:flex-end;}' +
+  '.dl-team-logo{flex-shrink:0;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:center;}' +
+  '.dl-team-logo img{width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box;}' +
+  '.dl-team-logo.noimg{font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:1px;color:var(--grey-6);border:1px solid rgba(255,255,255,0.12);}' +
+  '.dl-team-sel{background:transparent;color:var(--white);border:none;font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:1px;outline:none;cursor:pointer;max-width:120px;}' +
+  '.dl-team-box.red .dl-team-sel{text-align:right;direction:rtl;}' +
+  '.dl-team-sel option{background:#111;font-size:14px;direction:ltr;}' +
   '.dl-us-badge{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1px;padding:2px 6px;background:rgba(80,220,140,0.15);color:var(--success);border:1px solid rgba(80,220,140,0.4);}' +
   '.dl-us-badge.opp{background:rgba(255,255,255,0.05);color:var(--grey-5);border-color:rgba(255,255,255,0.15);}' +
   '.dl-step-box{flex:1;display:flex;align-items:center;justify-content:center;gap:14px;padding:6px;border:var(--border);min-height:42px;position:relative;overflow:hidden;}' +
@@ -1416,8 +1502,30 @@ function _dlInjectCss() {
   '.dl-seq-dot.blue.done{background:rgba(100,180,255,0.75);border-color:rgba(100,180,255,0.9);}' +
   '.dl-seq-dot.red.done{background:rgba(255,110,110,0.75);border-color:rgba(255,110,110,0.9);}' +
   '.dl-seq-dot.cur{outline:1px solid var(--white);outline-offset:1px;animation:dlPulse 1.2s infinite;}' +
-  '.dl-ctrl-row{display:flex;align-items:center;gap:6px;padding:4px 12px 8px;border-bottom:var(--border);flex-wrap:wrap;}' +
-  '.dl-next-btn{border-color:rgba(80,220,140,0.6)!important;color:var(--success)!important;animation:dlGlow 1.6s infinite;}' +
+  /* clean action-tile toolbar (calm, executive-friendly) */
+  '.dl-ctrl-row{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:var(--border);flex-wrap:wrap;}' +
+  '.dl-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-width:88px;padding:12px;font-family:\'DM Sans\',sans-serif;font-size:13px;font-weight:500;letter-spacing:0.2px;color:var(--grey-6);background:#1a1e25;border:1px solid #2c323d;border-radius:12px;cursor:pointer;transition:all .15s;}' +
+  '.dl-tile span{line-height:1;}' +
+  '.dl-tile .dl-ic{width:22px;height:22px;color:#9aa3b2;stroke-width:1.7;}' +
+  '.dl-tile:hover:not(:disabled){background:#222732;border-color:#3a4150;color:var(--white);}' +
+  '.dl-tile:hover:not(:disabled) .dl-ic{color:#cfd6e2;}' +
+  '.dl-tile:active:not(:disabled){transform:scale(0.97);}' +
+  '.dl-tile:disabled{opacity:0.3;cursor:default;}' +
+  '.dl-tile-sep{width:1px;height:44px;background:#2a2f39;margin:0 2px;}' +
+  /* suggested current-turn action — bright in team colour */
+  '.dl-tile.suggest{color:var(--white);}' +
+  '.dl-tile.suggest.blue{background:rgba(100,180,255,0.16);border-color:rgba(100,180,255,0.9);box-shadow:0 0 0 1px rgba(100,180,255,0.45),0 0 18px rgba(100,180,255,0.28);}' +
+  '.dl-tile.suggest.blue .dl-ic{color:rgba(150,205,255,1);}' +
+  '.dl-tile.suggest.red{background:rgba(255,110,110,0.16);border-color:rgba(255,110,110,0.9);box-shadow:0 0 0 1px rgba(255,110,110,0.45),0 0 18px rgba(255,110,110,0.28);}' +
+  '.dl-tile.suggest.red .dl-ic{color:rgba(255,155,155,1);}' +
+  '.dl-tile.suggest.go{background:rgba(80,220,140,0.16);border-color:rgba(80,220,140,0.9);box-shadow:0 0 0 1px rgba(80,220,140,0.45),0 0 18px rgba(80,220,140,0.28);}' +
+  '.dl-tile.suggest.go .dl-ic{color:rgba(120,240,170,1);}' +
+  '.dl-tile.danger{background:transparent;color:#c79090;border-color:#4a3636;}' +
+  '.dl-tile.danger .dl-ic{color:#c79090;}' +
+  '.dl-tile.danger:hover:not(:disabled){background:rgba(255,90,90,0.1);border-color:rgba(255,110,110,0.6);color:#ffb3b3;}' +
+  '.dl-tile.danger:hover:not(:disabled) .dl-ic{color:#ffb3b3;}' +
+  '.dl-tile.on{border-color:rgba(80,220,140,0.55);color:#d2ecdd;}' +
+  '.dl-tile.on .dl-ic{color:rgba(80,220,140,1);}' +
   '.dl-done-hint{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--success);letter-spacing:1px;}' +
   /* intel */
   '#dl-intel{flex-shrink:0;}' +
@@ -1433,28 +1541,29 @@ function _dlInjectCss() {
   '.dl-role-mini{font-family:\'DM Mono\',monospace;font-size:7px;color:rgba(100,180,255,0.9);letter-spacing:0;}' +
   '.dl-flex-tag{font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(188,140,255,0.15);color:rgba(188,140,255,0.95);border:1px solid rgba(188,140,255,0.4);vertical-align:middle;}' +
   /* v3 categorized intel — Roster-style section cards */
-  '.dl3-secs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:flex-start;}' +
-  '.dl3-sec{flex:1 1 230px;min-width:215px;background:var(--grey-1);border:1px solid var(--grey-3);border-radius:3px;overflow:hidden;}' +
-  '.dl3-sec-head{display:flex;align-items:center;gap:6px;padding:5px 9px;background:var(--black);border-bottom:1px solid var(--grey-3);font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-6);}' +
+  /* single-row, compress-to-fit so picks stay visible (no 2nd row in ban phase 2) */
+  '.dl3-secs{display:flex;gap:6px;flex-wrap:nowrap;margin-top:6px;align-items:flex-start;overflow-x:auto;}' +
+  '.dl3-sec{flex:1 1 0;min-width:0;background:var(--grey-1);border:1px solid var(--grey-3);border-radius:3px;overflow:hidden;}' +
+  '.dl3-sec-head{display:flex;align-items:center;gap:5px;padding:5px 7px;background:var(--black);border-bottom:1px solid var(--grey-3);font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
   '.dl3-sec-dot{width:6px;height:6px;border-radius:50%;background:var(--grey-5);flex-shrink:0;}' +
   '.dl3-sec-head.ctr{color:var(--warn);} .dl3-sec-head.ctr .dl3-sec-dot{background:var(--warn);}' +
   '.dl3-sec-head.cmb{color:var(--success);} .dl3-sec-head.cmb .dl3-sec-dot{background:var(--success);}' +
   '.dl3-sec-head.stl{color:rgba(188,140,255,0.95);} .dl3-sec-head.stl .dl3-sec-dot{background:rgba(188,140,255,0.95);}' +
   '.dl3-sec-head.flx{color:rgba(255,150,80,0.95);} .dl3-sec-head.flx .dl3-sec-dot{background:rgba(255,150,80,0.95);}' +
   '.dl3-sec-head.mta{color:rgba(100,180,255,0.95);} .dl3-sec-head.mta .dl3-sec-dot{background:rgba(100,180,255,0.95);}' +
-  '.dl3-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;border-left:2px solid transparent;transition:background .12s,border-left-color .12s;}' +
+  '.dl3-row{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;border-left:2px solid transparent;transition:background .12s,border-left-color .12s;}' +
   '.dl3-row:last-child{border-bottom:none;}' +
   '.dl3-row:hover{background:rgba(100,180,255,0.07);border-left-color:rgba(100,180,255,0.8);}' +
   '.dl3-row.warn{border-left-color:rgba(255,204,68,0.6);}' +
   '.dl3-row-img{flex-shrink:0;line-height:0;}' +
   '.dl3-row-body{flex:1;min-width:0;}' +
   '.dl3-row-name{font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:0.5px;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-  '.dl3-row-sub{font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-6);margin-top:2px;line-height:1.35;}' +
+  '.dl3-row-sub{font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-6);margin-top:2px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
   '.dl3-thin-tag{font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,204,68,0.12);color:var(--warn);border:1px solid rgba(255,204,68,0.4);vertical-align:middle;}' +
   '.dl3-kp{font-family:\'DM Mono\',monospace;font-size:9px;color:rgba(188,140,255,0.95);border:1px solid rgba(188,140,255,0.4);background:rgba(188,140,255,0.08);padding:3px 9px;margin:0 8px;white-space:nowrap;}' +
   '.dl3-kp b{color:var(--white);font-weight:600;}' +
   '.dl3-alert{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 12px;border-bottom:var(--border);background:rgba(255,90,90,0.05);}' +
-  '.dl3-alert-tag{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--danger);border:1px solid rgba(255,90,90,0.5);padding:3px 8px;background:rgba(255,90,90,0.1);}' +
+  '.dl3-alert-tag{display:inline-flex;align-items:center;gap:3px;font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--danger);border:1px solid rgba(255,90,90,0.5);padding:3px 8px;background:rgba(255,90,90,0.1);}' +
   '.dl3-alert-item{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}' +
   '.dl3-alert-name{font-family:\'Bebas Neue\',sans-serif;font-size:13px;}' +
   '.dl3-alert-why{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--danger);}' +
@@ -1462,7 +1571,7 @@ function _dlInjectCss() {
   '.dl3-ans-chip{border:1px solid rgba(80,220,140,0.4);color:var(--success);padding:1px 6px;background:rgba(80,220,140,0.07);}' +
   '.dl3-ans-chip[data-dl-hero]{cursor:pointer;}' +
   '.dl3-ans-chip[data-dl-hero]:hover{background:rgba(80,220,140,0.18);}' +
-  '.dl3-threat-tag{position:absolute;bottom:2px;right:4px;font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,90,90,0.15);color:var(--danger);border:1px solid rgba(255,90,90,0.5);}' +
+  '.dl3-threat-tag{position:absolute;bottom:2px;right:4px;display:inline-flex;align-items:center;gap:2px;font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,90,90,0.15);color:var(--danger);border:1px solid rgba(255,90,90,0.5);}' +
   '.dl-pick-slot.threat{border-color:rgba(255,90,90,0.55)!important;}' +
   '.dl-threats{padding:4px 12px 6px;border-bottom:var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;}' +
   '.dl-threat-row{display:flex;align-items:center;gap:5px;}' +
@@ -1476,7 +1585,7 @@ function _dlInjectCss() {
   '.dl-side-title{font-family:\'Bebas Neue\',sans-serif;font-size:17px;letter-spacing:1px;margin-bottom:6px;}' +
   '.dl-side-blue .dl-side-title{color:rgba(100,180,255,1);}' +
   '.dl-side-red .dl-side-title{color:rgba(255,110,110,1);}' +
-  '.dl-side-sec{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:2px;color:var(--grey-5);margin:8px 0 4px;}' +
+  '.dl-side-sec{font-family:\'DM Mono\',monospace;font-size:8.5px;letter-spacing:2px;color:var(--grey-5);margin:8px 0 4px;}' +
   '.dl-bans{display:flex;gap:4px;flex-wrap:wrap;}' +
   '.dl-ban-slot{width:40px;height:40px;border:1px dashed rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);position:relative;transition:all .2s;}' +
   '.dl-ban-slot.filled{border-style:solid;animation:dlPop .25s ease;}' +
@@ -1494,9 +1603,15 @@ function _dlInjectCss() {
   '.dl-pick-body{flex:1;min-width:0;}' +
   '.dl-pick-name{font-family:\'Bebas Neue\',sans-serif;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
   '.dl-pick-order{position:absolute;top:2px;right:4px;font-family:\'DM Mono\',monospace;font-size:6px;color:var(--grey-5);letter-spacing:1px;}' +
-  '.dl-role-badge{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:1px;padding:2px 7px;margin-top:2px;background:rgba(255,255,255,0.05);color:var(--grey-4);border:1px solid rgba(255,255,255,0.15);cursor:pointer;transition:all .15s;}' +
-  '.dl-role-badge:hover{border-color:var(--white);color:var(--white);}' +
-  '.dl-role-badge.sel{border-color:var(--warn);color:var(--warn);background:rgba(255,204,68,0.1);box-shadow:0 0 8px rgba(255,204,68,0.3);}' +
+  '.dl-role-badge{display:inline-flex;align-items:center;justify-content:center;padding:4px 6px;margin-top:3px;background:rgba(255,255,255,0.06);color:var(--grey-6);border:1px solid rgba(255,255,255,0.2);cursor:pointer;transition:all .15s;line-height:0;}' +
+  '.dl-role-badge:hover{border-color:var(--white);color:var(--white);background:rgba(255,255,255,0.1);}' +
+  '.dl-role-badge.sel{border-color:var(--warn);color:var(--warn);background:rgba(255,204,68,0.12);box-shadow:0 0 8px rgba(255,204,68,0.3);}' +
+  '.dl-role-ic{display:block;}' +
+  '.dl-ic{display:block;flex-shrink:0;}' +
+  '.dl-bar-row .tier-mode-btn{display:inline-flex;align-items:center;justify-content:center;}' +
+  '.dl-swap-btn{padding:7px 9px;}' +
+  '.dl-role-tab{display:inline-flex;align-items:center;justify-content:center;min-width:34px;padding:6px 9px;color:var(--grey-6);}' +
+  '.dl-role-tab.active .dl-role-ic{color:var(--black);}' +
   '.dl-dead-row{display:flex;gap:3px;flex-wrap:wrap;}' +
   '.dl-dead-chip{position:relative;opacity:0.55;}' +
   '.dl-dead-chip img{filter:grayscale(1);}' +
@@ -1508,8 +1623,8 @@ function _dlInjectCss() {
   '.dl-card:hover{border-color:rgba(100,180,255,0.7);background:rgba(100,180,255,0.07);transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.5);}' +
   '.dl-card.dim{opacity:0.22;cursor:default;pointer-events:none;}' +
   '.dl-card.sug{border-color:rgba(80,220,140,0.55);box-shadow:inset 0 0 14px rgba(80,220,140,0.08);}' +
-  '.dl-card-name{font-family:\'Bebas Neue\',sans-serif;font-size:11px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
-  '.dl-card-sub{font-family:\'DM Mono\',monospace;font-size:6.5px;color:var(--grey-5);letter-spacing:0;}' +
+  '.dl-card-name{font-family:\'Bebas Neue\',sans-serif;font-size:12px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+  '.dl-card-sub{font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);letter-spacing:0;}' +
   '.dl-dead-tag{position:absolute;top:4px;left:4px;font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:1px;padding:1px 4px;background:rgba(255,90,90,0.2);color:var(--danger);border:1px solid rgba(255,90,90,0.5);}' +
   '.dl-dead-tag.opp{background:rgba(100,180,255,0.15);color:rgba(100,180,255,1);border-color:rgba(100,180,255,0.5);}' +
   '.dl-portrait-tag{position:absolute;bottom:0;right:0;font-family:\'DM Mono\',monospace;font-size:6px;letter-spacing:0.5px;padding:1px 3px;background:rgba(0,0,0,0.85);color:var(--warn);border:1px solid rgba(255,204,68,0.5);line-height:1.4;}' +
