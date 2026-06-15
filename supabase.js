@@ -35,6 +35,71 @@ function setLoading(on){
   if(el) el.style.display=on?'flex':'none';
 }
 
+// ══════════════════════════════════════════
+// AUTH GATE — login required before any data loads
+// (Supabase persists the session in localStorage by default,
+//  so reloads do NOT re-prompt. Do not disable persistence.)
+// ══════════════════════════════════════════
+
+function showLoginScreen(){
+  setLoading(false);
+  var ar=document.getElementById('app-root'); if(ar) ar.style.display='none';
+  var ov=document.getElementById('login-overlay'); if(ov) ov.style.display='flex';
+  var em=document.getElementById('login-email'); if(em) setTimeout(function(){em.focus();},50);
+}
+
+function hideLoginScreen(){
+  var ov=document.getElementById('login-overlay'); if(ov) ov.style.display='none';
+  var ar=document.getElementById('app-root'); if(ar) ar.style.display='';
+}
+
+// Entry point (replaces the old bare bootApp() call). Decides whether to
+// boot the app or show the login screen based on the existing session.
+async function initAuthGate(){
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if(session){
+      hideLoginScreen();
+      bootApp();
+    } else {
+      showLoginScreen();
+    }
+  }catch(e){
+    console.error('Auth check failed',e);
+    showLoginScreen();
+  }
+}
+
+async function appLogin(){
+  var email=(document.getElementById('login-email')?.value||'').trim();
+  var password=document.getElementById('login-password')?.value||'';
+  var errEl=document.getElementById('login-err');
+  var btn=document.getElementById('login-btn');
+  function fail(){ if(errEl){ errEl.textContent='Wrong email or password'; errEl.style.display='block'; } }
+  if(errEl) errEl.style.display='none';
+  if(!email||!password){ fail(); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Logging in…'; }
+  try{
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error){
+      fail();
+    } else {
+      var pw=document.getElementById('login-password'); if(pw) pw.value='';
+      hideLoginScreen();
+      bootApp();
+    }
+  }catch(e){
+    fail();
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Log in'; }
+  }
+}
+
+async function appLogout(){
+  try{ await sb.auth.signOut(); }catch(e){}
+  location.reload();
+}
+
 // Boot: load all data from Supabase into cache
 async function bootApp(){
   setLoading(true);

@@ -43,6 +43,23 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+
+<!-- LOGIN SCREEN (auth gate) — markup only; logic lives in supabase.js -->
+<div id="login-overlay">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">PROJECT SUCROSE</div></div>
+    <div class="modal-body">
+      <div class="login-sub">AOV COACHING SYSTEM · SIGN IN</div>
+      <form id="login-form" onsubmit="appLogin();return false;">
+        <div class="input-group"><label class="input-label">Email</label><input class="input" id="login-email" type="email" autocomplete="username" placeholder="you@example.com"/></div>
+        <div class="input-group"><label class="input-label">Password</label><input class="input" id="login-password" type="password" autocomplete="current-password" placeholder="••••••••"/></div>
+        <div id="login-err" class="login-err">Wrong email or password</div>
+        <button class="btn btn-primary btn-full" type="submit" id="login-btn">Log in</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase.js"></script>
 
@@ -323,7 +340,10 @@
         <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;">SETTINGS</div>
         <div style="font-size:12px;color:var(--grey-5);margin-top:4px;">Hero database &amp; app configuration</div>
       </div>
-      <button class="btn btn-sm btn-muted" onclick="showPinChange()">🔒 PIN</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm btn-muted" onclick="showPinChange()">🔒 PIN</button>
+        <button class="btn btn-sm btn-muted" onclick="appLogout()">LOG OUT</button>
+      </div>
     </div>
     <div class="settings-section">
       <div class="settings-section-title">Hero Database</div>

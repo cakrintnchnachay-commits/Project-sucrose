@@ -5712,4 +5712,7 @@ async function saveRateMentality(matchId){
 }
 
 // ══════════════════════════════════════════
-bootApp();
+// Gate the app behind a Supabase login. initAuthGate() (in supabase.js)
+// only calls bootApp() once a valid session exists; otherwise it shows
+// the login screen and no data loads.
+initAuthGate();

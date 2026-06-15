@@ -525,6 +525,11 @@ textarea.input{resize:vertical;min-height:70px;}
 .modal-overlay.open{display:flex;}
 .modal{background:var(--grey-1);border:var(--border);border-bottom:none;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;border-radius:4px 4px 0 0;animation:slideUp 0.25s ease;}
 @keyframes slideUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+/* LOGIN SCREEN — auth gate. Reuses .modal card; only the overlay is centered (vs bottom-sheet). */
+#login-overlay{display:none;position:fixed;inset:0;background:var(--black);z-index:9998;align-items:center;justify-content:center;padding:20px;}
+#login-overlay .modal{max-width:380px;border-bottom:var(--border);border-radius:4px;animation:fadeIn 0.25s ease;}
+.login-sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);margin-bottom:18px;}
+.login-err{font-family:'DM Mono',monospace;font-size:10px;color:var(--danger);margin-bottom:12px;display:none;}
 @media(min-width:768px){
   .modal-overlay{align-items:center;}
   .modal{border-radius:4px;border-bottom:var(--border);max-width:520px;max-height:85vh;}
