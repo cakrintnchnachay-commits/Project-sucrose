@@ -1088,6 +1088,34 @@ function _dlTeamOptions(sel) {
   }).join('');
 }
 
+// ── UI icons — clean inline SVGs to replace emoji glyphs on buttons ──
+var _DL_ICON_SVG = {
+  play:  '<path d="M8 5v14l11-7z"/>',
+  next:  '<path d="M4 11h11.2l-4.6-4.6L12 5l7 7-7 7-1.4-1.4 4.6-4.6H4z"/>',
+  undo:  '<path d="M10 9V5l-7 6 7 6v-4h4.5a3.5 3.5 0 0 1 0 7H9v2h5.5a5.5 5.5 0 0 0 0-11z"/>',
+  skip:  '<path d="M5 5l8 7-8 7zM14 5l6 7-6 7z"/>',
+  bolt:  '<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
+  swap:  '<path d="M7 6h9l-2.6-2.6L14.8 2 20 7l-5.2 5-1.4-1.4L16 8H7zM17 18H8l2.6 2.6L9.2 22 4 17l5.2-5 1.4 1.4L8 16h9z"/>',
+  timer: '<path d="M9.5 1h5v2h-5zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm1 9V7h-2v8h6v-2z"/>',
+  book:  '<path d="M3.5 4.5h7.5v15H6.2a2.7 2.7 0 0 0-2.7 1.2zM13 4.5h7.5v16.2A2.7 2.7 0 0 0 17.8 19.5H13z"/>',
+  save:  '<path d="M4 4h12l4 4v12H4zM8 4v5h7V4zM7 13h10v6H7z"/>'
+};
+function _dlIcon(name, size) {
+  size = size || 13;
+  var p = _DL_ICON_SVG[name];
+  if (!p) return '';
+  return '<svg class="dl-ic" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="currentColor">' + p + '</svg>';
+}
+
+// ── Team crest for a selected team (blank if no logo available) ──
+function _dlTeamLogo(abbr, size) {
+  size = size || 28;
+  var url = (typeof DLC_TEAM_LOGOS !== 'undefined' && DLC_TEAM_LOGOS) ? DLC_TEAM_LOGOS[abbr] : null;
+  if (!abbr || !url) return '';
+  return '<span class="dl-team-logo" style="width:' + size + 'px;height:' + size + 'px;">' +
+    '<img src="' + url + '" alt="' + _dlEsc(abbr) + '" onerror="this.parentNode.style.display=\'none\';"/></span>';
+}
+
 function _dlRenderBar() {
   var el = document.getElementById('dl-bar');
   if (!el) return;
@@ -1112,10 +1140,11 @@ function _dlRenderBar() {
   el.innerHTML =
     '<div class="dl-bar-row">' +
       '<div class="dl-team-box blue">' +
+        _dlTeamLogo(DL_TEAM.B, 30) +
         '<select class="dl-team-sel" onchange="DL_TEAM.B=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.B) + '</select>' +
         (DL_US === 'B' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
       '</div>' +
-      '<button class="tier-mode-btn" onclick="dlSwapSides()" title="Swap sides">⇄</button>' +
+      '<button class="tier-mode-btn dl-icon-btn" onclick="dlSwapSides()" title="Swap sides">' + _dlIcon('swap', 14) + '</button>' +
       '<div class="dl-step-box' + stepCls + '">' +
         '<div class="dl-step-main">' + stepText + '</div>' +
         (live && DL_STARTED && st ? '<div id="dl-timer" class="dl-step-timer"' + (DL_TIMER_ON ? '' : ' style="display:none;"') + '>0:' + String(DL_TIMER_LEFT).padStart(2, '0') + '</div>' : '') +
@@ -1123,20 +1152,21 @@ function _dlRenderBar() {
       '<div class="dl-team-box red">' +
         (DL_US === 'R' ? '<span class="dl-us-badge">US</span>' : '<span class="dl-us-badge opp">OPP</span>') +
         '<select class="dl-team-sel" onchange="DL_TEAM.R=this.value;dlRender()">' + _dlTeamOptions(DL_TEAM.R) + '</select>' +
+        _dlTeamLogo(DL_TEAM.R, 30) +
       '</div>' +
     '</div>' +
     '<div class="dl-seq-row">' + seqHtml + '</div>' +
     '<div class="dl-ctrl-row">' +
-      '<button class="tier-mode-btn active" onclick="dlNewDraft()"' + (seriesOver && !DL_STARTED ? ' disabled' : '') + '>▶ ' + (DL_ACTIONS.length ? 'RESTART GAME' : 'NEW DRAFT') + '</button>' +
-      (done ? '<button class="tier-mode-btn dl-next-btn" onclick="dlNextGame()">NEXT GAME ➔</button>' : '') +
-      '<button class="tier-mode-btn" onclick="dlUndo()"' + (DL_ACTIONS.length && live ? '' : ' disabled') + '>↩ UNDO</button>' +
-      '<button class="tier-mode-btn" onclick="dlSkipBan()"' + (st && st.type === 'ban' && live ? '' : ' disabled') + '>⏭ SKIP BAN</button>' +
-      '<button class="tier-mode-btn" onclick="dlAutoSwap(\'B\');dlAutoSwap(\'R\')" title="Best-fit positions from pro data">⚡ AUTO-SWAP</button>' +
+      '<button class="tier-mode-btn active" onclick="dlNewDraft()"' + (seriesOver && !DL_STARTED ? ' disabled' : '') + '>' + _dlIcon('play') + (DL_ACTIONS.length ? 'RESTART GAME' : 'NEW DRAFT') + '</button>' +
+      (done ? '<button class="tier-mode-btn dl-next-btn" onclick="dlNextGame()">NEXT GAME' + _dlIcon('next') + '</button>' : '') +
+      '<button class="tier-mode-btn" onclick="dlUndo()"' + (DL_ACTIONS.length && live ? '' : ' disabled') + '>' + _dlIcon('undo') + 'UNDO</button>' +
+      '<button class="tier-mode-btn" onclick="dlSkipBan()"' + (st && st.type === 'ban' && live ? '' : ' disabled') + '>' + _dlIcon('skip') + 'SKIP BAN</button>' +
+      '<button class="tier-mode-btn" onclick="dlAutoSwap(\'B\');dlAutoSwap(\'R\')" title="Best-fit positions from pro data">' + _dlIcon('bolt') + 'AUTO-SWAP</button>' +
       '<button class="tier-mode-btn" onclick="dlResetSeries()">RESET SERIES</button>' +
       '<span style="flex:1;"></span>' +
-      '<button class="tier-mode-btn' + (DL_TIMER_ON ? ' active' : '') + '" onclick="dlToggleTimer()" title="60s pick / 40s ban">⏱</button>' +
-      '<button class="tier-mode-btn" onclick="dlOpenScenarios()">📚</button>' +
-      '<button class="tier-mode-btn" onclick="dlOpenSaveModal()"' + (DL_ACTIONS.length || DL_SERIES.length ? '' : ' disabled') + '>💾 SAVE</button>' +
+      '<button class="tier-mode-btn dl-icon-btn' + (DL_TIMER_ON ? ' active' : '') + '" onclick="dlToggleTimer()" title="60s pick / 40s ban">' + _dlIcon('timer', 15) + '</button>' +
+      '<button class="tier-mode-btn dl-icon-btn" onclick="dlOpenScenarios()" title="Scenarios">' + _dlIcon('book', 15) + '</button>' +
+      '<button class="tier-mode-btn" onclick="dlOpenSaveModal()"' + (DL_ACTIONS.length || DL_SERIES.length ? '' : ' disabled') + '>' + _dlIcon('save') + 'SAVE</button>' +
       (done ? '<span class="dl-done-hint">tap two role tags to swap positions, then NEXT GAME</span>' : '') +
     '</div>';
 }
@@ -1520,6 +1550,23 @@ function _dlInjectCss() {
   '.dl-modal-box{background:#101010;border:var(--border);padding:18px;max-width:380px;width:90%;animation:dlStepIn .2s ease;}' +
   '.dl-modal-title{font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;margin-bottom:12px;}' +
   '.dl-scn-row{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:var(--border);}' +
+  /* === redesign: larger controls, ui button icons, team logos, pinned draft === */
+  '#dl-root .tier-mode-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:10.5px;padding:8px 13px;border-radius:3px;line-height:1;}' +
+  '#dl-root .dl-game-tab{font-size:10.5px;padding:7px 12px;gap:5px;}' +
+  '#dl-root .dl-team-sel{font-size:11.5px;}' +
+  '.dl-series-row{padding:9px 12px;gap:11px;}' +
+  '.dl-ctrl-row{gap:7px;padding:6px 12px 10px;}' +
+  '.dl-ic{display:inline-block;vertical-align:middle;flex-shrink:0;}' +
+  '.dl-icon-btn{min-width:38px;min-height:34px;padding:7px 10px!important;}' +
+  '.dl-team-logo{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}' +
+  '.dl-team-logo img{width:100%;height:100%;object-fit:contain;display:block;}' +
+  /* pinned draft — capped, internally-scrolling intel never shrinks the picks/bans */
+  '#dl-intel{flex-shrink:0;max-height:30vh;overflow-y:auto;overflow-x:hidden;}' +
+  '.dl-cols{min-height:0;}' +
+  '.dl-side{padding:6px 8px;}' +
+  '.dl-side-sec{margin:6px 0 4px;}' +
+  '.dl-picks{gap:4px;}' +
+  '.dl-pick-slot{min-height:50px;}' +
   /* anims */
   '@keyframes dlPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0.25);}50%{box-shadow:0 0 0 3px rgba(255,255,255,0.08);}}' +
   '@keyframes dlPop{0%{transform:scale(0.92);opacity:0.4;}100%{transform:scale(1);opacity:1;}}' +
