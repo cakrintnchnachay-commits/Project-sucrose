@@ -475,10 +475,11 @@ var DLC_SERIES_COLORS = [
   {stroke:'rgba(80,220,140,0.55)',  fill:'rgba(80,220,140,0.08)',  dot:'rgba(80,220,140,0.8)'}
 ];
 
-function dlcDrawRadar(canvasId, seriesArr, caps){
+function dlcDrawRadar(canvasId, seriesArr, caps, opts){
   var canvas=document.getElementById(canvasId);
   if(!canvas) return;
   caps=caps||dlcRadarCaps();
+  var cmp = opts&&opts.compare&&seriesArr.length===2;
   var dpr=window.devicePixelRatio||1;
   var dW=canvas.offsetWidth||280, dH=canvas.offsetHeight||280;
   canvas.width=dW*dpr; canvas.height=dH*dpr;
@@ -515,27 +516,50 @@ function dlcDrawRadar(canvasId, seriesArr, caps){
       ctx.beginPath();ctx.arc(p.x,p.y,si===0?4.5:3,0,Math.PI*2);ctx.fillStyle=col.dot;ctx.fill();
     });
   });
-  // labels with primary-series values
+  // axis labels. In compare mode the value shown is the HIGHER of the two
+  // series, drawn in that series' own colour (no neutral/green).
   var main=seriesArr[0];
   DLC_RADAR_AXES.forEach(function(ax,i){
-    var p=pt(i,R+42), val=main?main.vals[ax.key]:null;
+    var p=pt(i,R+42);
     ctx.textAlign='center';
     ctx.font='500 9px DM Sans,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.6)';
     ctx.fillText(ax.label,p.x,p.y);
-    if(val!=null&&!isNaN(val)){
-      ctx.font='bold 10.5px "Bebas Neue",sans-serif';
-      ctx.fillStyle=(main.colors||DLC_SERIES_COLORS[0]).dot;
-      ctx.fillText(ax.fmt(val),p.x,p.y+13);
+    if(cmp){
+      var va=seriesArr[0].vals[ax.key], vb=seriesArr[1].vals[ax.key];
+      var hi=(vb!=null&&(va==null||vb>va))?1:0;     // all radar axes: higher = better
+      var v=seriesArr[hi].vals[ax.key];
+      if(v!=null&&!isNaN(v)){
+        ctx.font='bold 11px "Bebas Neue",sans-serif';
+        ctx.fillStyle=(seriesArr[hi].colors||DLC_SERIES_COLORS[hi]).dot;
+        ctx.fillText(ax.fmt(v),p.x,p.y+13);
+      }
+    } else {
+      var val=main?main.vals[ax.key]:null;
+      if(val!=null&&!isNaN(val)){
+        ctx.font='bold 10.5px "Bebas Neue",sans-serif';
+        ctx.fillStyle=(main.colors||DLC_SERIES_COLORS[0]).dot;
+        ctx.fillText(ax.fmt(val),p.x,p.y+13);
+      }
     }
   });
-  // hover hits for ALL series
+  // hover hits for ALL series. In compare mode each hit carries a combined
+  // tooltip: the hovered series large, the other series small.
   var hits=[];
   seriesArr.forEach(function(ser,si){
     DLC_RADAR_AXES.forEach(function(ax,i){
       var v=ser.vals[ax.key];
       if(v==null||isNaN(v))return;
       var p=pt(i,R*Math.max(norm(v,ax.key),0.03));
-      hits.push({x:p.x,y:p.y,label:(ser.name?ser.name+' · ':'')+ax.label,value:ax.fmt(v)});
+      var hit={x:p.x,y:p.y,label:(ser.name?ser.name+' · ':'')+ax.label,value:ax.fmt(v)};
+      if(cmp){
+        var other=seriesArr[1-si];
+        var cv=ser.colors||DLC_SERIES_COLORS[si], co=other.colors||DLC_SERIES_COLORS[1-si];
+        var ov=other.vals[ax.key];
+        hit.html='<div class="hd-radar-tip-lbl">'+ax.label+'</div>'+
+          '<div class="hd-radar-tip-val" style="color:'+cv.dot+';">'+(ser.name?ser.name+' · ':'')+ax.fmt(v)+'</div>'+
+          (ov!=null&&!isNaN(ov)?'<div class="hd-radar-tip-sub" style="color:'+co.dot+';">'+(other.name?other.name+' · ':'')+ax.fmt(ov)+'</div>':'');
+      }
+      hits.push(hit);
     });
   });
   canvas._dlcHits=hits;
@@ -555,7 +579,7 @@ function _dlcRadarEvents(canvas){
   }
   function show(ex,ey,hit){
     if(!tip)return;
-    tip.innerHTML='<div class="hd-radar-tip-lbl">'+hit.label+'</div><div class="hd-radar-tip-val">'+hit.value+'</div>';
+    tip.innerHTML=hit.html||('<div class="hd-radar-tip-lbl">'+hit.label+'</div><div class="hd-radar-tip-val">'+hit.value+'</div>');
     var wr=tip.parentElement.getBoundingClientRect(), cr=canvas.getBoundingClientRect();
     var tx=ex+(cr.left-wr.left)+14, ty=ey+(cr.top-wr.top)-30;
     if(tx+150>wr.width-4)tx=ex+(cr.left-wr.left)-160;
@@ -612,10 +636,11 @@ function dlcCmpToggle(type, name){
 }
 function dlcCmpClear(){ DLC_CMP={type:null,items:[]}; dlcRenderCmp(); }
 function dlcCmpBtn(type, name){
-  var on=DLC_CMP.type===type&&DLC_CMP.items.indexOf(name)>=0;
-  return '<button class="tier-mode-btn'+(on?' active':'')+'" style="font-size:7px;padding:3px 9px;" '+
-    'onclick="dlcCmpToggle(\''+type+'\',\''+dlcEsc(name).replace(/'/g,"\\'")+'\')">'+
-    (on?'✓ PINNED':'⊕ COMPARE')+'</button>';
+  // Opens the dedicated Compare sub-tab with this entity preloaded as
+  // subject A (replaces the old cramped pin-and-drawer flow).
+  return '<button class="tier-mode-btn" style="font-size:8px;padding:5px 12px;letter-spacing:1px;" '+
+    'onclick="dlcCompareFrom(\''+type+'\',\''+dlcEsc(name).replace(/'/g,"\\'")+'\')">'+
+    '⚖ COMPARE '+(type==='hero'?'HERO':'PLAYER')+'</button>';
 }
 
 function _dlcCmpStats(type, name, agg){
@@ -725,6 +750,330 @@ function dlcRenderCmp(){
       {name:B, vals:sB, colors:DLC_SERIES_COLORS[1]}
     ]);
   }, 30);
+}
+
+// ═════════════════════════════════════════════════════════════
+// DEDICATED COMPARE VIEW (full Data Center sub-tab)
+// Players-vs-players or heroes-vs-heroes. Two dropdown pickers,
+// competition filter, enlarged overlaid radar, diverging delta
+// bars + value table, duo-synergy / shared-pool context.
+// ═════════════════════════════════════════════════════════════
+
+var DLC_CMP2 = {type:'player', tour:'All', a:null, b:null};
+var _DLC_CMP2_CSS = false;
+var _DLC_CMP2_Q = {a:'', b:''};   // live search text per picker
+var _DLC_CMP2_BOUND = false;      // outside-click handler bound once
+
+// stat rows: [label, key, formatter, dir]  dir: true=higher better,
+// false=lower better, null=neutral (no winner highlight)
+function _dlcCmp2Rows(type){
+  var rows=[
+    ['WIN RATE','wr',function(v){return dlcPct(v);},true],
+    ['GAMES','games',function(v){return String(v);},null],
+    ['KDA','kda',function(v){return dlcF(v);},true],
+    ['KILLS / MIN','killsPerMin',function(v){return dlcF(v);},true],
+    ['DEATHS / MIN','deathsPerMin',function(v){return dlcF(v);},false],
+    ['DMG / MIN','dmgPerMin',dlcFk,true],
+    ['DTK / MIN','dtkPerMin',dlcFk,true],
+    ['KILL PART','kp',function(v){return dlcF(v,0)+'%';},true],
+    ['MVP RATE','mvpRate',function(v){return dlcPct(v);},true],
+    ['AVG LENGTH','avgDur',function(v){return dlcF(v,1)+'m';},null]
+  ];
+  if (type==='hero') rows.splice(2,0,['PRESENCE','presence',function(v){return dlcPct(v);},true]);
+  return rows;
+}
+
+function _dlcCmp2Label(){ return DLC_CMP2.type==='hero'?'hero':'player'; }
+
+// entities (with >=3 games) for the current type+tour, sorted by games desc
+function _dlcCmp2Entities(agg){
+  var src = DLC_CMP2.type==='hero'?agg.heroes:agg.players;
+  return Object.keys(src).filter(function(n){ return n && src[n].g>=3; })
+    .sort(function(a,b){ return src[b].g-src[a].g || a.toLowerCase().localeCompare(b.toLowerCase()); });
+}
+
+function dlcCmp2SetType(t){
+  if (DLC_CMP2.type===t) return;
+  DLC_CMP2={type:t, tour:DLC_CMP2.tour, a:null, b:null};
+  dlcCompareRender();
+}
+function dlcCmp2SetTour(t){ DLC_CMP2.tour=t; dlcCompareRender(); }
+function dlcCmp2Pick(side,name){ DLC_CMP2[side]=name||null; _DLC_CMP2_Q[side]=''; dlcCompareRender(); }
+function dlcCmp2Swap(){ var a=DLC_CMP2.a; DLC_CMP2.a=DLC_CMP2.b; DLC_CMP2.b=a; dlcCompareRender(); }
+function dlcCmp2Clear(){ DLC_CMP2.a=null; DLC_CMP2.b=null; dlcCompareRender(); }
+
+// entry from a detail page's COMPARE button: jump to the tab with
+// the entity preselected as side A
+function dlcCompareFrom(type, name){
+  if (DLC_CMP2.type!==type){ DLC_CMP2={type:type, tour:DLC_CMP2.tour, a:null, b:null}; }
+  DLC_CMP2.a=name;
+  if (typeof showPage==='function') showPage('page-data-center');
+  if (typeof dcSetTab==='function') dcSetTab('compare');
+  else dlcCompareInit();
+}
+
+function dlcCompareInit(){
+  _dlcCmp2Css();
+  if (!_DLC_CMP2_BOUND && document.addEventListener){
+    _DLC_CMP2_BOUND=true;
+    document.addEventListener('mousedown', function(e){
+      if (!e.target || !e.target.closest || !e.target.closest('.dlc-c2-combo')) _dlcCmp2CloseLists();
+    });
+  }
+  var root=document.getElementById('dlc-compare-root');
+  if (DLC_GAMES){ dlcCompareRender(); return; }
+  if (root) root.innerHTML='<div class="dlc-c2-msg">Loading pro data…</div>';
+  dlcEnsure(function(err){
+    if (err){ if(root) root.innerHTML='<div class="dlc-c2-msg" style="color:var(--danger);">Failed to load data.<br>'+dlcEsc(err.message)+'</div>'; return; }
+    dlcCompareRender();
+  });
+}
+
+// ── Searchable picker (combobox) ─────────────────────────────
+function _dlcCmp2Combo(side, sel, ents){
+  var col = side==='a'?DLC_SERIES_COLORS[0]:DLC_SERIES_COLORS[1];
+  var lbl = side==='a'?'SUBJECT A':'SUBJECT B';
+  var ph  = 'Search '+_dlcCmp2Label()+'… ('+ents.length+')';
+  var s   = side.replace(/'/g,'');
+  return '<div class="dlc-c2-pick">'+
+    '<label class="dlc-c2-pick-lbl" style="color:'+col.dot+';">'+lbl+'</label>'+
+    '<div class="dlc-c2-combo">'+
+      '<input class="input dlc-c2-cinput" id="dlc-c2-cinput-'+s+'" autocomplete="off" '+
+        'placeholder="'+ph+'" value="'+(sel?dlcEsc(sel):'')+'" '+
+        'onfocus="this.select();dlcCmp2Open(\''+s+'\')" '+
+        'oninput="dlcCmp2Filter(\''+s+'\',this.value)" />'+
+      (sel?'<button class="dlc-c2-cclear" title="Clear" onmousedown="event.preventDefault();dlcCmp2Pick(\''+s+'\',\'\')">✕</button>'
+          :'<span class="dlc-c2-ccaret">▾</span>')+
+      '<div class="dlc-c2-clist" id="dlc-c2-clist-'+s+'" style="display:none;"></div>'+
+    '</div>'+
+  '</div>';
+}
+function _dlcCmp2RenderList(side){
+  var el=document.getElementById('dlc-c2-clist-'+side);
+  if(!el) return;
+  var agg=dlcAgg(DLC_CMP2.tour);
+  var src=DLC_CMP2.type==='hero'?agg.heroes:agg.players;
+  var other = side==='a'?DLC_CMP2.b:DLC_CMP2.a;
+  var sel   = side==='a'?DLC_CMP2.a:DLC_CMP2.b;
+  var q=(_DLC_CMP2_Q[side]||'').toLowerCase();
+  var list=_dlcCmp2Entities(agg).filter(function(e){
+    return e!==other && e.toLowerCase().indexOf(q)>=0;
+  }).slice(0,80);
+  if(!list.length){ el.innerHTML='<div class="dlc-c2-cempty">no match</div>'; el.style.display='block'; return; }
+  el.innerHTML=list.map(function(e){
+    return '<div class="dlc-c2-citem'+(e===sel?' on':'')+'" '+
+      'onmousedown="event.preventDefault();dlcCmp2Pick(\''+side+'\',\''+dlcEsc(e).replace(/'/g,"\\'")+'\')">'+
+      '<span>'+dlcEsc(e)+'</span><span class="dlc-c2-cg">'+src[e].g+'g</span></div>';
+  }).join('');
+  el.style.display='block';
+}
+function dlcCmp2Open(side){
+  ['a','b'].forEach(function(s){ if(s!==side){ var o=document.getElementById('dlc-c2-clist-'+s); if(o)o.style.display='none'; } });
+  _DLC_CMP2_Q[side]='';
+  _dlcCmp2RenderList(side);
+}
+function dlcCmp2Filter(side, q){ _DLC_CMP2_Q[side]=q||''; _dlcCmp2RenderList(side); }
+function _dlcCmp2CloseLists(){ ['a','b'].forEach(function(s){ var o=document.getElementById('dlc-c2-clist-'+s); if(o)o.style.display='none'; }); }
+
+function dlcCompareRender(){
+  _dlcCmp2Css();
+  var root=document.getElementById('dlc-compare-root');
+  if (!root || !DLC_GAMES) return;
+  var agg=dlcAgg(DLC_CMP2.tour);
+  var type=DLC_CMP2.type;
+  var ents=_dlcCmp2Entities(agg);
+  if (DLC_CMP2.a && ents.indexOf(DLC_CMP2.a)<0) DLC_CMP2.a=null;
+  if (DLC_CMP2.b && ents.indexOf(DLC_CMP2.b)<0) DLC_CMP2.b=null;
+  var A=DLC_CMP2.a, B=DLC_CMP2.b;
+
+  var COL_A=DLC_SERIES_COLORS[0], COL_B=DLC_SERIES_COLORS[1];
+
+  // ── controls: type toggle + competition filter ──
+  var typeToggle=[['player','Players'],['hero','Heroes']].map(function(t){
+    return '<button class="tier-mode-btn'+(type===t[0]?' active':'')+'" onclick="dlcCmp2SetType(\''+t[0]+'\')">'+t[1]+'</button>';
+  }).join('');
+  var tourBtns=DLC_TOURS.map(function(t){
+    return '<button class="tier-mode-btn'+(t===DLC_CMP2.tour?' active':'')+'" onclick="dlcCmp2SetTour(\''+dlcEsc(t).replace(/'/g,"\\'")+'\')">'+dlcEsc(t)+'</button>';
+  }).join('');
+
+  // ── pickers (searchable, sorted by games) ──
+  _DLC_CMP2_Q={a:'',b:''};
+  var pickers=
+    '<div class="dlc-c2-pickrow">'+
+      _dlcCmp2Combo('a', A, ents)+
+      '<button class="dlc-c2-swap" title="Swap" onclick="dlcCmp2Swap()">⇄</button>'+
+      _dlcCmp2Combo('b', B, ents)+
+    '</div>';
+
+  var controls=
+    '<div class="dlc-c2-controls">'+
+      '<div class="dlc-c2-ctl-row">'+
+        '<span class="dlc-c2-ctl-lbl">COMPARE</span>'+
+        '<div class="dlc-c2-btns">'+typeToggle+'</div>'+
+        '<span class="dlc-c2-ctl-lbl" style="margin-left:14px;">COMPETITION</span>'+
+        '<div class="dlc-c2-btns">'+tourBtns+'</div>'+
+        (A||B?'<button class="tier-mode-btn dlc-c2-reset" onclick="dlcCmp2Clear()">Reset</button>':'')+
+      '</div>'+
+      pickers+
+    '</div>';
+
+  // ── not-ready states ──
+  if (!A || !B){
+    var hint = (!A && !B) ? 'Pick two '+_dlcCmp2Label()+'s above to compare them side by side.'
+             : 'Pick one more '+_dlcCmp2Label()+' to compare.';
+    root.innerHTML=controls+
+      '<div class="dlc-c2-empty">'+
+        '<div class="dlc-c2-empty-icon">⚖</div>'+
+        '<div class="dlc-c2-empty-txt">'+hint+'</div>'+
+      '</div>';
+    return;
+  }
+
+  // ── both selected: full comparison ──
+  var sA=dlcDerive(type==='hero'?agg.heroes[A]:agg.players[A], agg.total);
+  var sB=dlcDerive(type==='hero'?agg.heroes[B]:agg.players[B], agg.total);
+  var rows=_dlcCmp2Rows(type);
+
+  var tbl=rows.map(function(r){
+    var key=r[1], fmt=r[2], dir=r[3];
+    var va=sA[key], vb=sB[key];
+    var mx=Math.max(va||0, vb||0, 1e-9);
+    var fa=Math.max(0,Math.min(100,Math.round(100*(va||0)/mx)));
+    var fb=Math.max(0,Math.min(100,Math.round(100*(vb||0)/mx)));
+    var ca='var(--white)', cb='var(--white)';
+    if (dir!=null && va!=null && vb!=null && Math.abs(va-vb)>1e-9){
+      var aWins = dir ? va>vb : va<vb;          // winner shown in its OWN colour
+      ca=aWins?COL_A.dot:'var(--grey-5)';
+      cb=aWins?'var(--grey-5)':COL_B.dot;
+    }
+    return '<div class="dlc-c2-row">'+
+      '<div class="dlc-c2-val" style="color:'+ca+';">'+fmt(va)+'</div>'+
+      '<div class="dlc-c2-mid">'+
+        '<div class="dlc-c2-rlbl">'+r[0]+'</div>'+
+        '<div class="dlc-c2-bars">'+
+          '<div class="dlc-c2-bar dlc-c2-bar-l"><span style="width:'+fa+'%;background:'+COL_A.dot+';"></span></div>'+
+          '<div class="dlc-c2-bar dlc-c2-bar-r"><span style="width:'+fb+'%;background:'+COL_B.dot+';"></span></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="dlc-c2-val" style="color:'+cb+';text-align:left;">'+fmt(vb)+'</div>'+
+    '</div>';
+  }).join('');
+
+  // ── context: duo synergy (heroes) or shared pool (players) ──
+  var extra='';
+  if (type==='hero'){
+    var pkey=A<B?A+'|'+B:B+'|'+A;
+    var pr=agg.pairs[pkey];
+    if (pr && pr.g>=5){
+      var exp=(sA.shrunkWR+sB.shrunkWR)/2;
+      var lift=dlcShrunk(pr.w,pr.g,8)-exp;
+      extra='<div class="dlc-c2-extra"><span class="dlc-c2-extra-tag">AS A DUO</span>'+
+        pr.g+' games · '+Math.round(100*pr.w/pr.g)+'% win rate · '+
+        (lift>=0?'+':'')+Math.round(lift*100)+' pts vs expected</div>';
+    } else {
+      extra='<div class="dlc-c2-extra muted">Rarely drafted together ('+(pr?pr.g:0)+' games) — duo synergy not meaningful.</div>';
+    }
+  } else {
+    var common=[];
+    var pa=agg.players[A], pb=agg.players[B];
+    if (pa&&pb) Object.keys(pa.heroes).forEach(function(h){
+      var ha=pa.heroes[h], hb=pb.heroes[h];
+      if (ha&&hb&&ha.g>=3&&hb.g>=3) common.push({h:h,a:ha,b:hb});
+    });
+    common.sort(function(x,y){ return (y.a.g+y.b.g)-(x.a.g+x.b.g); });
+    if (common.length){
+      extra='<div class="dlc-c2-extra"><span class="dlc-c2-extra-tag">SHARED POOL</span>'+
+        common.slice(0,5).map(function(c){
+          return dlcEsc(c.h)+' ('+Math.round(100*c.a.w/c.a.g)+'% vs '+Math.round(100*c.b.w/c.b.g)+'%)';
+        }).join(' · ')+'</div>';
+    } else {
+      extra='<div class="dlc-c2-extra muted">No heroes played 3+ times by both.</div>';
+    }
+  }
+
+  root.innerHTML=controls+
+    '<div class="dlc-c2-head">'+
+      '<span class="dlc-c2-name" style="color:'+COL_A.dot+';">'+dlcEsc(A)+'</span>'+
+      '<span class="dlc-c2-vs">VS</span>'+
+      '<span class="dlc-c2-name" style="color:'+COL_B.dot+';text-align:left;">'+dlcEsc(B)+'</span>'+
+    '</div>'+
+    '<div class="dlc-c2-body">'+
+      '<div class="dlc-c2-radar">'+
+        '<canvas id="dlc-c2-canvas" width="380" height="360"></canvas>'+
+        '<div class="hd-radar-tip" id="dlc-c2-canvas-tip"></div>'+
+        '<div class="dlc-c2-legend">'+
+          '<span><i style="background:'+COL_A.dot+';"></i>'+dlcEsc(A)+'</span>'+
+          '<span><i style="background:'+COL_B.dot+';"></i>'+dlcEsc(B)+'</span>'+
+        '</div>'+
+      '</div>'+
+      '<div class="dlc-c2-table">'+tbl+'</div>'+
+    '</div>'+extra;
+
+  setTimeout(function(){
+    dlcDrawRadar('dlc-c2-canvas', [
+      {name:A, vals:sA, colors:COL_A},
+      {name:B, vals:sB, colors:COL_B}
+    ], null, {compare:true});
+  }, 30);
+}
+
+function _dlcCmp2Css(){
+  if (_DLC_CMP2_CSS) return;
+  _DLC_CMP2_CSS=true;
+  var css=
+  '#dlc-compare-root{padding:0 0 70px;}'+
+  '.dlc-c2-msg{padding:24px;font-family:\'DM Mono\',monospace;font-size:11px;letter-spacing:1px;color:var(--grey-5);}'+
+  '.dlc-c2-controls{padding:14px 20px;border-bottom:var(--border);}'+
+  '.dlc-c2-ctl-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}'+
+  '.dlc-c2-ctl-lbl{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-5);}'+
+  '.dlc-c2-btns{display:flex;gap:3px;flex-wrap:wrap;}'+
+  '.dlc-c2-reset{margin-left:auto;}'+
+  '.dlc-c2-pickrow{display:flex;align-items:flex-end;gap:14px;margin-top:14px;}'+
+  '.dlc-c2-pick{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0;}'+
+  '.dlc-c2-pick-lbl{font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:2px;}'+
+  '.dlc-c2-select{margin:0;width:100%;font-size:13px;padding:9px 10px;}'+
+  '.dlc-c2-combo{position:relative;}'+
+  '.dlc-c2-cinput{margin:0;width:100%;font-size:13px;padding:9px 28px 9px 10px;}'+
+  '.dlc-c2-ccaret{position:absolute;right:10px;top:10px;color:var(--grey-5);pointer-events:none;font-size:11px;}'+
+  '.dlc-c2-cclear{position:absolute;right:5px;top:5px;background:transparent;border:none;color:var(--grey-5);cursor:pointer;font-size:12px;padding:4px 6px;line-height:1;}'+
+  '.dlc-c2-cclear:hover{color:var(--white);}'+
+  '.dlc-c2-clist{position:absolute;z-index:60;left:0;right:0;top:calc(100% + 3px);max-height:248px;overflow-y:auto;background:#101010;border:var(--border);box-shadow:0 10px 28px rgba(0,0,0,0.65);}'+
+  '.dlc-c2-citem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 11px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04);}'+
+  '.dlc-c2-citem:hover{background:rgba(255,255,255,0.07);}'+
+  '.dlc-c2-citem.on{background:rgba(100,180,255,0.12);}'+
+  '.dlc-c2-cg{color:var(--grey-5);font-size:9px;flex-shrink:0;}'+
+  '.dlc-c2-cempty{padding:11px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;}'+
+  '.hd-radar-tip-sub{font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;opacity:0.9;}'+
+  '.dlc-c2-swap{flex-shrink:0;background:var(--grey-2,#1a1a1a);border:var(--border);color:var(--grey-6);width:38px;height:38px;cursor:pointer;font-size:15px;border-radius:2px;}'+
+  '.dlc-c2-swap:hover{color:var(--white);border-color:rgba(255,255,255,0.3);}'+
+  '.dlc-c2-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:70px 20px;}'+
+  '.dlc-c2-empty-icon{font-size:46px;opacity:0.4;}'+
+  '.dlc-c2-empty-txt{font-family:\'DM Mono\',monospace;font-size:11px;letter-spacing:1px;color:var(--grey-5);text-align:center;max-width:320px;line-height:1.6;}'+
+  '.dlc-c2-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding:18px 24px 4px;}'+
+  '.dlc-c2-name{font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'+
+  '.dlc-c2-vs{font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:2px;color:var(--grey-4);}'+
+  '.dlc-c2-body{display:flex;gap:28px;padding:10px 24px 4px;flex-wrap:wrap;align-items:flex-start;}'+
+  '.dlc-c2-radar{width:380px;max-width:100%;flex-shrink:0;position:relative;}'+
+  '.dlc-c2-radar canvas{width:380px;max-width:100%;height:360px;}'+
+  '.dlc-c2-legend{display:flex;justify-content:center;gap:18px;margin-top:4px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-6);}'+
+  '.dlc-c2-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle;}'+
+  '.dlc-c2-table{flex:1;min-width:300px;}'+
+  '.dlc-c2-row{display:grid;grid-template-columns:78px 1fr 78px;gap:14px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.06);}'+
+  '.dlc-c2-val{font-family:\'Bebas Neue\',sans-serif;font-size:19px;text-align:right;}'+
+  '.dlc-c2-mid{min-width:0;}'+
+  '.dlc-c2-rlbl{font-family:\'DM Mono\',monospace;font-size:7.5px;letter-spacing:1.5px;color:var(--grey-5);text-align:center;margin-bottom:4px;}'+
+  '.dlc-c2-bars{display:flex;gap:3px;height:7px;}'+
+  '.dlc-c2-bar{flex:1;background:rgba(255,255,255,0.05);display:flex;overflow:hidden;}'+
+  '.dlc-c2-bar-l{justify-content:flex-end;}'+
+  '.dlc-c2-bar span{display:block;height:100%;}'+
+  '.dlc-c2-extra{margin:14px 24px 0;padding:11px 14px;border:var(--border);border-left:3px solid var(--warn);font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:0.3px;color:var(--grey-6);}'+
+  '.dlc-c2-extra.muted{border-left-color:var(--grey-4);color:var(--grey-5);}'+
+  '.dlc-c2-extra-tag{font-size:8px;letter-spacing:2px;color:var(--warn);margin-right:10px;}'+
+  '@media(max-width:760px){.dlc-c2-body{flex-direction:column;}.dlc-c2-radar,.dlc-c2-radar canvas{width:100%;}.dlc-c2-head{grid-template-columns:1fr auto 1fr;}.dlc-c2-name{font-size:20px;}}';
+  var tag=document.createElement('style');
+  tag.id='dlc-cmp2-style';
+  tag.textContent=css;
+  document.head.appendChild(tag);
 }
 
 // ── Role-filtered stats (for the role filter in both labs) ───

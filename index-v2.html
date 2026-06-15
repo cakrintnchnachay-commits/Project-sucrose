@@ -410,6 +410,7 @@
           <button class="tier-mode-btn active" id="dc-tab-probench" onclick="dcSetTab('probench')">Pro Benchmarks</button>
           <button class="tier-mode-btn" id="dc-tab-metalab" onclick="dcSetTab('metalab')">Meta Lab</button>
           <button class="tier-mode-btn" id="dc-tab-playerlab" onclick="dcSetTab('playerlab')">Players</button>
+          <button class="tier-mode-btn" id="dc-tab-compare" onclick="dcSetTab('compare')">Compare</button>
         </div>
       </div>
       <!-- Heroes controls (shown only when heroes tab is active) -->
@@ -560,6 +561,11 @@
         <div id="pl-player-list" class="heroes-pool-side" style="width:220px;flex-shrink:0;border-right:var(--border);overflow-y:auto;"></div>
         <div id="pl-detail" class="heroes-detail-side" style="flex:1;overflow-y:auto;"></div>
       </div>
+    </div>
+
+    <!-- COMPARE sub-section -->
+    <div id="dc-section-compare" style="display:none;flex-direction:column;flex:1;overflow-y:auto;">
+      <div id="dlc-compare-root"></div>
     </div>
 
   </div><!-- end page-data-center -->
@@ -1123,10 +1129,11 @@ function dcRenderActiveTab(tab) {
   if (tab === 'probench') pbRenderCurrentRole();
   if (tab === 'metalab')   { if (typeof mlInit === 'function')  mlInit(); }
   if (tab === 'playerlab') { if (typeof plInit === 'function')  plInit(); }
+  if (tab === 'compare')   { if (typeof dlcCompareInit === 'function') dlcCompareInit(); }
 }
 
 function dcSetTab(tab) {
-  var tabs = ['heroes', 'tiers', 'probench', 'metalab', 'playerlab'];
+  var tabs = ['heroes', 'tiers', 'probench', 'metalab', 'playerlab', 'compare'];
   tabs.forEach(function(t) {
     var btn = document.getElementById('dc-tab-' + t);
     var sec = document.getElementById('dc-section-' + t);
