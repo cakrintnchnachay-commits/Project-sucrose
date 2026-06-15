@@ -1213,12 +1213,15 @@ function _dlRenderIntel() {
   });
 
   function rowHtml(it) {
-    var multi = (freq[it.hero] || 0) > 2; // appears in more than two categories
-    return '<div class="dl3-row' + (it.warn ? ' warn' : '') + (multi ? ' multi' : '') + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
+    var f = freq[it.hero] || 0;
+    var multi = f > 2;   // 3+ categories — full highlight + badge
+    var sug2 = f === 2;  // exactly 2 categories — yellow line only
+    var cls = 'dl3-row' + (it.warn ? ' warn' : '') + (multi ? ' multi' : (sug2 ? ' sug2' : ''));
+    return '<div class="' + cls + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
       '<div class="dl3-row-img">' + _dlPortrait(it.hero, 34) + '</div>' +
       '<div class="dl3-row-body">' +
         '<div class="dl3-row-name">' + _dlEsc(it.hero) +
-          (multi ? ' <span class="dl3-multi-tag" title="Appears in ' + freq[it.hero] + ' suggestion categories — strong overall pick">★' + freq[it.hero] + '</span>' : '') +
+          (multi ? ' <span class="dl3-multi-tag" title="Appears in ' + f + ' suggestion categories — strong overall pick">★' + f + '</span>' : '') +
           (it.roles.length ? ' <span class="dl-role-mini">' + it.roles.join('/') + '</span>' : '') +
           (it.flex ? ' <span class="dl-flex-tag">FLEX</span>' : '') +
           (it.thin ? ' <span class="dl3-thin-tag" title="4–7 shared games — treat with care">THIN</span>' : '') +
@@ -1582,7 +1585,15 @@ function _dlInjectCss() {
   '.dl-sug-panel{display:none;}' +
   '.dl-sug-panel.open{display:block;flex-shrink:0;max-height:40vh;overflow-y:auto;overflow-x:hidden;border-bottom:var(--border);background:rgba(0,0,0,0.28);}' +
   '.dl-sug-empty{font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:12px;}' +
-  '.dl3-row.multi{background:rgba(255,204,68,0.10);border-left-color:var(--warn);}' +
+  /* left-edge indicator — red = warning, yellow = suggestion overlap, split if both */
+  '.dl3-row{position:relative;border-left:0!important;}' +
+  '.dl3-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;}' +
+  '.dl3-row:hover::before{background:rgba(100,180,255,0.85);}' +
+  '.dl3-row.sug2::before{background:var(--warn);}' +
+  '.dl3-row.multi::before{background:var(--warn);}' +
+  '.dl3-row.warn::before{background:var(--danger);}' +
+  '.dl3-row.warn.sug2::before,.dl3-row.warn.multi::before{background:linear-gradient(to bottom,var(--warn) 0,var(--warn) 50%,var(--danger) 50%,var(--danger) 100%);}' +
+  '.dl3-row.multi{background:rgba(255,204,68,0.10);}' +
   '.dl3-row.multi:hover{background:rgba(255,204,68,0.16);}' +
   '.dl3-multi-tag{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:0.5px;padding:1px 5px;background:rgba(255,204,68,0.18);color:var(--warn);border:1px solid rgba(255,204,68,0.6);vertical-align:middle;border-radius:2px;}' +
   '.dl-cols{min-height:0;}' +
