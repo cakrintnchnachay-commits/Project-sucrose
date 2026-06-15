@@ -30,6 +30,7 @@ var DL_US      = 'B';
 var DL_SEARCH  = '';
 var DL_GRID_ROLE = 'All';
 var DL_INTEL_EXP = false;
+var DL_SHOW_SUG = false; // suggestion panel collapsed by default (lives inside the hero grid)
 var DL_ROLE_OVERRIDE = {B:{}, R:{}};
 var DL_SWAP_SEL = null;
 var DL_TIMER_ON = true;
@@ -978,7 +979,6 @@ function dlInit() {
     root.innerHTML =
       '<div id="dl-series-bar"></div>' +
       '<div id="dl-bar"></div>' +
-      '<div id="dl-intel"></div>' +
       '<div class="dl-cols">' +
         '<div id="dl-side-B" class="dl-side dl-side-blue"></div>' +
         '<div id="dl-center"></div>' +
@@ -1029,10 +1029,10 @@ function dlInit() {
 function dlRender() {
   _dlRenderSeriesBar();
   _dlRenderBar();
-  _dlRenderIntel();
   _dlRenderSide('B');
   _dlRenderSide('R');
   _dlRenderCenter();
+  _dlRenderIntel(); // after center: the #dl-intel panel now lives inside #dl-center
 }
 
 function _dlStepLabel(st) {
@@ -1098,7 +1098,8 @@ var _DL_ICON_SVG = {
   swap:  '<path d="M7 6h9l-2.6-2.6L14.8 2 20 7l-5.2 5-1.4-1.4L16 8H7zM17 18H8l2.6 2.6L9.2 22 4 17l5.2-5 1.4 1.4L8 16h9z"/>',
   timer: '<path d="M9.5 1h5v2h-5zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm1 9V7h-2v8h6v-2z"/>',
   book:  '<path d="M3.5 4.5h7.5v15H6.2a2.7 2.7 0 0 0-2.7 1.2zM13 4.5h7.5v16.2A2.7 2.7 0 0 0 17.8 19.5H13z"/>',
-  save:  '<path d="M4 4h12l4 4v12H4zM8 4v5h7V4zM7 13h10v6H7z"/>'
+  save:  '<path d="M4 4h12l4 4v12H4zM8 4v5h7V4zM7 13h10v6H7z"/>',
+  bulb:  '<path d="M9 21h6v-1.6H9zM9.2 18h5.6v-1.7c0-.5.3-1 .8-1.5A6 6 0 1 0 6 9a6 6 0 0 0 2.4 4.8c.5.5.8 1 .8 1.5z"/>'
 };
 function _dlIcon(name, size) {
   size = size || 13;
@@ -1174,7 +1175,8 @@ function _dlRenderBar() {
 function _dlRenderIntel() {
   var el = document.getElementById('dl-intel');
   if (!el) return;
-  if (!DL_STARTED || !DL_AGG || !DL_AGG.total || DL_VIEW !== null) { el.innerHTML = ''; return; }
+  if (!DL_SHOW_SUG) { el.innerHTML = ''; return; } // collapsed
+  if (!DL_STARTED || !DL_AGG || !DL_AGG.total || DL_VIEW !== null) { el.innerHTML = '<div class="dl-sug-empty">No active draft step — start a draft to see suggestions.</div>'; return; }
   var st = dlCurStep();
 
   if (!st) {
@@ -1204,11 +1206,19 @@ function _dlRenderIntel() {
   if (!sec) { el.innerHTML = ''; return; }
   var perSec = DL_INTEL_EXP ? 6 : 3;
 
+  // count how many displayed suggestion categories each hero appears in
+  var freq = {};
+  sec.sections.forEach(function(s) {
+    s.items.slice(0, perSec).forEach(function(it) { freq[it.hero] = (freq[it.hero] || 0) + 1; });
+  });
+
   function rowHtml(it) {
-    return '<div class="dl3-row' + (it.warn ? ' warn' : '') + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
+    var multi = (freq[it.hero] || 0) > 2; // appears in more than two categories
+    return '<div class="dl3-row' + (it.warn ? ' warn' : '') + (multi ? ' multi' : '') + '" data-dl-hero="' + _dlEsc(it.hero) + '" title="Click to apply">' +
       '<div class="dl3-row-img">' + _dlPortrait(it.hero, 34) + '</div>' +
       '<div class="dl3-row-body">' +
         '<div class="dl3-row-name">' + _dlEsc(it.hero) +
+          (multi ? ' <span class="dl3-multi-tag" title="Appears in ' + freq[it.hero] + ' suggestion categories — strong overall pick">★' + freq[it.hero] + '</span>' : '') +
           (it.roles.length ? ' <span class="dl-role-mini">' + it.roles.join('/') + '</span>' : '') +
           (it.flex ? ' <span class="dl-flex-tag">FLEX</span>' : '') +
           (it.thin ? ' <span class="dl3-thin-tag" title="4–7 shared games — treat with care">THIN</span>' : '') +
@@ -1392,11 +1402,16 @@ function _dlRenderCenter() {
     return '<button class="tier-mode-btn' + (r === DL_GRID_ROLE ? ' active' : '') + '" onclick="DL_GRID_ROLE=\'' + r + '\';dlRender()">' + r + '</button>';
   }).join('');
 
+  var sugToggle = '<button class="tier-mode-btn dl-sug-toggle' + (DL_SHOW_SUG ? ' active' : '') + '" style="margin-left:auto;" onclick="DL_SHOW_SUG=!DL_SHOW_SUG;dlRender()" title="Show / hide data-backed draft suggestions">' +
+    _dlIcon('bulb', 14) + (DL_SHOW_SUG ? 'HIDE SUGGESTIONS' : 'SHOW SUGGESTIONS') + '</button>';
+
   el.innerHTML =
     '<div class="dl-grid-bar">' +
       '<input id="dl-search" class="dl-inp" style="max-width:180px;margin:0;" placeholder="Search hero…" value="' + _dlEsc(DL_SEARCH) + '" oninput="DL_SEARCH=this.value;dlRender();var i=document.getElementById(\'dl-search\');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}"/>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;">' + roleTabs + '</div>' +
+      sugToggle +
     '</div>' +
+    '<div id="dl-intel" class="dl-sug-panel' + (DL_SHOW_SUG ? ' open' : '') + '"></div>' +
     '<div class="dl-grid">' + (cards || '<div style="padding:20px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">No heroes found</div>') + '</div>';
 }
 
@@ -1560,8 +1575,16 @@ function _dlInjectCss() {
   '.dl-icon-btn{min-width:38px;min-height:34px;padding:7px 10px!important;}' +
   '.dl-team-logo{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}' +
   '.dl-team-logo img{width:100%;height:100%;object-fit:contain;display:block;}' +
-  /* pinned draft — capped, internally-scrolling intel never shrinks the picks/bans */
-  '#dl-intel{flex-shrink:0;max-height:30vh;overflow-y:auto;overflow-x:hidden;}' +
+  /* collapsible suggestion window — lives INSIDE the hero column, never in the top bar */
+  '.dl-sug-toggle{display:inline-flex;align-items:center;gap:6px;border-color:rgba(255,204,68,0.55)!important;color:var(--warn)!important;font-weight:600;letter-spacing:1px;}' +
+  '.dl-sug-toggle:hover{background:rgba(255,204,68,0.1);}' +
+  '.dl-sug-toggle.active{background:rgba(255,204,68,0.18)!important;border-color:var(--warn)!important;box-shadow:0 0 10px rgba(255,204,68,0.3);}' +
+  '.dl-sug-panel{display:none;}' +
+  '.dl-sug-panel.open{display:block;flex-shrink:0;max-height:40vh;overflow-y:auto;overflow-x:hidden;border-bottom:var(--border);background:rgba(0,0,0,0.28);}' +
+  '.dl-sug-empty{font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);padding:12px;}' +
+  '.dl3-row.multi{background:rgba(255,204,68,0.10);border-left-color:var(--warn);}' +
+  '.dl3-row.multi:hover{background:rgba(255,204,68,0.16);}' +
+  '.dl3-multi-tag{font-family:\'DM Mono\',monospace;font-size:7px;letter-spacing:0.5px;padding:1px 5px;background:rgba(255,204,68,0.18);color:var(--warn);border:1px solid rgba(255,204,68,0.6);vertical-align:middle;border-radius:2px;}' +
   '.dl-cols{min-height:0;}' +
   '.dl-side{padding:6px 8px;}' +
   '.dl-side-sec{margin:6px 0 4px;}' +
