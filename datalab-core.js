@@ -16,7 +16,7 @@ var _DLC_CSS  = false;
 var _DLC_LOADCBS = [];
 
 var DLC_ROLES = ['DSL','JUG','MID','ADL','SUP'];
-var DLC_TOURS = ['All', 'RPL Summer', 'GCS Spring', 'AOG Spring', 'APL'];
+var DLC_TOURS = ['All', 'RPL Summer', 'GCS Spring', 'AOG Spring', 'APL WC', 'APL 2026'];
 var DLC_WEEK_BUCKETS = ['W1','W2','W3','W4','W5','W6','W7','PO'];
 
 // ── Canonical hero names (shared rule with Draft Lab) ───────
