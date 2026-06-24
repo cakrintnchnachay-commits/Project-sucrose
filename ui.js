@@ -2188,25 +2188,34 @@ async function savePlayerEdit(playerId,isNew){
   var status=document.getElementById('pe-status').value;
   if(!nick||!ign){showToast('Name fields required');return;}
   PLAYERS=getPlayers();
+  // Write to Supabase first; only mutate the in-memory roster if it succeeds, so a
+  // permission/network failure surfaces a toast instead of silently losing the change.
   if(isNew){
     var newId='p_'+Date.now();
     var newP={id:newId,ign:ign,nick:nick,role:role,status:status};
+    try{
+      await sbSavePlayer(newP);
+    }catch(err){ _dbErr(err,'players'); return; }
     PLAYERS.push(newP);
     if(window._pendingPfp){_cache.pfp[newId]=window._pendingPfp;await sbSaveSetting('pfp',_cache.pfp);}
-    await sbSavePlayer(newP);
   }else{
     var idx=PLAYERS.findIndex(function(p){return p.id===playerId;});
-    if(idx>-1) PLAYERS[idx]=Object.assign({},PLAYERS[idx],{ign,nick,role,status});
+    var updatedP=Object.assign({},PLAYERS[idx],{ign,nick,role,status});
+    try{
+      await sbSavePlayer(updatedP);
+    }catch(err){ _dbErr(err,'players'); return; }
+    if(idx>-1) PLAYERS[idx]=updatedP;
     if(window._pendingPfp){_cache.pfp[playerId]=window._pendingPfp;await sbSaveSetting('pfp',_cache.pfp);}
     if(window._removePfp){delete _cache.pfp[playerId];await sbSaveSetting('pfp',_cache.pfp);}
-    await sbSavePlayer(PLAYERS[idx]);
   }
   savePlayers(PLAYERS);
   window._pendingPfp=null;window._removePfp=false;
   closeModal('player-edit-modal');showToast(isNew?'Player added':'Player updated');renderRoster();
 }
 async function deletePlayer(playerId){
-  await sbDeletePlayer(playerId);
+  try{
+    await sbDeletePlayer(playerId);
+  }catch(err){ _dbErr(err,'players'); return; }
   var updated=getPlayers().filter(function(p){return p.id!==playerId;});
   savePlayers(updated);PLAYERS=updated;
   closeModal('player-edit-modal');showToast('Player removed');showPage('page-roster');

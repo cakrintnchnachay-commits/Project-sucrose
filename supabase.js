@@ -121,7 +121,8 @@ async function bootApp(){
     _cache.customHeroes = (customRes.data||[]).map(h=>({name:h.name,cls:h.cls,roles:h.roles||[]}));
     _cache.players = (playerRes.data||[]).map(p=>({
       id:p.id, ign:p.ign, nick:p.nick, role:p.role,
-      status:p.active?(p.rank&&p.rank!=='Unranked'?p.rank:'Starter'):'Inactive',
+      // status is persisted directly; fall back to the legacy `active` flag for old rows
+      status:p.status||(p.active?'Starter':'Inactive'),
       rank:p.rank||'Unranked', active:p.active
     }));
     _cache.games = (gameRes.data||[]).map(g=>({
@@ -223,16 +224,19 @@ async function bootApp(){
 
 async function seedDefaultPlayers(){
   const defaults=[
-    {id:'gun', ign:'Sutthiphat',nick:'Gun', role:'Support', rank:'Unranked', active:true},
-    {id:'film',ign:'K1rarz',    nick:'Film',role:'Midlane', rank:'Unranked', active:true},
-    {id:'yp',  ign:'Penii',     nick:'YP',  role:'Carry',   rank:'Unranked', active:true},
-    {id:'poom',ign:'WildMutt',  nick:'Poom',role:'Offlane', rank:'Unranked', active:true},
-    {id:'doy', ign:'Doy',       nick:'Doy', role:'Jungler', rank:'Unranked', active:true},
-    {id:'ice', ign:'Ackerman',  nick:'Ice', role:'Jungler', rank:'Unranked', active:false},
-    {id:'ken', ign:'Kenslayer', nick:'Ken', role:'Offlane', rank:'Unranked', active:false},
+    {id:'gun', ign:'Sutthiphat',nick:'Gun', role:'Support', rank:'Unranked', active:true,  status:'Starter'},
+    {id:'film',ign:'K1rarz',    nick:'Film',role:'Midlane', rank:'Unranked', active:true,  status:'Starter'},
+    {id:'yp',  ign:'Penii',     nick:'YP',  role:'Carry',   rank:'Unranked', active:true,  status:'Starter'},
+    {id:'poom',ign:'WildMutt',  nick:'Poom',role:'Offlane', rank:'Unranked', active:true,  status:'Starter'},
+    {id:'doy', ign:'Doy',       nick:'Doy', role:'Jungler', rank:'Unranked', active:true,  status:'Starter'},
+    {id:'ice', ign:'Ackerman',  nick:'Ice', role:'Jungler', rank:'Unranked', active:false, status:'Inactive'},
+    {id:'ken', ign:'Kenslayer', nick:'Ken', role:'Offlane', rank:'Unranked', active:false, status:'Inactive'},
   ];
-  await sb.from('players').upsert(defaults,{onConflict:'id'});
-  _cache.players=defaults.map(p=>({...p,status:p.active?'Starter':'Substitute'}));
+  // Only adopt the in-memory defaults if the write actually succeeded — otherwise
+  // a silent RLS rejection would mask the failure behind a populated cache.
+  const {error}=await sb.from('players').upsert(defaults,{onConflict:'id'});
+  if(error){ console.error('Seed default players failed',error); return; }
+  _cache.players=defaults.map(p=>({...p}));
 }
 
 // ── Supabase write helpers ──────────────────
@@ -273,14 +277,18 @@ async function sbDeleteGame(gameId){
 async function sbSavePlayer(playerObj){
   const row={
     id:playerObj.id, ign:playerObj.ign, nick:playerObj.nick,
-    role:playerObj.role, active:playerObj.status!=='Inactive',
+    role:playerObj.role,
+    status:playerObj.status||'Starter',
+    active:playerObj.status!=='Inactive', // kept in sync for backward compatibility
     rank:playerObj.rank||'Unranked',
   };
-  await sb.from('players').upsert(row,{onConflict:'id'});
+  const {error}=await sb.from('players').upsert(row,{onConflict:'id'});
+  if(error) throw error;
 }
 
 async function sbDeletePlayer(playerId){
-  await sb.from('players').delete().eq('id',playerId);
+  const {error}=await sb.from('players').delete().eq('id',playerId);
+  if(error) throw error;
 }
 
 async function sbSaveMetaTier(heroName,role,tier){

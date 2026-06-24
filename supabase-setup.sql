@@ -49,3 +49,21 @@ ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS kda                   nume
 ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_dealt_raw         integer; -- raw damage dealt from scanner
 ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_taken_raw         integer; -- raw damage taken from scanner
 ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_per_dmg_taken     numeric; -- dmg_dealt_raw / max(dmg_taken_raw,1)
+
+-- players: roster sync + role persistence.
+-- Without an anon RLS policy, every add/edit/delete of a player is silently
+-- rejected (new players never persist, never appear on other devices).
+-- Without a `status` column, the three-way roster status (Starter /
+-- Substitute / Inactive) cannot be saved and gets reset on reload.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS status text;
+
+ALTER TABLE players ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON players;
+CREATE POLICY "anon_all" ON players
+  FOR ALL TO anon
+  USING (true)
+  WITH CHECK (true);
+
+-- Backfill status for existing rows from the legacy `active` boolean.
+UPDATE players SET status = CASE WHEN active THEN 'Starter' ELSE 'Inactive' END
+  WHERE status IS NULL;
