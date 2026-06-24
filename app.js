@@ -1056,7 +1056,7 @@ var SCAN_FIELDS_LIST = [
   ['DMG dealt %','DMG taken %']
 ];
 
-const SCAN_PROMPT = `Analyze these AOV (Arena of Valor) screenshots. Extract all data as JSON only, no explanation.
+const SCAN_PROMPT_BASE = `Analyze these AOV (Arena of Valor) screenshots. Extract all data as JSON only, no explanation.
 
 Return this exact shape:
 {
@@ -1089,6 +1089,13 @@ Rules:
 - dmgDealt and dmgTaken are the absolute damage numbers shown in the bars on the damage tab (e.g. dmgDealt: 45230, dmgTaken: 18000). These are NOT the percentages.
 - If a field is not visible in any screenshot, use null.
 - Return ONLY valid JSON, no markdown fences.`;
+
+function getScanPrompt(){
+  var active=(_cache.players||[]).filter(function(p){return p.active!==false;});
+  if(!active.length) return SCAN_PROMPT_BASE;
+  var nickList=active.map(function(p){return p.nick+(p.ign&&p.ign!==p.nick?' (also: '+p.ign+')':'');}).join(', ');
+  return SCAN_PROMPT_BASE+'\n\nIMPORTANT — Our team roster (always on the LEFT/blue side, even if the in-game scrim name differs from the nick): '+nickList+'. If you see a left-side player whose IGN does not exactly match any of these, still include them in ourTeam using the IGN shown in the screenshot.';
+}
 
 function saveAnthropicKey(){
   var val=(document.getElementById('anthropic-key-input')?.value||'').replace(/\s+/g,'');
@@ -1339,8 +1346,18 @@ function buildScanReviewHtml(){
     html+='</div>';
   }
 
+  // unrecognized player banner
+  var unrecognizedCount=ourTeam.filter(function(e){return !e.player;}).length;
+  if(unrecognizedCount>0){
+    html+='<div style="background:rgba(255,204,68,0.08);border:1px solid rgba(255,204,68,0.4);border-radius:4px;padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:10px;">'
+      +'<span style="font-size:16px;">⚠️</span>'
+      +'<div><b style="color:var(--warn);">'+unrecognizedCount+' player'+(unrecognizedCount>1?'s':'')+' not in roster</b>'
+      +'<div style="font-size:11px;color:var(--grey-5);margin-top:2px;">Scroll down to the yellow blocks below and use the dropdown to assign them to your roster players.</div>'
+      +'</div></div>';
+  }
+
   // player-level section
-  html+=scanSectionLabel('PLAYER-LEVEL · OUR SIDE');
+  html+=scanSectionLabel('PLAYER-LEVEL · OUR SIDE'+(unrecognizedCount>0?' · '+unrecognizedCount+' UNRECOGNIZED':''));
   ourTeam.forEach(function(e){
     var p=e.player;var ex=e.extracted;
     var prows=buildPlayerScanRows(e,raw);
@@ -1583,6 +1600,7 @@ async function callClaudeVision(imageContents){
   // imageContents: array of {type:'image',source:{type:'base64',media_type,data}}
   var resp=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
+    cache:'no-store',
     headers:{
       'x-api-key':_cache.anthropicKey,
       'anthropic-version':'2023-06-01',
@@ -1590,11 +1608,11 @@ async function callClaudeVision(imageContents){
       'content-type':'application/json'
     },
     body:JSON.stringify({
-      model:'claude-opus-4-7',
+      model:'claude-opus-4-5',
       max_tokens:2048,
       messages:[{role:'user',content:[
         ...imageContents,
-        {type:'text',text:SCAN_PROMPT}
+        {type:'text',text:getScanPrompt()}
       ]}]
     })
   });
@@ -1623,9 +1641,17 @@ function findHeroByName(name){
 function findPlayerByIgn(ign){
   if(!ign) return null;
   var lo=ign.toLowerCase();
+  // 1. Exact IGN match
   return _cache.players.find(function(p){return p.ign&&p.ign.toLowerCase()===lo;})||
+         // 2. Exact nick match (scrim names often match display nick)
+         _cache.players.find(function(p){return p.nick&&p.nick.toLowerCase()===lo;})||
+         // 3. Partial IGN match
          _cache.players.find(function(p){
            return p.ign&&(p.ign.toLowerCase().includes(lo)||lo.includes(p.ign.toLowerCase()));
+         })||
+         // 4. Partial nick match (last resort)
+         _cache.players.find(function(p){
+           return p.nick&&(p.nick.toLowerCase().includes(lo)||lo.includes(p.nick.toLowerCase()));
          })||null;
 }
 
