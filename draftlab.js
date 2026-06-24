@@ -198,6 +198,15 @@ function dlViewGame(idx) {        // null/-1 = back to live
 function dlSwapSides() {
   var t = DL_TEAM.B; DL_TEAM.B = DL_TEAM.R; DL_TEAM.R = t;
   DL_US = DL_US === 'B' ? 'R' : 'B';
+  // Flip sides in all recorded series games so global BP dead-hero tracking
+  // follows the TEAM, not the colour seat.
+  DL_SERIES.forEach(function(g) {
+    g.actions.forEach(function(a) { a.side = a.side === 'B' ? 'R' : 'B'; });
+    var tmpRoles = g.rolesB; g.rolesB = g.rolesR; g.rolesR = tmpRoles;
+    if (g.winner) g.winner = g.winner === 'B' ? 'R' : 'B';
+  });
+  // Flip current game actions too so the board reflects the new seat assignment.
+  DL_ACTIONS.forEach(function(a) { a.side = a.side === 'B' ? 'R' : 'B'; });
   dlRender();
 }
 function dlSetMode(m) {
@@ -620,6 +629,8 @@ function _dlPickSections(st) {
     if (x.g < 2) return;
     var fits = dlFlexRoles(h).filter(function(r){ return needed.indexOf(r) >= 0; });
     if (needed.length && !fits.length) return;
+    // If a position filter is active, only suggest heroes that play that role.
+    if (DL_GRID_ROLE !== 'All' && dlFlexRoles(h).indexOf(DL_GRID_ROLE) < 0) return;
     cands.push({h:h, fits:fits});
   });
 
@@ -712,6 +723,10 @@ function _dlBanSections(st) {
   }
 
   var avail = Object.keys(DL_AGG.heroes).filter(dlAvailable);
+  // If a position filter is active, restrict ban suggestions to that role.
+  if (DL_GRID_ROLE !== 'All') {
+    avail = avail.filter(function(h){ return dlFlexRoles(h).indexOf(DL_GRID_ROLE) >= 0; });
+  }
 
   // our 'plan': locked picks, else top meta candidates for roles we need
   var plan = myPicks.slice();
@@ -1166,7 +1181,7 @@ function _dlRenderBar() {
       '<button class="tier-mode-btn" onclick="dlResetSeries()">RESET SERIES</button>' +
       '<span style="flex:1;"></span>' +
       '<button class="tier-mode-btn dl-icon-btn' + (DL_TIMER_ON ? ' active' : '') + '" onclick="dlToggleTimer()" title="60s pick / 40s ban">' + _dlIcon('timer', 15) + '</button>' +
-      '<button class="tier-mode-btn dl-icon-btn" onclick="dlOpenScenarios()" title="Scenarios">' + _dlIcon('book', 15) + '</button>' +
+      '<button class="tier-mode-btn" onclick="dlOpenScenarios()" title="Load saved series">' + _dlIcon('book', 15) + 'LOAD</button>' +
       '<button class="tier-mode-btn" onclick="dlOpenSaveModal()"' + (DL_ACTIONS.length || DL_SERIES.length ? '' : ' disabled') + '>' + _dlIcon('save') + 'SAVE</button>' +
       (done ? '<span class="dl-done-hint">tap two role tags to swap positions, then NEXT GAME</span>' : '') +
     '</div>';
