@@ -67,3 +67,23 @@ CREATE POLICY "anon_all" ON players
 -- Backfill status for existing rows from the legacy `active` boolean.
 UPDATE players SET status = CASE WHEN active THEN 'Starter' ELSE 'Inactive' END
   WHERE status IS NULL;
+
+-- players.id must carry a unique constraint so upsert(onConflict:'id') resolves.
+-- Without it, every add/edit fails with "there is no unique or exclusion
+-- constraint matching the ON CONFLICT specification". Idempotent: only adds the
+-- constraint when no single-column primary-key/unique constraint on `id` exists.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_attribute a
+      ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.conrelid = 'public.players'::regclass
+      AND c.contype IN ('p','u')
+      AND array_length(c.conkey, 1) = 1
+      AND a.attname = 'id'
+  ) THEN
+    ALTER TABLE public.players ADD CONSTRAINT players_id_key UNIQUE (id);
+  END IF;
+END $$;
