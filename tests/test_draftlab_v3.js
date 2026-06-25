@@ -123,6 +123,26 @@ for (var i = 0; i < 5; i++) {
     comp('s', null, null, null)));
 }
 
+// 6) MY-TEAM comfort: our team XX's player 'Ace' on 'TeamPick' (MID) 6G 5W
+//    (good WR → boosted); 'Bad' on 'XXLowWR' (DSL) 8G 2W (poor → demoted)
+for (var i = 0; i < 6; i++) {
+  games.push(mkGame(i < 5 ? 'A' : 'B', 'w6d4', 'XX', 'YY',
+    [['xDsl','DSL',''],['xJug','JUG',''],['TeamPick','MID','Ace'],['xAdl','ADL',''],['xSup','SUP','']],
+    comp('tp', null, null, null)));
+}
+for (var i = 0; i < 8; i++) {
+  games.push(mkGame(i < 2 ? 'A' : 'B', 'w6d4', 'XX', 'YY',
+    [['XXLowWR','DSL','Bad'],['xJug2','JUG',''],['xMid2','MID',''],['xAdl2','ADL',''],['xSup2','SUP','']],
+    comp('lw', null, null, null)));
+}
+// 7) breadth: 'Multi' (side A, XX) faces 'En1' & 'En2' (side B) 5 shared G, A wins 4
+//    → Multi counters both enemies (utility = 2 when both are enemy picks)
+for (var i = 0; i < 5; i++) {
+  games.push(mkGame(i < 4 ? 'A' : 'B', 'w6d5', 'XX', 'YY',
+    [['Multi','ADL',''],['m2','JUG',''],['m3','MID',''],['m4','DSL',''],['m5','SUP','']],
+    [['En1','SUP',''],['En2','MID',''],['n3','JUG',''],['n4','DSL',''],['n5','ADL','']]));
+}
+
 // ── boot draft lab on synthetic data ─────────────────────────
 ctx.DL_GAMES = games;
 ctx.DL_AGG = ctx._dlBuildAgg(games);
@@ -218,6 +238,42 @@ console.log('— flat adapter (grid highlight) —');
 var flat = ctx.dlSuggestions(6);
 ok(flat.items.length > 0 && flat.items.length <= 6, 'flat suggestions bounded');
 ok(flat.items.every(function(it){ return it.hero; }), 'flat items carry hero names');
+
+console.log('— breadth (Part A: always on, no team mode) —');
+ctx.DL_TEAM_MODE = false;
+ctx.DL_FORMAT = 1; ctx.DL_MODE = 'standard';
+ctx.dlResetSeries(); ctx.dlNewDraft();
+ctx.DL_TEAM.B = 'XX'; ctx.DL_TEAM.R = 'YY'; ctx.DL_US = 'B';
+ctx.dlSkipBan(); ctx.dlSkipBan(); ctx.dlSkipBan(); ctx.dlSkipBan();
+ctx.dlApply('m2');                            // BP1 (our jungle)
+ctx.dlApply('En1'); ctx.dlApply('En2');       // RP1 RP2 (enemy locks)
+eq(ctx._dlUtilityCount('Multi', 'B'), 2, 'Multi counters 2 enemy locks');
+ok(ctx._dlPickAdjust('Multi', 'B') > 1, 'breadth boosts adjust with team mode OFF');
+ok(Math.abs(ctx._dlPickAdjust('HeroOld', 'B') - 1) < 1e-9, 'no breadth + no team → adjust = 1');
+
+console.log('— My Team comfort (Part B: toggle) —');
+ctx.DL_TEAM_MODE = false;
+ok(!findSec(ctx.dlIntelSections(), 'team'), 'no TEAM section when mode off');
+var cOff = findSec(ctx.dlIntelSections(), 'counter');
+ctx.DL_TEAM_MODE = true;
+var secTM = ctx.dlIntelSections();
+var tmSec = findSec(secTM, 'team');
+ok(tmSec, 'TEAM section present in My Team mode');
+ok(tmSec && tmSec.items.some(function(it){ return it.hero === 'TeamPick'; }), 'TEAM lists our comfort TeamPick');
+var keys = secTM.sections.map(function(s){ return s.key; });
+ok(keys.indexOf('team') > keys.indexOf('counter'), 'TEAM sits after COUNTER (comfort never leads)');
+var cOn = findSec(secTM, 'counter');
+ok(cOff && cOn && cOff.items.length === cOn.items.length, 're-ranks but never drops a counter hero');
+
+console.log('— team proficiency + centered/bounded tiebreaker —');
+var tp = ctx._dlTeamProf('XX', 'TeamPick');
+ok(tp && tp.g === 6 && tp.w === 5, 'team prof sums games/wins across roster');
+ok(ctx._dlTeamProf('XX', 'nope') === null, 'hero with no team history → null');
+ok(ctx._dlPickAdjust('TeamPick', 'B') > 1, 'good-WR comfort hero boosted');
+ok(ctx._dlPickAdjust('XXLowWR', 'B') < 1, 'bad-WR comfort hero demoted (penalised)');
+ok(ctx._dlPickAdjust('TeamPick', 'B') < 1.15, 'comfort boost bounded — a tiebreaker, not an override');
+ok(ctx._dlPickAdjust('XXLowWR', 'B') > 0.85, 'comfort penalty bounded');
+ctx.DL_TEAM_MODE = false;
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

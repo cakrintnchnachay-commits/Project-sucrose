@@ -21,7 +21,8 @@ var DL_GAMES   = null;          // parsed pro games
 var DL_AGG     = null;          // aggregated stats cache
 var DL_ACTIONS = [];            // current game [{side,type,n,hero|null}]
 var DL_STARTED = false;
-var DL_MODE    = 'global';      // 'global' | 'standard'
+var DL_MODE    = 'global';      // 'global' | 'standard'  (series re-pick rule)
+var DL_TEAM_MODE = false;       // 'My Team' suggestion focus (picks only)
 var DL_FORMAT  = 5;             // BO1..BO7
 var DL_SERIES  = [];            // completed games [{actions,rolesB,rolesR,winner}]
 var DL_VIEW    = null;          // null = live game, or index into DL_SERIES (review)
@@ -211,6 +212,10 @@ function dlSwapSides() {
 }
 function dlSetMode(m) {
   DL_MODE = m;
+  dlRender();
+}
+function dlToggleTeamMode() {
+  DL_TEAM_MODE = !DL_TEAM_MODE;
   dlRender();
 }
 function dlPicksFor(side, actions) {
@@ -585,6 +590,47 @@ function _dlTeamComfort(abbr, hero) {
   return best;
 }
 
+// team-wide proficiency on a hero: games+wins summed across ALL the
+// team's players (unlike _dlTeamComfort which returns one player).
+function _dlTeamProf(abbr, hero) {
+  if (!abbr || !DL_AGG || !DL_AGG.teams[abbr]) return null;
+  var g = 0, w = 0, ps = DL_AGG.teams[abbr].players;
+  Object.keys(ps).forEach(function(ign) {
+    var hs = ps[ign].heroes[hero];
+    if (hs) { g += hs.g; w += hs.w; }
+  });
+  return g ? {g: g, w: w} : null;
+}
+
+// breadth: how many enemy picks h counters + how many of our picks it
+// combos with (same thresholds the pick sections treat as 'real').
+function _dlUtilityCount(h, S) {
+  var E = S === 'B' ? 'R' : 'B', n = 0;
+  dlPicksFor(E).forEach(function(p){ var C = dlCounterLift(h, p.hero); if (C && C.lift >= 0.04) n++; });
+  dlPicksFor(S).forEach(function(p){ var L = dlExcessLift(h, p.hero); if (L && L.lift >= 0.04 && L.excess >= 0.02) n++; });
+  return n;
+}
+
+// score multiplier applied to every pick suggestion.
+//  • Part A (breadth) is ALWAYS on — rewards broad-utility heroes in
+//    every draft, regardless of team or mode.
+//  • Part B (comfort) only when My Team mode is on — a small ±~10%
+//    tiebreaker on OUR team's winrate (centred on .5, so a hero we
+//    lose with is nudged DOWN), never enough to override a clearly
+//    stronger pro-data pick.
+function _dlPickAdjust(h, S) {
+  var mult = 1 + 0.12 * _dlUtilityCount(h, S);
+  if (DL_TEAM_MODE) {
+    var prof = _dlTeamProf(DL_TEAM[S], h);
+    if (prof) {
+      var wrAdj = _dlShrunkWR(prof.w, prof.g) - 0.5;   // >0 win, <0 lose
+      var vol = Math.min(prof.g / 8, 1);               // thin history → ~neutral
+      mult *= 1 + 0.4 * wrAdj * vol;
+    }
+  }
+  return mult;
+}
+
 // ── Intel: categorized suggestions for the current step ──────
 //
 // Picks: COUNTER / COMBO / STEAL / META.  Bans mirror the same
@@ -634,12 +680,16 @@ function _dlPickSections(st) {
     cands.push({h:h, fits:fits});
   });
 
-  var counter = [], combo = [], steal = [], meta = [];
+  var counter = [], combo = [], steal = [], meta = [], team = [];
 
   cands.forEach(function(c) {
     var h = c.h;
     var clash = _dlClash(h, myPicks);
     var clashTxt = clash ? ' · ⚠ clashes with ' + clash.ally + ' (' + _dlPct(clash.L.wr) + '% in ' + clash.L.g + 'G)' : '';
+    // breadth + (optional) comfort re-rank multiplier, shared by all sections
+    var adj = _dlPickAdjust(h, S);
+    var util = _dlUtilityCount(h, S);
+    var coversTxt = util >= 2 ? ' · covers ' + util : '';
 
     // COUNTER — beats what they've locked
     if (enemyPicks.length) {
@@ -651,8 +701,8 @@ function _dlPickSections(st) {
         if (!bestC || C.lift > bestC.C.lift) bestC = {enemy:e, C:C};
       });
       if (bestC && bestC.C.lift >= 0.04) {
-        counter.push(_dlItem(h, cSum / cN,
-          'Beats ' + bestC.enemy + ' — ' + _dlPct(bestC.C.wr) + '% in ' + bestC.C.g + 'G' + clashTxt,
+        counter.push(_dlItem(h, (cSum / cN) * adj,
+          'Beats ' + bestC.enemy + ' — ' + _dlPct(bestC.C.wr) + '% in ' + bestC.C.g + 'G' + coversTxt + clashTxt,
           c.fits, {thin: bestC.C.thin, warn: !!clash}));
       }
     }
@@ -667,8 +717,8 @@ function _dlPickSections(st) {
         if (!bestX || L.excess > bestX.L.excess) bestX = {ally:a, L:L};
       });
       if (bestX && bestX.L.lift >= 0.04 && bestX.L.excess >= 0.02) {
-        combo.push(_dlItem(h, xSum / xN,
-          'Pairs with ' + bestX.ally + ' — ' + _dlPct(bestX.L.wr) + '% in ' + bestX.L.g + 'G (+' + _dlPct(bestX.L.lift) + ' lift)',
+        combo.push(_dlItem(h, (xSum / xN) * adj,
+          'Pairs with ' + bestX.ally + ' — ' + _dlPct(bestX.L.wr) + '% in ' + bestX.L.g + 'G (+' + _dlPct(bestX.L.lift) + ' lift)' + coversTxt,
           c.fits, {warn: false}));
       }
     }
@@ -676,7 +726,7 @@ function _dlPickSections(st) {
     // STEAL — their comfort, our role need
     var cf = _dlTeamComfort(enemyTeam, h);
     if (cf && cf.g >= 4 && cf.w / cf.g >= 0.5 && c.fits.length) {
-      steal.push(_dlItem(h, Math.min(cf.g / 10, 1) * _dlShrunkWR(cf.w, cf.g),
+      steal.push(_dlItem(h, Math.min(cf.g / 10, 1) * _dlShrunkWR(cf.w, cf.g) * adj,
         'Denies ' + cf.ign + ' (' + cf.g + 'G ' + _dlPct(cf.w / cf.g) + '%) · fits our ' + c.fits.join('/') + clashTxt,
         c.fits, {warn: !!clash}));
     }
@@ -687,9 +737,19 @@ function _dlPickSections(st) {
       var trend = wPres > pres * 1.25 ? ' · ↑ rising' : (wPres < pres * 0.75 ? ' · ↓ fading' : '');
       var own = _dlTeamComfort(ownTeam, h);
       var ownTxt = own ? ' · ' + own.ign + ' ' + own.g + 'G' : '';
-      meta.push(_dlItem(h, wPres * 0.55 + (_dlWWR(h) - 0.5) * 1.6,
+      meta.push(_dlItem(h, (wPres * 0.55 + (_dlWWR(h) - 0.5) * 1.6) * adj,
         _dlPct(wPres) + '% presence · ' + _dlPct(_dlWWR(h)) + '% WR lately' + trend + ownTxt + clashTxt,
         c.fits, {warn: !!clash}));
+    }
+
+    // TEAM — our roster's own comfort (My Team mode only)
+    if (DL_TEAM_MODE) {
+      var tp = _dlTeamProf(ownTeam, h);
+      if (tp && tp.g >= 3 && c.fits.length) {
+        team.push(_dlItem(h, Math.min(tp.g / 10, 1) * _dlShrunkWR(tp.w, tp.g),
+          'Our pool — ' + tp.g + 'G ' + _dlPct(tp.w / tp.g) + '% · fits ' + c.fits.join('/') + clashTxt,
+          c.fits, {warn: !!clash}));
+      }
     }
   });
 
@@ -700,6 +760,7 @@ function _dlPickSections(st) {
     sections: [
       {key:'counter', title:'COUNTER PICK', cls:'ctr', items: top(counter)},
       {key:'combo',   title:'COMBO PICK',   cls:'cmb', items: top(combo)},
+      {key:'team',    title:'TEAM PICK',     cls:'tm',  items: top(team)},
       {key:'steal',   title:'STEAL PICK',   cls:'stl', items: top(steal)},
       {key:'meta',    title:'META PICK',    cls:'mta', items: top(meta)}
     ].filter(function(s){ return s.items.length; })
@@ -909,7 +970,7 @@ function dlConfirmSave() {
   var list = _dlScenarios();
   list.unshift({
     id: Date.now(), name: name, date: new Date().toISOString().slice(0, 10),
-    mode: DL_MODE, format: DL_FORMAT,
+    mode: DL_MODE, teamMode: DL_TEAM_MODE, format: DL_FORMAT,
     series: DL_SERIES,
     current: {actions: DL_ACTIONS, roleOverride: DL_ROLE_OVERRIDE,
               rolesB: dlComputedRoles('B'), rolesR: dlComputedRoles('R')},
@@ -951,6 +1012,7 @@ function dlLoadScenario(id) {
   var s = _dlScenarios().find(function(x){ return x.id === id; });
   if (!s) return;
   DL_MODE = s.mode || 'global';
+  DL_TEAM_MODE = !!s.teamMode;
   DL_FORMAT = s.format || 5;
   DL_SERIES = s.series || [];
   DL_ACTIONS = (s.current && s.current.actions) || [];
@@ -1080,6 +1142,9 @@ function _dlRenderSeriesBar() {
       '<div class="dl-mode-tgl">' +
         '<button class="tier-mode-btn' + (DL_MODE === 'standard' ? ' active' : '') + '" onclick="dlSetMode(\'standard\')" title="Every game starts fresh">STANDARD</button>' +
         '<button class="tier-mode-btn' + (DL_MODE === 'global' ? ' active' : '') + '" onclick="dlSetMode(\'global\')" title="Own picks from earlier games are dead; opponent\'s remain open to you. Bans fresh each game.">GLOBAL BP</button>' +
+      '</div>' +
+      '<div class="dl-mode-tgl">' +
+        '<button class="tier-mode-btn' + (DL_TEAM_MODE ? ' active' : '') + '" onclick="dlToggleTeamMode()" title="Prioritise the US team\'s comfort picks (winrate tiebreaker) on top of broad-utility heroes. Affects pick suggestions only.">MY TEAM</button>' +
       '</div>' +
       '<select class="dl-team-sel" style="border:var(--border);padding:3px 6px;" onchange="DL_FORMAT=+this.value;dlRender()">' +
         [1,3,5,7].map(function(n){ return '<option value="' + n + '"' + (DL_FORMAT === n ? ' selected' : '') + '>BO' + n + '</option>'; }).join('') +
@@ -1505,6 +1570,7 @@ function _dlInjectCss() {
   '.dl3-sec-head.stl{color:rgba(188,140,255,0.95);} .dl3-sec-head.stl .dl3-sec-dot{background:rgba(188,140,255,0.95);}' +
   '.dl3-sec-head.flx{color:rgba(255,150,80,0.95);} .dl3-sec-head.flx .dl3-sec-dot{background:rgba(255,150,80,0.95);}' +
   '.dl3-sec-head.mta{color:rgba(100,180,255,0.95);} .dl3-sec-head.mta .dl3-sec-dot{background:rgba(100,180,255,0.95);}' +
+  '.dl3-sec-head.tm{color:rgba(80,220,200,0.95);} .dl3-sec-head.tm .dl3-sec-dot{background:rgba(80,220,200,0.95);}' +
   '.dl3-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;border-left:2px solid transparent;transition:background .12s,border-left-color .12s;}' +
   '.dl3-row:last-child{border-bottom:none;}' +
   '.dl3-row:hover{background:rgba(100,180,255,0.07);border-left-color:rgba(100,180,255,0.8);}' +
