@@ -57,6 +57,12 @@ ALTER TABLE player_scores_v2 ADD COLUMN IF NOT EXISTS dmg_per_dmg_taken     nume
 -- Substitute / Inactive) cannot be saved and gets reset on reload.
 ALTER TABLE players ADD COLUMN IF NOT EXISTS status text;
 
+-- players.aliases: alternate in-game names the scanner maps to this player.
+-- A jsonb array of lower-cased strings, e.g. ["smurfname","scrim_tag"]. Without it,
+-- a player who queues under a different IGN is mis-identified every scan and the coach
+-- must re-correct it each game. Safe to run repeatedly; defaults to an empty array.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS aliases jsonb DEFAULT '[]'::jsonb;
+
 ALTER TABLE players ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "anon_all" ON players;
 CREATE POLICY "anon_all" ON players

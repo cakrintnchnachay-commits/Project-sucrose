@@ -123,7 +123,10 @@ async function bootApp(){
       id:p.id, ign:p.ign, nick:p.nick, role:p.role,
       // status is persisted directly; fall back to the legacy `active` flag for old rows
       status:p.status||(p.active?'Starter':'Inactive'),
-      rank:p.rank||'Unranked', active:p.active
+      rank:p.rank||'Unranked', active:p.active,
+      // aliases = alternate in-game names the scanner should map to this player.
+      // Stored lower-cased; tolerate legacy rows where the column is absent/null.
+      aliases:Array.isArray(p.aliases)?p.aliases:[]
     }));
     _cache.games = (gameRes.data||[]).map(g=>({
       id:g.id,
@@ -281,6 +284,7 @@ async function sbSavePlayer(playerObj){
     status:playerObj.status||'Starter',
     active:playerObj.status!=='Inactive', // kept in sync for backward compatibility
     rank:playerObj.rank||'Unranked',
+    aliases:Array.isArray(playerObj.aliases)?playerObj.aliases:[],
   };
   const {error}=await sb.from('players').upsert(row,{onConflict:'id'});
   if(error) throw error;

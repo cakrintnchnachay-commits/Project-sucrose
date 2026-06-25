@@ -1046,6 +1046,7 @@ var _scanResult = null; // {ourTeam, oppTeam, raw, _editMode?}
 var _scanChecked = {}; // fieldId → bool
 var _scanCancelled = false;
 var _scanPlayerOverrides = {}; // ign → playerId, for unrecognized substitute players
+var _scanRememberAlias = {};   // ignLower → bool, remember a manually-corrected name as an alias on apply
 
 var SHOT_LABELS = ['RESULT','DAMAGE','BUILD'];
 var SCAN_FIELDS_LIST = [
@@ -1142,6 +1143,7 @@ function openScanModal(){
   _scanChecked={};
   _scanCancelled=false;
   _scanPlayerOverrides={};
+  _scanRememberAlias={};
   renderScanModal();
   document.getElementById('scan-modal').classList.add('open');
 }
@@ -1203,7 +1205,7 @@ function scanPrimaryAction(){
 
 function buildScanUploadHtml(){
   var html='<div style="background:rgba(255,204,68,0.06);border:1px solid rgba(255,204,68,0.2);border-radius:4px;padding:10px 12px;display:flex;gap:10px;margin-bottom:14px;font-size:11.5px;color:var(--grey-6);line-height:1.5;">'
-    +'<span style="font-size:14px;">ℹ</span><div>Drop up to <b style="color:var(--white)">3 screenshots</b> per game. Sucrose will extract player names, KDA, gold, in-game rating, MVP, and damage stats.</div></div>';
+    +'<span style="font-size:14px;">ℹ</span><div>Drop up to <b style="color:var(--white)">3 screenshots</b> per game. The <b style="color:var(--white)">result screen alone is enough</b> — the damage tab is optional and only fills the damage-based fields.</div></div>';
   // drop zone
   html+='<div style="border:1.5px dashed var(--grey-3);border-radius:4px;padding:18px;text-align:center;cursor:pointer;background:rgba(255,255,255,0.01);" onclick="document.getElementById(\'scan-file-input\').click()">'
     +'<div style="font-family:\'DM Mono\',monospace;font-size:11px;letter-spacing:2px;color:var(--grey-6);margin-bottom:4px;">DROP SCREENSHOTS HERE</div>'
@@ -1214,9 +1216,13 @@ function buildScanUploadHtml(){
     html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin:14px 0 8px;">DETECTED · '+_scanFiles.length+' OF '+_scanFiles.length+'</div>';
     html+='<div style="display:grid;grid-template-columns:repeat('+Math.min(_scanFiles.length+(_scanFiles.length<3?1:0),3)+',1fr);gap:8px;">';
     _scanFiles.forEach(function(sf,i){
+      // Label is an editable dropdown — the positional guess (1st=RESULT, 2nd=DAMAGE…) is
+      // only a default; the coach can re-tag a shot (e.g. a damage-only upload) so the
+      // Vision prompt gets the right context.
+      var labelOpts=SHOT_LABELS.map(function(L){return '<option value="'+L+'"'+(sf.label===L?' selected':'')+'>'+L+'</option>';}).join('');
       html+='<div style="position:relative;aspect-ratio:9/16;border-radius:4px;border:var(--border);background:var(--grey-2);overflow:hidden;">'
         +'<img src="'+sf.dataUrl+'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.65;"/>'
-        +'<div style="position:absolute;left:5px;top:5px;font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;padding:2px 6px;border-radius:99px;background:var(--warn);color:var(--black);font-weight:700;">'+sf.label+'</div>'
+        +'<select onchange="setScanFileLabel('+i+',this.value)" onclick="event.stopPropagation()" style="position:absolute;left:5px;top:5px;font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;padding:2px 4px;border-radius:99px;background:var(--warn);color:var(--black);font-weight:700;border:none;cursor:pointer;">'+labelOpts+'</select>'
         +'<button onclick="removeScanFile('+i+')" style="position:absolute;right:4px;top:4px;width:18px;height:18px;border-radius:99px;background:rgba(0,0,0,0.7);border:none;color:#fff;cursor:pointer;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;">×</button>'
         +'</div>';
     });
@@ -1224,7 +1230,7 @@ function buildScanUploadHtml(){
       html+='<div onclick="document.getElementById(\'scan-file-input\').click()" style="aspect-ratio:9/16;border-radius:4px;border:1.5px dashed var(--grey-3);background:transparent;display:flex;align-items:center;justify-content:center;color:var(--grey-4);font-size:24px;cursor:pointer;">+</div>';
     }
     html+='</div>';
-    html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-4);margin-top:8px;">AUTO-CLASSIFIED · ORDER: RESULT FIRST, DAMAGE SECOND</div>';
+    html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--grey-4);margin-top:8px;">AUTO-LABELLED BY ORDER · TAP A LABEL TO CHANGE · RESULT SCREEN ALONE IS ENOUGH — DAMAGE TAB OPTIONAL</div>';
   }
   // fields list
   html+='<div style="font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:var(--grey-5);margin:14px 0 8px;">WILL BE SCANNED</div>';
@@ -1237,8 +1243,14 @@ function buildScanUploadHtml(){
 
 function removeScanFile(idx){
   _scanFiles.splice(idx,1);
-  _scanFiles.forEach(function(sf,i){sf.label=SHOT_LABELS[i]||SHOT_LABELS[0];});
+  // Re-default labels positionally, but keep any label the coach set explicitly.
+  _scanFiles.forEach(function(sf,i){if(!sf._labelLocked)sf.label=SHOT_LABELS[i]||SHOT_LABELS[0];});
   renderScanModal();
+}
+
+// Coach re-tags an uploaded screenshot; lock it so reorder/remove won't override the choice.
+function setScanFileLabel(idx,label){
+  if(_scanFiles[idx]){_scanFiles[idx].label=label;_scanFiles[idx]._labelLocked=true;renderScanModal();}
 }
 
 function buildScanScanningHtml(){
@@ -1358,52 +1370,58 @@ function buildScanReviewHtml(){
 
   // player-level section
   html+=scanSectionLabel('PLAYER-LEVEL · OUR SIDE'+(unrecognizedCount>0?' · '+unrecognizedCount+' UNRECOGNIZED':''));
-  ourTeam.forEach(function(e){
+  ourTeam.forEach(function(e,idx){
     var p=e.player;var ex=e.extracted;
     var prows=buildPlayerScanRows(e,raw);
     var heroName=(e.hero&&e.hero.name)||(ex.hero||'');
-    // Unrecognized player (substitute): show assign-to UI even if prows is empty
-    if(!p){
-      var rosterPlayers=getPlayers()||[];
-      var escapedIgn=(ex.ign||'').replace(/'/g,"\\'");
-      var playerOpts='<option value="">— select player —</option>'+
-        rosterPlayers.map(function(rp){return '<option value="'+rp.id+'">'+rp.nick+' ('+rp.role+')</option>';}).join('');
-      html+='<div style="background:var(--grey-1);border:1px solid rgba(255,204,68,0.4);border-radius:2px;margin-bottom:8px;overflow:hidden;">';
-      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,204,68,0.06);border-bottom:1px solid rgba(255,204,68,0.25);">'
-        +'<div style="width:28px;height:28px;border-radius:4px;background:rgba(255,204,68,0.15);display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:var(--warn);">?</div>'
-        +'<div style="flex:1;">'
-          +'<div style="font-weight:600;font-size:13px;color:var(--warn);">'+(ex.ign||'Unknown IGN')+'</div>'
-          +'<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-top:2px;">NOT IN ROSTER · ASSIGN BELOW TO FILL DATA</div>'
-        +'</div>'
-        +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+heroName.toUpperCase()+'</div>'
+    var scanIgn=ex.ign||'';
+    // A matched player with no scanned data has nothing to review or re-map — skip it
+    // to avoid cluttering the review with empty cards (matches the original behaviour).
+    if(p&&prows.length===0)return;
+    var unrec=!p;
+    var escapedIgn=scanIgn.replace(/'/g,"\\'");
+    var rosterPlayers=getPlayers()||[];
+    // Player selector is rendered for EVERY row (matched or not), pre-selected to the current
+    // match and re-changeable at any time — so a wrong match can be corrected and a chosen
+    // player can be changed again. "— select / skip —" leaves the row unassigned.
+    var playerOpts='<option value=""'+(p?'':' selected')+'>— select / skip —</option>'+
+      rosterPlayers.map(function(rp){
+        return '<option value="'+rp.id+'"'+(p&&rp.id===p.id?' selected':'')+'>'+rp.nick+' ('+rp.role+')</option>';
+      }).join('');
+    var init=(p?(p.nick||p.ign||'?'):'?').substring(0,2).toUpperCase();
+    var isMvp=!unrec&&raw.mvpIgn&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
+    html+='<div style="background:var(--grey-1);border:'+(unrec?'1px solid rgba(255,204,68,0.4)':'var(--border)')+';border-radius:2px;margin-bottom:8px;overflow:hidden;">';
+    // header — show the scanned IGN as context (this is what the OCR read)
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:'+(unrec?'rgba(255,204,68,0.06)':'var(--grey-2)')+';border-bottom:'+(unrec?'1px solid rgba(255,204,68,0.25)':'var(--border)')+';">'
+      +'<div style="width:28px;height:28px;border-radius:4px;background:'+(unrec?'rgba(255,204,68,0.15)':'var(--grey-3)')+';display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:'+(unrec?'var(--warn)':'var(--grey-6)')+';">'+(unrec?'?':init)+'</div>'
+      +'<div style="flex:1;min-width:0;">'
+        +'<div style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);">SCANNED NAME</div>'
+        +'<div style="font-weight:600;font-size:13px;color:'+(unrec?'var(--warn)':'var(--white)')+';">'+(scanIgn||'Unknown IGN')+(isMvp?' <span style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;background:rgba(255,204,68,0.12);color:var(--warn);border:1px solid rgba(255,204,68,0.3);padding:1px 6px;border-radius:2px;margin-left:4px;vertical-align:middle;">MVP</span>':'')+'</div>'
+      +'</div>'
+      +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);">'+heroName.toUpperCase()+'</div>'
+    +'</div>';
+    // always-editable player selector
+    html+='<div style="padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:var(--border);">'
+      +'<label style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);white-space:nowrap;">PLAYER</label>'
+      +'<select class="input" style="flex:1;font-size:11px;padding:4px 8px;" onchange="assignScanPlayer(\'our\','+idx+',this.value)">'+playerOpts+'</select>'
+    +'</div>';
+    // remember-as-alias: only when matched and the scanned name isn't already known for this player
+    if(p&&scanIgn&&!_scanIgnKnown(p,scanIgn)){
+      var remOn=_scanRememberAlias[scanIgn.toLowerCase()]===true;
+      html+='<div onclick="toggleRememberAlias(\''+escapedIgn+'\')" style="padding:8px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;border-bottom:var(--border);background:rgba(68,136,255,0.04);">'
+        +'<div style="width:16px;height:16px;border-radius:3px;border:1.5px solid '+(remOn?'var(--auto)':'var(--grey-3)')+';display:grid;place-items:center;flex-shrink:0;background:'+(remOn?'var(--auto)':'transparent')+';">'
+        +(remOn?'<svg width="9" height="6" fill="none" stroke="var(--black)" stroke-width="2"><path d="M1 3l2.5 2.5L8 1"/></svg>':'')+'</div>'
+        +'<div style="font-size:11px;color:var(--grey-6);">Remember <b style="color:var(--white);">"'+scanIgn+'"</b> as '+p.nick+' for next time</div>'
       +'</div>';
-      html+='<div style="padding:10px 12px;display:flex;align-items:center;gap:8px;">'
-        +'<label style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;color:var(--grey-5);white-space:nowrap;">ASSIGN TO</label>'
-        +'<select class="input" style="flex:1;font-size:11px;padding:4px 8px;" onchange="assignScanPlayer(\''+escapedIgn+'\',this.value)">'+playerOpts+'</select>'
-      +'</div>';
-      if(prows.length>0){
-        prows.forEach(function(r,i){
-          var ck=_scanChecked[r.id]!==false;
-          html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<prows.length-1,r.note,r.coachVal,r.gameVal);
-        });
-      }
-      html+='</div>';
-      return;
     }
-    if(prows.length===0)return;
-    var init=(p.nick||p.ign||'?').substring(0,2).toUpperCase();
-    var name=p.nick;
-    var isMvp=raw.mvpIgn&&findPlayerByIgn(raw.mvpIgn)&&findPlayerByIgn(raw.mvpIgn).id===p.id;
-    html+='<div style="background:var(--grey-1);border:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden;">';
-    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--grey-2);border-bottom:var(--border);">'
-      +'<div style="width:28px;height:28px;border-radius:4px;background:var(--grey-3);display:grid;place-items:center;font-family:\'DM Mono\',monospace;font-size:10px;font-weight:600;color:var(--grey-6);">'+init+'</div>'
-      +'<div style="font-weight:600;font-size:13px;">'+name+(isMvp?' <span style="font-family:\'DM Mono\',monospace;font-size:8px;letter-spacing:1px;background:rgba(255,204,68,0.12);color:var(--warn);border:1px solid rgba(255,204,68,0.3);padding:1px 6px;border-radius:2px;margin-left:4px;vertical-align:middle;">MVP</span>':'')+'</div>'
-      +'<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--grey-5);margin-left:auto;">'+p.role+' · '+(heroName.toUpperCase())+'</div>'
-      +'</div>';
-    prows.forEach(function(r,i){
-      var ck=_scanChecked[r.id]!==false;
-      html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<prows.length-1,r.note,r.coachVal,r.gameVal);
-    });
+    if(prows.length>0){
+      prows.forEach(function(r,i){
+        var ck=_scanChecked[r.id]!==false;
+        html+=scanDiffRow(r.id,ck,r.label,r.val,r.badge,r.badgeColor,r.badgeBg,r.badgeBorder,i<prows.length-1,r.note,r.coachVal,r.gameVal);
+      });
+    } else {
+      html+='<div style="padding:10px 12px;font-size:11px;color:var(--grey-5);">Assign a player above to fill this row\'s data.</div>';
+    }
     html+='</div>';
   });
 
@@ -1419,17 +1437,43 @@ function scanSectionLabel(text){
     +'<span style="flex:1;height:1px;background:var(--grey-2);display:inline-block;"></span></div>';
 }
 
-// Called when coach manually assigns an unrecognized scanned IGN to a roster player
-function assignScanPlayer(ign, playerId){
+// Is the scanned IGN already a name we know maps to this player (ign / nick / saved alias)?
+function _scanIgnKnown(player,ign){
+  var lo=(ign||'').toLowerCase();
+  if(!lo||!player)return false;
+  if(player.ign&&player.ign.toLowerCase()===lo)return true;
+  if(player.nick&&player.nick.toLowerCase()===lo)return true;
+  return Array.isArray(player.aliases)&&player.aliases.some(function(a){return a&&a.toLowerCase()===lo;});
+}
+
+// Toggle whether a manually-corrected scanned name is remembered as an alias on apply.
+function toggleRememberAlias(ign){
+  var lo=(ign||'').toLowerCase();
+  if(!lo)return;
+  _scanRememberAlias[lo]=!(_scanRememberAlias[lo]===true);
+  renderScanModal();
+}
+
+// Called when the coach picks (or changes, or clears) the roster player for a scanned row.
+// side='our', idx = index into the team array. An empty playerId clears the assignment.
+function assignScanPlayer(side, idx, playerId){
   if(!_scanResult)return;
-  var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
-  if(!player)return;
-  _scanResult.ourTeam.forEach(function(entry){
-    if((entry.extracted.ign||'').toLowerCase()===ign.toLowerCase()){
-      entry.player=player;
+  var team=side==='opp'?_scanResult.oppTeam:_scanResult.ourTeam;
+  var entry=team&&team[idx];
+  if(!entry)return;
+  if(!playerId){
+    entry.player=null;
+  }else{
+    var player=(getPlayers()||[]).find(function(p){return p.id===playerId;});
+    if(!player)return;
+    entry.player=player;
+    // Default to remembering a corrected name when it isn't already known for this player.
+    var ignLo=(entry.extracted&&entry.extracted.ign||'').toLowerCase();
+    if(ignLo&&!_scanIgnKnown(player,entry.extracted.ign)&&!(ignLo in _scanRememberAlias)){
+      _scanRememberAlias[ignLo]=true;
     }
-  });
-  // Re-render review so new player's rows/checkboxes use the real player ID
+  }
+  // Re-render review so the row's checkboxes/data bind to the chosen player ID.
   renderScanModal();
 }
 
@@ -1559,8 +1603,12 @@ function startScan(){
   _scanCancelled=false;
   _scanState='scanning';
   renderScanModal();
-  var imageContents=_scanFiles.map(function(sf){
-    return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
+  // Prefix each image with its label so the model knows which tab it is — important when the
+  // damage tab is absent (result-only scans) so it doesn't hunt for damage that isn't there.
+  var imageContents=[];
+  _scanFiles.forEach(function(sf){
+    imageContents.push({type:'text',text:'[Screenshot: '+(sf.label||'RESULT')+' tab]'});
+    imageContents.push({type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}});
   });
   var steps=[
     'RESULT · player names · heroes · KDA',
@@ -1645,14 +1693,42 @@ function findPlayerByIgn(ign){
   return _cache.players.find(function(p){return p.ign&&p.ign.toLowerCase()===lo;})||
          // 2. Exact nick match (scrim names often match display nick)
          _cache.players.find(function(p){return p.nick&&p.nick.toLowerCase()===lo;})||
-         // 3. Partial IGN match
+         // 3. Exact alias match (a remembered alternate in-game name). Checked before any
+         //    fuzzy/substring guess so a known alias always beats a loose partial.
+         _cache.players.find(function(p){
+           return Array.isArray(p.aliases)&&p.aliases.some(function(a){return a&&a.toLowerCase()===lo;});
+         })||
+         // 4. Partial IGN match
          _cache.players.find(function(p){
            return p.ign&&(p.ign.toLowerCase().includes(lo)||lo.includes(p.ign.toLowerCase()));
          })||
-         // 4. Partial nick match (last resort)
+         // 5. Partial nick match (last resort)
          _cache.players.find(function(p){
            return p.nick&&(p.nick.toLowerCase().includes(lo)||lo.includes(p.nick.toLowerCase()));
          })||null;
+}
+
+// Persist a scanned IGN as an alias on a roster player so future scans auto-match.
+// Lower-cased and de-duped; skips when the IGN already resolves to this player by
+// ign/nick/alias. Writes through to Supabase and updates the in-memory roster.
+async function rememberPlayerAlias(playerId, ign){
+  var lo=(ign||'').trim().toLowerCase();
+  if(!lo||!playerId) return;
+  var player=(_cache.players||[]).find(function(p){return p.id===playerId;});
+  if(!player) return;
+  if((player.ign&&player.ign.toLowerCase()===lo)||(player.nick&&player.nick.toLowerCase()===lo)) return;
+  if(!Array.isArray(player.aliases)) player.aliases=[];
+  if(player.aliases.some(function(a){return a&&a.toLowerCase()===lo;})) return;
+  player.aliases.push(lo);
+  try{
+    await sbSavePlayer(player);
+    if(typeof savePlayers==='function') savePlayers(_cache.players);
+    showToast('Remembered "'+ign+'" as '+player.nick);
+  }catch(err){
+    // Roll back the in-memory change so we don't claim a save that didn't land.
+    player.aliases=player.aliases.filter(function(a){return a!==lo;});
+    if(typeof _dbErr==='function') _dbErr(err,'players'); else showToast('Could not save alias');
+  }
 }
 
 function processScanResult(raw){
@@ -1744,6 +1820,17 @@ function applyScannedData(){
     if(_scanChecked[pid+'_dmgTakenPct']&&ex.dmgTakenPct!=null)LS.scores[pid].dmgTakenPct=ex.dmgTakenPct;
     if(_scanChecked[pid+'_dmgDealt']&&ex.dmgDealt!=null)LS.scores[pid].dmgDealt=ex.dmgDealt;
     if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)LS.scores[pid].dmgTaken=ex.dmgTaken;
+  });
+
+  // Persist any "remember this name" choices as aliases so future scans auto-match.
+  // Fire-and-forget: alias storage shouldn't block advancing the log flow.
+  ourTeam.forEach(function(entry){
+    if(!entry.player)return;
+    var ign=entry.extracted&&entry.extracted.ign;
+    if(!ign)return;
+    if(_scanRememberAlias[ign.toLowerCase()]===true&&!_scanIgnKnown(entry.player,ign)){
+      rememberPlayerAlias(entry.player.id,ign);
+    }
   });
 
   // Role for our players comes from their roster entry, not the hero played.
@@ -1926,11 +2013,13 @@ function handleEditScanUpload(input){
   function onAllReady(){
     _scanState='scanning';
     _scanFiles=processed;
-    _scanCancelled=false;_scanResult=null;_scanChecked={};
+    _scanCancelled=false;_scanResult=null;_scanChecked={};_scanRememberAlias={};
     document.getElementById('scan-modal').classList.add('open');
     renderScanModal();
-    var imageContents=processed.map(function(sf){
-      return{type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}};
+    var imageContents=[];
+    processed.forEach(function(sf){
+      imageContents.push({type:'text',text:'[Screenshot: '+(sf.label||'RESULT')+' tab]'});
+      imageContents.push({type:'image',source:{type:'base64',media_type:sf.mimeType,data:sf.base64}});
     });
     callClaudeVision(imageContents).then(function(raw){
       if(_scanCancelled)return;
@@ -2033,6 +2122,15 @@ function applyEditScannedData(){
       if(_scanChecked[pid+'_dmgTakenPct']&&ex.dmgTakenPct!=null)sc.dmgTakenPct=ex.dmgTakenPct;
       if(_scanChecked[pid+'_dmgDealt']&&ex.dmgDealt!=null)sc.dmgDealt=ex.dmgDealt;
       if(_scanChecked[pid+'_dmgTaken']&&ex.dmgTaken!=null)sc.dmgTaken=ex.dmgTaken;
+    });
+    // Persist any "remember this name" choices as aliases (same as the new-log flow).
+    our.forEach(function(entry){
+      if(!entry.player)return;
+      var ign=entry.extracted&&entry.extracted.ign;
+      if(!ign)return;
+      if(_scanRememberAlias[ign.toLowerCase()]===true&&!_scanIgnKnown(entry.player,ign)){
+        rememberPlayerAlias(entry.player.id,ign);
+      }
     });
     // Refresh the stats display in the edit modal
     PLAYERS.forEach(function(p){
@@ -2461,6 +2559,10 @@ function renderPlayerStep(){
     html += '<label class="input-label">Hero</label>';
     html += '<input class="input" id="lp-hero-'+i+'" placeholder="Hero name" value="'+preHero+'"/>';
     html += '</div>';
+    // Master "skip pillar scoring" — raw stats only, all pillars saved as null (not 0/average).
+    html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;font-size:11px;color:var(--grey-6);">'
+      +'<input type="checkbox" id="lp-skippillars-'+i+'" onchange="toggleSkipPillars('+i+')" style="cursor:pointer;"/>'
+      +'Skip pillar scoring (record raw stats only)</label>';
     html += '<div id="lp-pillars-'+i+'"></div>';
     html += '<details class="raw-stats-details">';
     html += '<summary>Raw Stats</summary>';
@@ -2517,12 +2619,15 @@ function _prefillRawStats(i, sc){
 function _prefillPillarSuggestions(i, role, sc){
   var pillars = PILLAR_MAP[role] || [];
   for(var n = 0; n < pillars.length; n++){
+    // A suggestion only materialises when the supporting stats exist. When damage is
+    // missing, damage-based pillars return null here and stay "not scored" — so they save
+    // as null instead of a misleading default, rather than dragging the player's average.
     var sug = calculateSuggestion(role, n, sc);
     if(sug == null) continue;
-    var inp  = document.getElementById('lp-p'+n+'-'+i);
-    var disp = document.getElementById('lp-pv'+n+'-'+i);
-    if(inp)  inp.value = sug;
-    if(disp) disp.textContent = parseFloat(sug).toFixed(0);
+    var inp = document.getElementById('lp-p'+n+'-'+i);
+    if(inp) inp.value = sug;
+    // Mark scored + sync the value label / opacity / toggle.
+    setPillarScored(i, n, true);
   }
 }
 
@@ -2530,6 +2635,9 @@ function onLogRoleChange(i){
   var roleEl = document.getElementById('lp-role-'+i);
   var role   = roleEl ? roleEl.value.toLowerCase() : '';
   renderPillarSliders(role, i);
+  // Re-rendered sliders are fresh (enabled, not-scored); re-apply the master skip if it's on.
+  var skipBox = document.getElementById('lp-skippillars-'+i);
+  if(skipBox && skipBox.checked) toggleSkipPillars(i);
   updateComputedStats(i);
 }
 
@@ -2614,10 +2722,15 @@ function renderPillarSliders(role, slotIdx){
     html += '<div class="pillar-row">';
     html += '<div class="pillar-label-row">';
     html += '<span class="pillar-label">'+pName+'</span>';
-    html += '<span class="pillar-val" id="'+dispId+'">5</span>';
+    // A pillar starts "not scored" (—). It becomes a real score only when the coach drags
+    // the slider or a stat-based suggestion fills it. The toggle clears it back to not-scored.
+    html += '<span style="display:inline-flex;align-items:center;gap:8px;">';
+    html += '<span class="pillar-val" id="'+dispId+'" style="color:var(--grey-4);">—</span>';
+    html += '<span id="lp-ptgl'+n+'-'+slotIdx+'" onclick="togglePillarScored('+slotIdx+','+n+')" title="Score this pillar" style="cursor:pointer;font-family:\'DM Mono\',monospace;font-size:11px;width:16px;height:16px;line-height:16px;text-align:center;border:1px solid var(--grey-3);border-radius:3px;color:var(--grey-5);">+</span>';
+    html += '</span>';
     html += '</div>';
     if(!isManual){
-      html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;" id="lp-phint'+n+'-'+slotIdx+'">Stat-based — drag to override</div>';
+      html += '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;" id="lp-phint'+n+'-'+slotIdx+'">Stat-based — drag to score</div>';
     }
     if(isDT){
       html += '<div id="lp-dt-strip-'+slotIdx+'"></div>';
@@ -2637,15 +2750,69 @@ function renderPillarSliders(role, slotIdx){
     if(pName === 'Teamfight'){
       html += '<div id="lp-teamfight-strip-'+slotIdx+'"></div>';
     }
-    html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" oninput="updatePillarDisplay(this,\''+dispId+'\')" />';
+    // data-scored="false" until engaged → save reads this to store null vs a real value.
+    html += '<input type="range" class="pillar-slider" id="'+inpId+'" min="1" max="10" step="1" value="5" data-scored="false" style="opacity:0.4;" oninput="onPillarInput(this,'+slotIdx+','+n+')" />';
     html += '</div>';
   }
   container.innerHTML = html;
 }
 
-function updatePillarDisplay(input, displayId){
-  var el = document.getElementById(displayId);
-  if(el) el.textContent = parseFloat(input.value).toFixed(0);
+// True when this pillar has been deliberately scored (dragged or stat-suggested), as opposed
+// to its untouched default. Drives the null-vs-value decision on save.
+function isPillarScored(slotIdx, n){
+  var inp = document.getElementById('lp-p'+n+'-'+slotIdx);
+  return !!(inp && inp.dataset && inp.dataset.scored === 'true');
+}
+
+// Read a pillar's value for saving: the slider value if scored, otherwise null.
+function _readPillar(slotIdx, n){
+  var inp = document.getElementById('lp-p'+n+'-'+slotIdx);
+  if(!inp || inp.dataset.scored !== 'true') return null;
+  var v = parseFloat(inp.value);
+  return isNaN(v) ? null : v;
+}
+
+// Set a pillar's scored state and sync the value label, slider opacity, and toggle glyph.
+function setPillarScored(slotIdx, n, scored){
+  var inp  = document.getElementById('lp-p'+n+'-'+slotIdx);
+  var disp = document.getElementById('lp-pv'+n+'-'+slotIdx);
+  var tgl  = document.getElementById('lp-ptgl'+n+'-'+slotIdx);
+  if(!inp) return;
+  inp.dataset.scored = scored ? 'true' : 'false';
+  inp.style.opacity  = scored ? '1' : '0.4';
+  if(disp){
+    disp.textContent = scored ? parseFloat(inp.value).toFixed(0) : '—';
+    disp.style.color = scored ? 'var(--white)' : 'var(--grey-4)';
+  }
+  if(tgl){
+    tgl.textContent = scored ? '✕' : '+';
+    tgl.title = scored ? 'Clear — mark not scored' : 'Score this pillar';
+  }
+}
+
+// Slider drag → mark scored and update the displayed value.
+function onPillarInput(input, slotIdx, n){
+  setPillarScored(slotIdx, n, true);
+}
+
+// Toggle glyph → flip scored / not-scored.
+function togglePillarScored(slotIdx, n){
+  setPillarScored(slotIdx, n, !isPillarScored(slotIdx, n));
+}
+
+// Master "skip pillar scoring" switch for a player slot: marks all four pillars not-scored
+// (so they save as null) and disables the sliders. Unchecking just re-enables them.
+function toggleSkipPillars(slotIdx){
+  var box = document.getElementById('lp-skippillars-'+slotIdx);
+  var skip = !!(box && box.checked);
+  for(var n = 0; n < 4; n++){
+    var inp = document.getElementById('lp-p'+n+'-'+slotIdx);
+    if(!inp) continue;
+    if(skip) setPillarScored(slotIdx, n, false);
+    inp.disabled = skip;
+    var tgl = document.getElementById('lp-ptgl'+n+'-'+slotIdx);
+    if(tgl) tgl.style.pointerEvents = skip ? 'none' : 'auto';
+  }
 }
 
 // ── DAY 6 — BENCHMARK MODEL ──────────────────────────
@@ -4081,11 +4248,12 @@ function autoScorePlayer(slotIdx) {
     else if (n === gankIdx && gankResult)                  sug = gankResult.finalScore;
     else if (n === teamfightIdx && teamfightResult)        sug = teamfightResult.finalScore;
     else sug = calculateSuggestion(role, n, rawStats);
+    // No score available (e.g. damage-based pillar with no damage scanned) → leave it
+    // "not scored" so it saves as null rather than a misleading auto value.
     if (sug == null) continue;
     var slEl = document.getElementById('lp-p' + n + '-' + slotIdx);
-    var dpEl = document.getElementById('lp-pv' + n + '-' + slotIdx);
     if (slEl) slEl.value = sug;
-    if (dpEl) dpEl.textContent = Math.round(sug);
+    setPillarScored(slotIdx, n, true);
   }
 
   var btn = document.getElementById('lp-autoscore-btn-' + slotIdx);
@@ -4209,10 +4377,13 @@ async function saveGame(){
       var dmgDealtRaw  = parseFloat(document.getElementById('lp-dmg_dealt_raw-'+i)?.value)  || null;
       var dmgTakenRaw  = parseFloat(document.getElementById('lp-dmg_taken_raw-'+i)?.value)  || null;
       var note         = (document.getElementById('lp-note-'+i)?.value||'').trim() || null;
-      var p1           = parseFloat(document.getElementById('lp-p0-'+i)?.value) || null;
-      var p2           = parseFloat(document.getElementById('lp-p1-'+i)?.value) || null;
-      var p3           = parseFloat(document.getElementById('lp-p2-'+i)?.value) || null;
-      var p4           = parseFloat(document.getElementById('lp-p3-'+i)?.value) || null;
+      // Only persist a pillar the coach actually scored. An untouched pillar (data-scored
+      // !== 'true') saves as null — never a default 5 — so unscored pillars are excluded
+      // from averages/grades instead of dragging them.
+      var p1           = _readPillar(i, 0);
+      var p2           = _readPillar(i, 1);
+      var p3           = _readPillar(i, 2);
+      var p4           = _readPillar(i, 3);
 
       teamTotalGold += gold || 0;
 
@@ -5125,17 +5296,23 @@ function _buildEditPlayerPanel(game, player, idx){
   var ps = s.pillar_scores || {};
 
   function sliderRow(label, key, val, sug, hintStr){
-    var v = Math.round(val!=null ? val : (sug!=null ? sug : 5));
+    var base = 'egm-'+idx+'-'+key;
+    // A stored value means the pillar was scored; null means "not scored" → show — and save null.
+    var scored = val != null;
+    var v = Math.round(scored ? val : 5);
     var hint = hintStr
       ? '<div style="font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);margin-bottom:4px;">'+hintStr+'</div>'
       : '';
     return '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
         '<span class="pillar-label">'+label+'</span>'+
-        '<span class="pillar-val" id="egm-'+idx+'-'+key+'-val">'+v.toFixed(0)+'</span>'+
+        '<span style="display:inline-flex;align-items:center;gap:8px;">'+
+          '<span class="pillar-val" id="'+base+'-val" style="color:'+(scored?'var(--white)':'var(--grey-4)')+';">'+(scored?v.toFixed(0):'—')+'</span>'+
+          '<span id="'+base+'-tgl" onclick="editPillarToggle(\''+base+'\')" title="'+(scored?'Clear — mark not scored':'Score this pillar')+'" style="cursor:pointer;font-family:\'DM Mono\',monospace;font-size:11px;width:16px;height:16px;line-height:16px;text-align:center;border:1px solid var(--grey-3);border-radius:3px;color:var(--grey-5);">'+(scored?'✕':'+')+'</span>'+
+        '</span>'+
       '</div>'+ hint +
-      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="egm-'+idx+'-'+key+'" '+
-        'oninput="document.getElementById(\'egm-'+idx+'-'+key+'-val\').textContent=parseFloat(this.value).toFixed(0)"/>'+
+      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="'+base+'" data-scored="'+(scored?'true':'false')+'" style="opacity:'+(scored?'1':'0.4')+';" '+
+        'oninput="editPillarInput(\''+base+'\')"/>'+
     '</div>';
   }
 
@@ -5196,6 +5373,29 @@ function _buildEditPlayerPanel(game, player, idx){
   return html;
 }
 
+// Edit-modal pillar helpers (egm-<idx>-p<n> id scheme). Mirror the log-entry behaviour:
+// dragging marks a pillar scored; the toggle flips scored/not-scored; save reads data-scored.
+function editPillarInput(base){
+  var inp=document.getElementById(base); if(!inp) return;
+  inp.dataset.scored='true'; inp.style.opacity='1';
+  var el=document.getElementById(base+'-val'); if(el){ el.textContent=parseFloat(inp.value).toFixed(0); el.style.color='var(--white)'; }
+  var t=document.getElementById(base+'-tgl'); if(t){ t.textContent='✕'; t.title='Clear — mark not scored'; }
+}
+function editPillarToggle(base){
+  var inp=document.getElementById(base); if(!inp) return;
+  var sc=inp.dataset.scored!=='true';
+  inp.dataset.scored=sc?'true':'false'; inp.style.opacity=sc?'1':'0.4';
+  var el=document.getElementById(base+'-val'); if(el){ el.textContent=sc?parseFloat(inp.value).toFixed(0):'—'; el.style.color=sc?'var(--white)':'var(--grey-4)'; }
+  var t=document.getElementById(base+'-tgl'); if(t){ t.textContent=sc?'✕':'+'; t.title=sc?'Clear — mark not scored':'Score this pillar'; }
+}
+// Read an edit-modal pillar for saving: value if scored, else null.
+function _readEditPillar(base){
+  var inp=document.getElementById(base);
+  if(!inp || inp.dataset.scored!=='true') return null;
+  var v=parseFloat(inp.value);
+  return isNaN(v)?null:v;
+}
+
 function refreshEditPillars(idx){
   var game = (_cache.games||[]).find(function(g){return g.id===window._editingGameId;});
   if(!game) return;
@@ -5212,7 +5412,9 @@ function refreshEditPillars(idx){
   container.innerHTML = '';
   pillars.forEach(function(lbl, i){
     var sug = calculateSuggestionFromScore(role, i, s, game, player.id);
-    var v = Math.round(ps['p'+i]!=null ? ps['p'+i] : (sug!=null ? sug : 5));
+    var base = 'egm-'+idx+'-p'+i;
+    var scored = ps['p'+i] != null;
+    var v = Math.round(scored ? ps['p'+i] : 5);
     var _fk = (BENCHMARK_FIELDS[role]&&BENCHMARK_FIELDS[role][i]) ? BENCHMARK_FIELDS[role][i].k : null;
     var _hintStr = MANUAL_PILLARS.has(lbl) ? '' : _pillarHint(role, i, _benchMetricFromScore(_fk, s, game), sug);
     var hint = _hintStr
@@ -5221,10 +5423,13 @@ function refreshEditPillars(idx){
     container.innerHTML += '<div class="pillar-row">'+
       '<div class="pillar-label-row">'+
         '<span class="pillar-label">'+lbl+'</span>'+
-        '<span class="pillar-val" id="egm-'+idx+'-p'+i+'-val">'+v.toFixed(0)+'</span>'+
+        '<span style="display:inline-flex;align-items:center;gap:8px;">'+
+          '<span class="pillar-val" id="'+base+'-val" style="color:'+(scored?'var(--white)':'var(--grey-4)')+';">'+(scored?v.toFixed(0):'—')+'</span>'+
+          '<span id="'+base+'-tgl" onclick="editPillarToggle(\''+base+'\')" title="'+(scored?'Clear — mark not scored':'Score this pillar')+'" style="cursor:pointer;font-family:\'DM Mono\',monospace;font-size:11px;width:16px;height:16px;line-height:16px;text-align:center;border:1px solid var(--grey-3);border-radius:3px;color:var(--grey-5);">'+(scored?'✕':'+')+'</span>'+
+        '</span>'+
       '</div>'+ hint +
-      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="egm-'+idx+'-p'+i+'" '+
-        'oninput="document.getElementById(\'egm-'+idx+'-p'+i+'-val\').textContent=parseFloat(this.value).toFixed(0)"/>'+
+      '<input type="range" class="pillar-slider" min="1" max="10" step="1" value="'+v+'" id="'+base+'" data-scored="'+(scored?'true':'false')+'" style="opacity:'+(scored?'1':'0.4')+';" '+
+        'oninput="editPillarInput(\''+base+'\')"/>'+
     '</div>';
   });
 }
@@ -5268,10 +5473,11 @@ async function saveEditGame(gameId){
       var dtPct    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_pct')?.value)||null;
       var ddRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_dealt_raw')?.value)||null;
       var dtRaw    = parseFloat(document.getElementById('egm-'+i+'-dmg_taken_raw')?.value)||null;
-      var p0 = parseFloat(document.getElementById('egm-'+i+'-p0')?.value)||null;
-      var p1 = parseFloat(document.getElementById('egm-'+i+'-p1')?.value)||null;
-      var p2 = parseFloat(document.getElementById('egm-'+i+'-p2')?.value)||null;
-      var p3 = parseFloat(document.getElementById('egm-'+i+'-p3')?.value)||null;
+      // Save a pillar only when scored; an untouched/cleared pillar saves null, not a default.
+      var p0 = _readEditPillar('egm-'+i+'-p0');
+      var p1 = _readEditPillar('egm-'+i+'-p1');
+      var p2 = _readEditPillar('egm-'+i+'-p2');
+      var p3 = _readEditPillar('egm-'+i+'-p3');
       // Derived metrics — kept in sync with the new-game save path.
       var kda            = (kills+assists)/Math.max(deaths,1);
       var gpm            = (gold&&durMin>0) ? gold/durMin : null;
