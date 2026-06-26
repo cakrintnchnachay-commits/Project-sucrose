@@ -1221,18 +1221,28 @@ function _pbShortLong(obj, bracket, wl) {
   return _pbPool([obj.short_win, obj.short_loss, obj.long]);
 }
 
-function _pbProtectionAnchor(obj, bracket, wl) {
+// Returns bracket string from a duration in minutes
+function _pbDurBracket(dur) {
+  if (!dur || dur <= 0) return 'all';
+  if (dur < 12) return 'lt12';
+  if (dur < 20) return '12to20';
+  return '20to35';
+}
+
+function _pbProtectionAnchor(obj, bracket, wl, dur) {
   // obj has win, loss_short (<15 min), loss_long (≥15 min)
-  // win is pooled across all durations; loss splits by game length.
+  // Use actual duration (if provided) for the 15-min threshold, not bracket boundaries.
+  var knownShort = (dur != null && dur > 0 && dur < 15) || (dur == null && bracket === 'lt12');
+  var knownLong  = (dur != null && dur > 0 && dur >= 15) || (dur == null && (bracket === '12to20' || bracket === '20to35'));
   if (wl === 'win') return obj.win;
   if (wl === 'loss') {
-    if (bracket === 'lt12') return obj.loss_short;
-    if (bracket === '12to20' || bracket === '20to35') return obj.loss_long;
+    if (knownShort) return obj.loss_short;
+    if (knownLong)  return obj.loss_long;
     return _pbPool([obj.loss_short, obj.loss_long]);
   }
   // all
-  if (bracket === 'lt12') return _pbPool([obj.win, obj.loss_short]);
-  if (bracket === '12to20' || bracket === '20to35') return _pbPool([obj.win, obj.loss_long]);
+  if (knownShort) return _pbPool([obj.win, obj.loss_short]);
+  if (knownLong)  return _pbPool([obj.win, obj.loss_long]);
   return _pbPool([obj.win, obj.loss_short, obj.loss_long]);
 }
 
@@ -1516,7 +1526,7 @@ var PB_CONFIG = {
             fmt: function(v){ return v.toFixed(4); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbProtectionAnchor(PROTECTION_ANCHORS.geo_mean, b, wl); },
+            anchors: function(b,wl,dur){ return _pbProtectionAnchor(PROTECTION_ANCHORS.geo_mean, b, wl, dur); },
             calcFromRaw: function(r){
               if (r.adld==null||r.midd==null||r.dur==null||r.dur<=0) return null;
               var EPS=0.001, adlDpm=r.adld/r.dur, midDpm=r.midd/r.dur;
@@ -1674,7 +1684,8 @@ function pbRenderPillars() {
 
 function pbRenderPillarCard(pillar, pi, cfg) {
   var role = PB.role;
-  var b = PB.bracket, wl = PB.wl;
+  var durRaw = PB_RAW[role + '_' + pi + '_dur'];
+  var b = _pbDurBracket(durRaw), wl = PB.wl;
 
   var html = '<div class="pb-card">';
 
@@ -1719,7 +1730,7 @@ function pbRenderPillarCard(pillar, pi, cfg) {
 
   // Layer 2: stat blocks
   pillar.stats.forEach(function(stat, si) {
-    var anchors = stat.anchors(b, wl);
+    var anchors = stat.anchors(b, wl, durRaw);
     var statKey = _pbInputKey(role, pi, stat.key);
     var cached = PB_INPUTS[statKey];
     var isAuto = !!PB_AUTO_KEYS[statKey];
@@ -1858,7 +1869,8 @@ function pbUpdateStatVisuals(inputId, role, pi, si) {
   var val = PB_INPUTS[_pbInputKey(role, pi, stat.key)];
   if (val == null) return;
 
-  var anchors = stat.anchors(PB.bracket, PB.wl);
+  var durRaw2 = PB_RAW[role + '_' + pi + '_dur'];
+  var anchors = stat.anchors(_pbDurBracket(durRaw2), PB.wl, durRaw2);
   var needlePos = pbComputeNeedlePos(val, anchors);
   var needle = document.getElementById('pb-needle-' + inputId);
   if (needle) { needle.style.left = needlePos + '%'; needle.style.display = 'block'; }
@@ -1989,13 +2001,14 @@ function pbUpdateComposite(role, pi) {
   var pillar = cfg.pillars[pi];
   if (!pillar) return;
 
+  var durComp = PB_RAW[role + '_' + pi + '_dur'];
   var totalW = 0, totalS = 0, allFilled = true;
   pillar.stats.forEach(function(stat, si) {
     var key = _pbInputKey(role, pi, stat.key);
     var val = PB_INPUTS[key];
     if (val == null) { allFilled = false; return; }
 
-    var anchors = stat.anchors(PB.bracket, PB.wl);
+    var anchors = stat.anchors(_pbDurBracket(durComp), PB.wl, durComp);
     var pct = _interpolatePercentile(val, anchors);
     var effectivePct = stat.lowerBetter ? (100 - pct) : pct;
     var score = pctToScore(effectivePct);
