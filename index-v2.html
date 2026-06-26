@@ -1385,14 +1385,14 @@ var PB_CONFIG = {
             fmt: function(v){ return v.toFixed(2)+'×'; },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.dmg_dtk, b); },
+            anchors: function(b,wl){ return _pbBracketWL(SURVIVAL_ANCHORS.carry.dmg_dtk, b, wl); },
             calcFromRaw: function(r){ return r.pdmg!=null&&r.dtaken>0 ? r.pdmg/r.dtaken : null; } },
           { key:'dthpm', label:'Deaths/min', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.074',
             fmt: function(v){ return v.toFixed(3); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.carry.deaths_pm, b); },
+            anchors: function(b,wl){ return _pbBracketWL(SURVIVAL_ANCHORS.carry.deaths_pm, b, wl); },
             calcFromRaw: function(r){ return r.deaths!=null&&r.dur>0 ? r.deaths/r.dur : null; } }
         ],
         scoreWeights: [0.60, -0.40]
@@ -1435,14 +1435,14 @@ var PB_CONFIG = {
             fmt: function(v){ return v.toFixed(2)+'×'; },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.dmg_dtk, b); },
+            anchors: function(b,wl){ return _pbBracketWL(SURVIVAL_ANCHORS.mage.dmg_dtk, b, wl); },
             calcFromRaw: function(r){ return r.pdmg!=null&&r.dtaken>0 ? r.pdmg/r.dtaken : null; } },
           { key:'dthpm', label:'Deaths/min', unit:'', lowerBetter:true,
             placeholder:'e.g. 0.074',
             fmt: function(v){ return v.toFixed(3); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return _pbBracket(SURVIVAL_ANCHORS.mage.deaths_pm, b); },
+            anchors: function(b,wl){ return _pbBracketWL(SURVIVAL_ANCHORS.mage.deaths_pm, b, wl); },
             calcFromRaw: function(r){ return r.deaths!=null&&r.dur>0 ? r.deaths/r.dur : null; } }
         ],
         scoreWeights: [0.60, -0.40]
