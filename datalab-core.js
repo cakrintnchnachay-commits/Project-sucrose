@@ -141,7 +141,13 @@ function dlcWeekBucket(wk) {
 function dlcAgg(tour) {
   tour = tour || 'All';
   if (DLC_AGGS[tour]) return DLC_AGGS[tour];
-  var games = (DLC_GAMES||[]).filter(function(g){ return tour==='All'||g.tour===tour; });
+  var games = (DLC_GAMES||[]).filter(function(g){
+    if (tour==='All') return true;
+    if (g.tour===tour) return true;
+    // 'APL WC' and 'APL 2026' both map to TYPE='APL' in the CSV
+    if ((tour==='APL WC'||tour==='APL 2026') && g.tour==='APL') return true;
+    return false;
+  });
   var agg = {tour:tour, total:games.length, blueWins:0,
              heroes:{}, players:{}, teams:{}, pairs:{},
              bucketTotals:{}};

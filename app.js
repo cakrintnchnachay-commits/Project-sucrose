@@ -2705,6 +2705,8 @@ function updateComputedStats(slotIdx){
   if (slotIdx === 1 || slotIdx === 2) {
     updateProtectionStrip(0);
   }
+  // Scaling strip uses team total gold (all 5 slots) — refresh all when any slot changes
+  for (var _ssi = 0; _ssi < 5; _ssi++) { updateScalingStrip(_ssi); }
 }
 
 function renderPillarSliders(role, slotIdx){
@@ -2734,6 +2736,9 @@ function renderPillarSliders(role, slotIdx){
     }
     if(isDT){
       html += '<div id="lp-dt-strip-'+slotIdx+'"></div>';
+    }
+    if(pName === 'Scaling'){
+      html += '<div id="lp-scaling-strip-'+slotIdx+'"></div>';
     }
     if(pName === 'Survival'){
       html += '<div id="lp-survival-strip-'+slotIdx+'"></div>';
@@ -3235,30 +3240,31 @@ function updateDTStrip(slotIdx) {
 // === SURVIVAL ANCHOR TABLES ===
 // deaths_pm: lower = better (inverted in scoring function)
 // dmg_dtk: higher = better
-// Carry deaths/min p50: 0.098 (<12min) → 0.074 (12-20) → 0.049 (20-35) — must bracket.
+// WIN/LOSS split: gap at median is 0.06–0.19 for deaths_pm, 0.38–1.02 for dmg_dtk — must split.
+// Source: game_results_detailed.csv, 829 pro games. Format: { win:[p10,p25,p50,p75,p90], loss:[...] }
 var SURVIVAL_ANCHORS = {
   carry: {
     deaths_pm: {
-      lt12:     [0.000, 0.000, 0.098, 0.194, 0.269],
-      '12to20': [0.000, 0.038, 0.074, 0.132, 0.174],
-      '20to35': [0.000, 0.036, 0.049, 0.095, 0.147],
+      lt12:     { win: [0.0000, 0.0000, 0.0000, 0.0972, 0.1246], loss: [0.0433, 0.0983, 0.1787, 0.2163, 0.3261] },
+      '12to20': { win: [0.0000, 0.0000, 0.0570, 0.0803, 0.1409], loss: [0.0519, 0.0621, 0.1172, 0.1607, 0.2227] },
+      '20to35': { win: [0.0000, 0.0000, 0.0429, 0.0793, 0.1088], loss: [0.0354, 0.0450, 0.0847, 0.1139, 0.1483] },
     },
     dmg_dtk: {
-      lt12:     [0.758, 1.098, 1.593, 2.362, 3.160],
-      '12to20': [1.063, 1.383, 1.793, 2.335, 3.107],
-      '20to35': [1.208, 1.500, 1.951, 2.607, 3.454],
+      lt12:     { win: [1.3741, 1.7151, 2.3146, 2.8810, 3.7614], loss: [0.6206, 0.8340, 1.1386, 1.4697, 1.9316] },
+      '12to20': { win: [1.2908, 1.6416, 2.1034, 2.7697, 3.7535], loss: [0.9201, 1.2130, 1.5624, 1.9706, 2.4397] },
+      '20to35': { win: [1.4118, 1.6905, 2.2053, 2.9947, 3.6644], loss: [1.1259, 1.4012, 1.8263, 2.2601, 2.9631] },
     },
   },
   mage: {
     deaths_pm: {
-      lt12:     [0.000, 0.000, 0.098, 0.199, 0.286],
-      '12to20': [0.000, 0.000, 0.074, 0.151, 0.220],
-      '20to35': [0.000, 0.036, 0.048, 0.098, 0.141],
+      lt12:     { win: [0.0000, 0.0000, 0.0000, 0.0998, 0.1261], loss: [0.0000, 0.0905, 0.1940, 0.2657, 0.3889] },
+      '12to20': { win: [0.0000, 0.0000, 0.0551, 0.0822, 0.1606], loss: [0.0000, 0.0620, 0.1171, 0.1740, 0.2413] },
+      '20to35': { win: [0.0000, 0.0000, 0.0448, 0.0613, 0.0992], loss: [0.0000, 0.0449, 0.0851, 0.1183, 0.1536] },
     },
     dmg_dtk: {
-      lt12:     [0.767, 1.175, 1.746, 2.954, 4.409],
-      '12to20': [0.958, 1.279, 1.825, 2.951, 4.470],
-      '20to35': [1.032, 1.421, 2.128, 3.290, 5.039],
+      lt12:     { win: [1.1638, 1.6568, 2.2500, 3.3269, 5.4917], loss: [0.6162, 0.8638, 1.3155, 2.1696, 3.6727] },
+      '12to20': { win: [1.0612, 1.5079, 2.1818, 3.3381, 5.1741], loss: [0.8335, 1.1639, 1.6098, 2.4702, 3.7357] },
+      '20to35': { win: [1.1359, 1.5346, 2.3285, 3.3821, 5.4560], loss: [1.0085, 1.3215, 1.9444, 2.8962, 4.4378] },
     },
   },
 };
@@ -3284,8 +3290,15 @@ var TANK_ANCHORS = {
     long:       [0.0000, 0.0769, 0.1531, 0.2469, 0.3529],
   },
 };
+// PROTECTION anchor — win/loss + short/long split (ratio at p50: 7.5–15.5x gap per bracket).
+// win: pooled all durations (p50 ≈ 0.010 regardless of length).
+// loss_short: <15 min (blowout games, carries die most). loss_long: ≥15 min.
 var PROTECTION_ANCHORS = {
-  geo_mean: [0.00100, 0.00901, 0.06604, 0.11906, 0.17104],
+  geo_mean: {
+    win:        [0.00100, 0.00668, 0.00995, 0.07009, 0.10972],  // n=846
+    loss_short: [0.01000, 0.07684, 0.13507, 0.19532, 0.24199],  // n=366, <15 min
+    loss_long:  [0.01057, 0.05595, 0.09151, 0.12480, 0.16257],  // n=486, ≥15 min
+  },
 };
 
 // === KA/min + KP% ANCHOR TABLES ===
@@ -3450,10 +3463,13 @@ function calcSurvivalScore(playerData) {
   var durMin      = durSec / 60;
   var bracket     = getGameBracket(durMin);
   var deathsPm    = deaths / durMin;
+  var playerWon   = playerData.playerWon != null ? !!playerData.playerWon
+                    : (typeof LS !== 'undefined' && LS.matchInfo && LS.matchInfo.result === 'Win');
+  var wlRow       = playerWon ? 'win' : 'loss';
 
   var anchors    = SURVIVAL_ANCHORS[roleKey];
-  var dmgDtkPct  = _interpolatePercentile(dmgDtkRatio, anchors.dmg_dtk[bracket]);
-  var deathsPct  = _interpolatePercentile(deathsPm,    anchors.deaths_pm[bracket]);
+  var dmgDtkPct  = _interpolatePercentile(dmgDtkRatio, anchors.dmg_dtk[bracket][wlRow]);
+  var deathsPct  = _interpolatePercentile(deathsPm,    anchors.deaths_pm[bracket][wlRow]);
 
   var raw = pctToScore(dmgDtkPct) * 0.60 + pctToScore(100 - deathsPct) * 0.40;
 
@@ -3484,6 +3500,7 @@ function updateSurvivalStrip(slotIdx) {
     dmgTakenPct:      _rn('lp-dmg_taken_pct-' + slotIdx),
     deaths:           _rn('lp-deaths-' + slotIdx) || 0,
     duration_seconds: durSec,
+    playerWon:        (LS.matchInfo && LS.matchInfo.result === 'Win'),
   });
 
   function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
@@ -3664,13 +3681,16 @@ function calcProtectionScore(playerData) {
   if (!durSec || durSec <= 0)            return null;
   if (adlDeaths == null || midDeaths == null) return null;
 
-  var durMin  = durSec / 60;
-  var EPS     = 0.001;
-  var adlDpm  = adlDeaths / durMin;
-  var midDpm  = midDeaths / durMin;
-  var geoMean = Math.sqrt((adlDpm + EPS) * (midDpm + EPS));
+  var durMin    = durSec / 60;
+  var EPS       = 0.001;
+  var adlDpm    = adlDeaths / durMin;
+  var midDpm    = midDeaths / durMin;
+  var geoMean   = Math.sqrt((adlDpm + EPS) * (midDpm + EPS));
+  var playerWon = playerData.playerWon != null ? !!playerData.playerWon
+                  : (typeof LS !== 'undefined' && LS.matchInfo && LS.matchInfo.result === 'Win');
+  var pRow      = playerWon ? 'win' : (durMin < 15 ? 'loss_short' : 'loss_long');
 
-  var geoMeanPct = _interpolatePercentile(geoMean, PROTECTION_ANCHORS.geo_mean);
+  var geoMeanPct = _interpolatePercentile(geoMean, PROTECTION_ANCHORS.geo_mean[pRow]);
   var raw        = pctToScore(100 - geoMeanPct);
 
   return {
@@ -3702,10 +3722,11 @@ function updateProtectionStrip(slotIdx) {
   }
 
   var r = calcProtectionScore({
-    role:         role,
-    adlDeaths:    adlDeaths,
-    midDeaths:    midDeaths,
+    role:             role,
+    adlDeaths:        adlDeaths,
+    midDeaths:        midDeaths,
     duration_seconds: durSec,
+    playerWon:        (LS.matchInfo && LS.matchInfo.result === 'Win'),
   });
 
   function _na()   { return '<span style="color:var(--grey-4);">—</span>'; }
@@ -4108,6 +4129,98 @@ function autoScoreAll() { ... }            // moved out below
 // === END GPM SCORING ENGINE — DISABLED ===
 
 function updateGPMStrip(slotIdx) { /* GPM disabled */ }
+
+// === SCALING HINT STRIP ===
+// Team gold ratio vs pro bracket + individual GPM diff.
+// Source: game_results_detailed.csv, 829 pro games. Pooled win+loss (p50 = 1.000 by definition).
+// Spread compresses late game — must bracket. NOT split by win/loss (ratio already encodes outcome).
+var GOLD_RATIO_ANCHORS = {
+  lt12:     [0.766, 0.811, 1.000, 1.233, 1.305],  // n=300 team pairs
+  '12to20': [0.855, 0.899, 1.000, 1.112, 1.170],  // n=1046
+  '20to35': [0.907, 0.948, 1.000, 1.055, 1.103],  // n=352
+};
+
+function updateScalingStrip(slotIdx) {
+  var el = document.getElementById('lp-scaling-strip-' + slotIdx);
+  if (!el) return;
+
+  var durSec = (LS.matchInfo && LS.matchInfo.duration_seconds) ? parseFloat(LS.matchInfo.duration_seconds) : null;
+  var durMin = durSec ? durSec / 60 : null;
+
+  function _rn(id) { var e = document.getElementById(id); var v = e ? parseFloat(e.value) : NaN; return isNaN(v) ? null : v; }
+  function _na() { return '<span style="color:var(--grey-4);">—</span>'; }
+  function _ord(n) { if(n==null)return null; var s=Math.round(n); var sfx=s%100>=11&&s%100<=13?'th':['th','st','nd','rd','th'][Math.min(s%10,4)]; return s+sfx; }
+
+  // Team gold: sum all 5 player gold inputs
+  var teamGold = 0, teamFilled = 0;
+  for (var si = 0; si < 5; si++) {
+    var pg = _rn('lp-gold-' + si);
+    if (pg != null && pg > 0) { teamGold += pg; teamFilled++; }
+  }
+  // Enemy gold: sum from enemy roles
+  var enemyGold = 0, enemyFilled = 0;
+  if (LS.enemyRoles && LS.enemyRoles.length) {
+    LS.enemyRoles.forEach(function(e) { if (e.gold != null && e.gold > 0) { enemyGold += e.gold; enemyFilled++; } });
+  }
+
+  var hasTeamGold = teamFilled >= 3 && enemyFilled >= 3 && enemyGold > 0;
+
+  // Individual GPM + opp GPM for this slot
+  var myRole  = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
+  var myGold  = _rn('lp-gold-' + slotIdx);
+  var myGpm   = (myGold != null && durMin > 0) ? myGold / durMin : null;
+  var oppGold = null;
+  if (LS.enemyRoles && LS.enemyRoles.length) {
+    var opp = LS.enemyRoles.find(function(e) { return e.role && e.role.toLowerCase() === myRole; });
+    if (opp) oppGold = opp.gold || null;
+  }
+  var oppGpm  = (oppGold != null && durMin > 0) ? oppGold / durMin : null;
+
+  // Gold ratio row
+  var ratioDisp = null, ratioOrd = null, bracketLabel = '';
+  if (hasTeamGold && durMin > 0) {
+    var bracket   = getGameBracket(durMin);
+    var ratio     = teamGold / Math.max(enemyGold, 1);
+    var ratioPct  = _interpolatePercentile(ratio, GOLD_RATIO_ANCHORS[bracket]);
+    ratioDisp     = ratio.toFixed(3);
+    ratioOrd      = _ord(Math.round(ratioPct));
+    bracketLabel  = bracket.replace('lt12','<12').replace('12to20','12–20').replace('20to35','20–35') + ' min';
+  }
+
+  var html = '<div class="dt-strip" style="margin-top:4px;">';
+
+  // Row 1: Team Gold Ratio
+  html += '<div style="display:grid;grid-template-columns:72px 52px 14px 46px 1fr;align-items:center;gap:2px;margin-bottom:3px;">';
+  html += '<span style="color:var(--grey-5);">Team ratio</span>';
+  html += '<span style="color:var(--white);">' + (ratioDisp != null ? ratioDisp : _na()) + '</span>';
+  html += '<span style="color:var(--grey-4);">→</span>';
+  html += '<span style="color:var(--grey-5);">' + (ratioOrd != null ? ratioOrd : _na()) + '</span>';
+  html += '<span style="color:var(--grey-4);font-size:9px;">ref · ' + (bracketLabel || _na()) + '</span>';
+  html += '</div>';
+
+  // Row 2: My GPM vs Opp GPM
+  var gpmDiff = (myGpm != null && oppGpm != null) ? myGpm - oppGpm : null;
+  var gpmColor = gpmDiff == null ? 'var(--white)' : (gpmDiff >= 0 ? '#44ff88' : '#ff4444');
+  var gpmSign  = gpmDiff != null ? (gpmDiff >= 0 ? '+' : '') : '';
+  html += '<div style="display:grid;grid-template-columns:72px 52px 14px 1fr;align-items:center;gap:2px;margin-bottom:3px;">';
+  html += '<span style="color:var(--grey-5);">My GPM</span>';
+  html += '<span style="color:var(--white);">' + (myGpm != null ? Math.round(myGpm) : _na()) + '</span>';
+  html += '<span style="color:var(--grey-4);">vs</span>';
+  if (oppGpm != null) {
+    html += '<span style="color:' + gpmColor + ';">' + Math.round(oppGpm) + ' opp (' + gpmSign + Math.round(gpmDiff) + ')</span>';
+  } else {
+    html += '<span style="color:var(--grey-4);">opp ' + _na() + (myGpm==null?' (enter gold)':'') + '</span>';
+  }
+  html += '</div>';
+
+  html += '<div style="text-align:right;border-top:1px solid rgba(68,136,255,0.15);padding-top:3px;margin-top:2px;">';
+  html += '<span style="color:var(--grey-4);font-size:9px;">context only — slider is coach\'s call</span>';
+  html += '</div>';
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+// === END SCALING HINT STRIP ===
 
 function autoScorePlayer(slotIdx) {
   var role     = (document.getElementById('lp-role-' + slotIdx) ? document.getElementById('lp-role-' + slotIdx).value : '').toLowerCase();
