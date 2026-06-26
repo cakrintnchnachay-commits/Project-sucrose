@@ -526,15 +526,6 @@
             <div style="flex:1;"></div>
             <div style="display:flex;gap:3px;" id="pb-role-switcher"></div>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <span style="font-family:'DM Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--grey-4);min-width:52px;">LENGTH</span>
-            <div style="display:flex;gap:3px;flex-wrap:wrap;">
-              <button class="tier-mode-btn active" id="pb-len-all"   onclick="pbSetLen('all')">&lt;All&gt;</button>
-              <button class="tier-mode-btn"         id="pb-len-lt12"  onclick="pbSetLen('lt12')">&lt;12m</button>
-              <button class="tier-mode-btn"         id="pb-len-12to20" onclick="pbSetLen('12to20')">12–20m</button>
-              <button class="tier-mode-btn"         id="pb-len-20to35" onclick="pbSetLen('20to35')">20–35m</button>
-            </div>
-          </div>
         </div>
 
         <!-- Pillar cards -->
@@ -1230,6 +1221,21 @@ function _pbShortLong(obj, bracket, wl) {
   return _pbPool([obj.short_win, obj.short_loss, obj.long]);
 }
 
+function _pbProtectionAnchor(obj, bracket, wl) {
+  // obj has win, loss_short (<15 min), loss_long (≥15 min)
+  // win is pooled across all durations; loss splits by game length.
+  if (wl === 'win') return obj.win;
+  if (wl === 'loss') {
+    if (bracket === 'lt12') return obj.loss_short;
+    if (bracket === '12to20' || bracket === '20to35') return obj.loss_long;
+    return _pbPool([obj.loss_short, obj.loss_long]);
+  }
+  // all
+  if (bracket === 'lt12') return _pbPool([obj.win, obj.loss_short]);
+  if (bracket === '12to20' || bracket === '20to35') return _pbPool([obj.win, obj.loss_long]);
+  return _pbPool([obj.win, obj.loss_short, obj.loss_long]);
+}
+
 // ── Pillar definitions ──────────────────────────────────
 
 // ── Raw-input helpers ──────────────────────────────────
@@ -1510,7 +1516,7 @@ var PB_CONFIG = {
             fmt: function(v){ return v.toFixed(4); },
             parse: function(s){ return parseFloat(s); },
             displayScale: 1,
-            anchors: function(b,wl){ return PROTECTION_ANCHORS.geo_mean; },
+            anchors: function(b,wl){ return _pbProtectionAnchor(PROTECTION_ANCHORS.geo_mean, b, wl); },
             calcFromRaw: function(r){
               if (r.adld==null||r.midd==null||r.dur==null||r.dur<=0) return null;
               var EPS=0.001, adlDpm=r.adld/r.dur, midDpm=r.midd/r.dur;
