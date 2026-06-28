@@ -4609,6 +4609,7 @@ async function saveGame(){
         enemyPicks:enemyRows.map(function(e){return {hero:e.hero_name,role:e.role,gold:e.gold};}),
         matchMentality:{},matchId:LS._matchId||null,mvpPlayerId:_mvpPid,savedAt:new Date().toISOString(),
       });
+      if(typeof ourInvalidate==='function') ourInvalidate();   // rebuild our-players agg
     })();
 
     // If launched from a match, link the game now

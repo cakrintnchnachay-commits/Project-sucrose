@@ -267,6 +267,7 @@ async function sbSaveGame(gameObj){
   };
   const {data,error}=await sb.from('games').upsert(row,{onConflict:'id'}).select().single();
   if(error) throw error;
+  if(typeof ourInvalidate==='function') ourInvalidate();   // rebuild our-players agg
   return data.id;
 }
 
@@ -275,6 +276,7 @@ async function sbDeleteGame(gameId){
   await sb.from('player_scores_v2').delete().eq('game_id',gameId);
   await sb.from('enemy_picks').delete().eq('game_id',gameId);
   await sb.from('games_v2').delete().eq('id',gameId);
+  if(typeof ourInvalidate==='function') ourInvalidate();   // rebuild our-players agg
 }
 
 async function sbSavePlayer(playerObj){
