@@ -352,8 +352,11 @@ function dlcRoleAvg(agg, kind, role, key, minG){
 
 // ── Player style read (label + evidence) ─────────────────────
 
-function dlcStyleRead(agg, ign){
-  var x=agg.players[ign];
+function dlcStyleRead(agg, ign, xOverride){
+  // xOverride lets the subject's own rawAgg come from a different pool
+  // (e.g. our players) while traits are still computed against the pure
+  // pro `agg` passed in. Peer purity is preserved.
+  var x=xOverride||agg.players[ign];
   if (!x||x.g<10) return {traits:[{label:'LOW SAMPLE', ev:'fewer than 10 games — style read unreliable'}]};
   var role=dlcPrimaryRole(x);
   var s=dlcDerive(x, agg.total);
@@ -791,11 +794,31 @@ function _dlcCmp2Rows(type){
 
 function _dlcCmp2Label(){ return DLC_CMP2.type==='hero'?'hero':'player'; }
 
-// entities (with >=3 games) for the current type+tour, sorted by games desc
+// display label for a key; our players ('@id') resolve to their nick
+function _dlcCmp2DisplayName(key, agg){
+  return (typeof ourDisplayName==='function') ? ourDisplayName(key, agg) : key;
+}
+
+// entities (with >=3 games) for the current type+tour, sorted by games desc.
+// For players, our roster (keys starting '@') is grouped first.
 function _dlcCmp2Entities(agg){
   var src = DLC_CMP2.type==='hero'?agg.heroes:agg.players;
   return Object.keys(src).filter(function(n){ return n && src[n].g>=3; })
-    .sort(function(a,b){ return src[b].g-src[a].g || a.toLowerCase().localeCompare(b.toLowerCase()); });
+    .sort(function(a,b){
+      if (typeof ourIsKey==='function'){
+        var ao=ourIsKey(a), bo=ourIsKey(b);
+        if (ao!==bo) return ao?-1:1;
+      }
+      return src[b].g-src[a].g || a.toLowerCase().localeCompare(b.toLowerCase());
+    });
+}
+
+// agg backing the Compare pickers/table. Players view merges our roster in
+// for DISPLAY only (peer-stat code still uses the pure dlcAgg elsewhere).
+function _dlcCmp2Agg(){
+  return (DLC_CMP2.type==='player' && typeof dlcAggWithOurs==='function')
+    ? dlcAggWithOurs(DLC_CMP2.tour, OUR_FILTER)
+    : dlcAgg(DLC_CMP2.tour);
 }
 
 function dlcCmp2SetType(t){
@@ -845,7 +868,7 @@ function _dlcCmp2Combo(side, sel, ents){
     '<label class="dlc-c2-pick-lbl" style="color:'+col.dot+';">'+lbl+'</label>'+
     '<div class="dlc-c2-combo">'+
       '<input class="input dlc-c2-cinput" id="dlc-c2-cinput-'+s+'" autocomplete="off" '+
-        'placeholder="'+ph+'" value="'+(sel?dlcEsc(sel):'')+'" '+
+        'placeholder="'+ph+'" value="'+(sel?dlcEsc(_dlcCmp2DisplayName(sel)):'')+'" '+
         'onfocus="this.select();dlcCmp2Open(\''+s+'\')" '+
         'oninput="dlcCmp2Filter(\''+s+'\',this.value)" />'+
       (sel?'<button class="dlc-c2-cclear" title="Clear" onmousedown="event.preventDefault();dlcCmp2Pick(\''+s+'\',\'\')">✕</button>'
@@ -857,19 +880,21 @@ function _dlcCmp2Combo(side, sel, ents){
 function _dlcCmp2RenderList(side){
   var el=document.getElementById('dlc-c2-clist-'+side);
   if(!el) return;
-  var agg=dlcAgg(DLC_CMP2.tour);
+  var agg=_dlcCmp2Agg();
   var src=DLC_CMP2.type==='hero'?agg.heroes:agg.players;
   var other = side==='a'?DLC_CMP2.b:DLC_CMP2.a;
   var sel   = side==='a'?DLC_CMP2.a:DLC_CMP2.b;
   var q=(_DLC_CMP2_Q[side]||'').toLowerCase();
   var list=_dlcCmp2Entities(agg).filter(function(e){
-    return e!==other && e.toLowerCase().indexOf(q)>=0;
+    return e!==other && _dlcCmp2DisplayName(e,agg).toLowerCase().indexOf(q)>=0;
   }).slice(0,80);
   if(!list.length){ el.innerHTML='<div class="dlc-c2-cempty">no match</div>'; el.style.display='block'; return; }
   el.innerHTML=list.map(function(e){
+    var nm=dlcEsc(_dlcCmp2DisplayName(e,agg));
+    var tag=(typeof ourIsKey==='function'&&ourIsKey(e))?'<span class="dlc-c2-cours">OURS</span>':'';
     return '<div class="dlc-c2-citem'+(e===sel?' on':'')+'" '+
       'onmousedown="event.preventDefault();dlcCmp2Pick(\''+side+'\',\''+dlcEsc(e).replace(/'/g,"\\'")+'\')">'+
-      '<span>'+dlcEsc(e)+'</span><span class="dlc-c2-cg">'+src[e].g+'g</span></div>';
+      '<span>'+tag+nm+'</span><span class="dlc-c2-cg">'+src[e].g+'g</span></div>';
   }).join('');
   el.style.display='block';
 }
@@ -885,7 +910,7 @@ function dlcCompareRender(){
   _dlcCmp2Css();
   var root=document.getElementById('dlc-compare-root');
   if (!root || !DLC_GAMES) return;
-  var agg=dlcAgg(DLC_CMP2.tour);
+  var agg=_dlcCmp2Agg();           // players view merges our roster (display-only)
   var type=DLC_CMP2.type;
   var ents=_dlcCmp2Entities(agg);
   if (DLC_CMP2.a && ents.indexOf(DLC_CMP2.a)<0) DLC_CMP2.a=null;
@@ -911,6 +936,10 @@ function dlcCompareRender(){
       _dlcCmp2Combo('b', B, ents)+
     '</div>';
 
+  // our-games scope row: only relevant when comparing players and we have data
+  var ourRow = (type==='player' && typeof ourScopeControls==='function' && ourHasData())
+    ? ourScopeControls('dlcCompareRender') : '';
+
   var controls=
     '<div class="dlc-c2-controls">'+
       '<div class="dlc-c2-ctl-row">'+
@@ -920,6 +949,7 @@ function dlcCompareRender(){
         '<div class="dlc-c2-btns">'+tourBtns+'</div>'+
         (A||B?'<button class="tier-mode-btn dlc-c2-reset" onclick="dlcCmp2Clear()">Reset</button>':'')+
       '</div>'+
+      ourRow+
       pickers+
     '</div>';
 
@@ -997,28 +1027,31 @@ function dlcCompareRender(){
     }
   }
 
+  var nameA=_dlcCmp2DisplayName(A,agg), nameB=_dlcCmp2DisplayName(B,agg);
+  var caveat=(typeof ourCaveatBanner==='function')?ourCaveatBanner([A,B]):'';
+
   root.innerHTML=controls+
     '<div class="dlc-c2-head">'+
-      '<span class="dlc-c2-name" style="color:'+COL_A.dot+';">'+dlcEsc(A)+'</span>'+
+      '<span class="dlc-c2-name" style="color:'+COL_A.dot+';">'+dlcEsc(nameA)+'</span>'+
       '<span class="dlc-c2-vs">VS</span>'+
-      '<span class="dlc-c2-name" style="color:'+COL_B.dot+';text-align:left;">'+dlcEsc(B)+'</span>'+
+      '<span class="dlc-c2-name" style="color:'+COL_B.dot+';text-align:left;">'+dlcEsc(nameB)+'</span>'+
     '</div>'+
     '<div class="dlc-c2-body">'+
       '<div class="dlc-c2-radar">'+
         '<canvas id="dlc-c2-canvas" width="380" height="360"></canvas>'+
         '<div class="hd-radar-tip" id="dlc-c2-canvas-tip"></div>'+
         '<div class="dlc-c2-legend">'+
-          '<span><i style="background:'+COL_A.dot+';"></i>'+dlcEsc(A)+'</span>'+
-          '<span><i style="background:'+COL_B.dot+';"></i>'+dlcEsc(B)+'</span>'+
+          '<span><i style="background:'+COL_A.dot+';"></i>'+dlcEsc(nameA)+'</span>'+
+          '<span><i style="background:'+COL_B.dot+';"></i>'+dlcEsc(nameB)+'</span>'+
         '</div>'+
       '</div>'+
       '<div class="dlc-c2-table">'+tbl+'</div>'+
-    '</div>'+extra;
+    '</div>'+extra+caveat;
 
   setTimeout(function(){
     dlcDrawRadar('dlc-c2-canvas', [
-      {name:A, vals:sA, colors:COL_A},
-      {name:B, vals:sB, colors:COL_B}
+      {name:nameA, vals:sA, colors:COL_A},
+      {name:nameB, vals:sB, colors:COL_B}
     ], null, {compare:true});
   }, 30);
 }
@@ -1048,6 +1081,7 @@ function _dlcCmp2Css(){
   '.dlc-c2-citem:hover{background:rgba(255,255,255,0.07);}'+
   '.dlc-c2-citem.on{background:rgba(100,180,255,0.12);}'+
   '.dlc-c2-cg{color:var(--grey-5);font-size:9px;flex-shrink:0;}'+
+  '.dlc-c2-cours{display:inline-block;font-size:7px;letter-spacing:1px;color:var(--warn);background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.35);padding:1px 4px;margin-right:6px;vertical-align:middle;}'+
   '.dlc-c2-cempty{padding:11px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;}'+
   '.hd-radar-tip-sub{font-family:\'DM Mono\',monospace;font-size:9px;margin-top:1px;opacity:0.9;}'+
   '.dlc-c2-swap{flex-shrink:0;background:var(--grey-2,#1a1a1a);border:var(--border);color:var(--grey-6);width:38px;height:38px;cursor:pointer;font-size:15px;border-radius:2px;}'+

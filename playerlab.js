@@ -10,6 +10,20 @@ var PL_ROLE     = 'All';
 var PL_SELECTED = null;
 var PL_DETAIL_TAB = 'overview';
 var PL_HEROES_EXP = {};
+var PL_SHOW_OURS = true;         // include our Supabase roster in the list
+
+// pure pro pool — always used for peer averages / percentiles / style reads
+function plPeerAgg(){ return dlcAgg(PL_TOUR); }
+// list/picker pool — optionally merges our roster (display only)
+function plListAgg(){
+  return (PL_SHOW_OURS && typeof dlcAggWithOurs==='function' && ourHasData())
+    ? dlcAggWithOurs(PL_TOUR, OUR_FILTER) : dlcAgg(PL_TOUR);
+}
+// rawAgg lookup for a key — our players come from the separate ours agg
+function plLookup(key){
+  if (typeof ourIsKey==='function' && ourIsKey(key)) return ourBuildAgg().players[key];
+  return dlcAgg(PL_TOUR).players[key];
+}
 
 // ── Init ─────────────────────────────────────────────────────
 
@@ -31,6 +45,12 @@ function plAgg(){ return dlcAgg(PL_TOUR); }
 function plGames(){ return (DLC_GAMES||[]).filter(function(g){ return PL_TOUR==='All'||g.tour===PL_TOUR; }); }
 
 function plPlayerStats(ign){
+  // our players have no rows in the pro CSV — always use their own all-games
+  // aggregate (the per-role sub-filter only applies to pro data).
+  if (typeof ourIsKey==='function' && ourIsKey(ign)){
+    var ours=ourBuildAgg(); var ox=ours.players[ign];
+    return ox?dlcDerive(ox, ours.total):null;
+  }
   var agg=plAgg();
   var x=agg.players[ign];
   if (!x) return null;
@@ -53,21 +73,37 @@ function plRenderBars(){
   if (roleEl) roleEl.innerHTML=['All'].concat(DLC_ROLES).map(function(r){
     return '<button class="tier-mode-btn'+(r===PL_ROLE?' active':'')+'" onclick="PL_ROLE=\''+r+'\';plRenderList();plRenderBars();plRenderDetail();">'+r+'</button>';
   }).join('');
+  // our-roster source toggle + scope controls (only when we have data)
+  var ourEl=document.getElementById('pl-our-bar');
+  if (ourEl){
+    if (typeof ourHasData==='function' && ourHasData()){
+      if (typeof _dlcCmp2Css==='function') _dlcCmp2Css();   // scope-control styles
+      ourEl.style.display='flex';
+      var toggle='<span class="tier-mode-btn'+(PL_SHOW_OURS?' active':'')+'" '+
+        'onclick="PL_SHOW_OURS=!PL_SHOW_OURS;plRenderList();plRenderBars();plRenderDetail();">OUR TEAM</span>';
+      ourEl.innerHTML=toggle+(PL_SHOW_OURS?ourScopeControls('plRenderPlOurs'):'');
+    } else {
+      ourEl.style.display='none'; ourEl.innerHTML='';
+    }
+  }
 }
+
+// re-render the whole Player Lab after an our-scope change
+function plRenderPlOurs(){ plRenderBars(); plRenderList(); plRenderDetail(); }
 
 // ── Player list ──────────────────────────────────────────────
 
 function plRenderList(){
   var listEl=document.getElementById('pl-player-list');
   if (!listEl||!DLC_GAMES) return;
-  var agg=plAgg();
+  var agg=plListAgg();
 
   var list=Object.keys(agg.players).map(function(ign){
     var x=agg.players[ign];
     if (PL_ROLE!=='All' && !(x.roles[PL_ROLE]>0)) return null;
     var s=plPlayerStats(ign);
     if (!s||!s.games) return null;
-    return {ign:ign, s:s, role:dlcPrimaryRole(x), team:x.team};
+    return {ign:ign, name:ourDisplayName(ign,agg), ours:ourIsKey(ign), s:s, role:dlcPrimaryRole(x), team:x.team};
   }).filter(Boolean);
 
   var key=PL_SORT==='kda'?'kda':PL_SORT==='games'?'games':'wr';
@@ -87,14 +123,15 @@ function plRenderList(){
     var safe=e.ign.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     var logo=DLC_TEAM_LOGOS[e.team]||'';
     var avatar=logo?'<img src="'+logo+'" style="width:34px;height:34px;object-fit:contain;background:var(--grey-8);padding:2px;box-sizing:border-box;" onerror="this.style.display=\'none\'">'
-      :'<div style="width:34px;height:34px;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--grey-5);">'+(e.ign[0]||'?')+'</div>';
+      :'<div style="width:34px;height:34px;background:var(--grey-8);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--grey-5);">'+((e.name||'?')[0]||'?')+'</div>';
+    var oursBadge=e.ours?'<span style="font-size:7px;color:var(--warn);margin-left:5px;letter-spacing:1px;font-family:\'DM Mono\',monospace;vertical-align:middle;">OURS</span>':'';
     return '<div class="hp-item'+(isSel?' active':'')+'" onclick="plSelectPlayer(\''+safe+'\')">'+
       '<div class="hp-item-img" style="display:flex;align-items:center;justify-content:center;">'+avatar+'</div>'+
       '<div class="hp-item-body">'+
-        '<div class="hp-item-name">'+dlcEsc(e.ign).toUpperCase()+
+        '<div class="hp-item-name">'+dlcEsc(e.name).toUpperCase()+oursBadge+
           (s.games<10?'<span style="font-size:7px;color:var(--warn);margin-left:5px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>':'')+
         '</div>'+
-        '<div class="hp-item-meta">'+s.games+'G · '+(e.role||'')+(e.team?' · '+dlcEsc(e.team):'')+'</div>'+
+        '<div class="hp-item-meta">'+s.games+'G · '+(e.role||'')+(e.ours?' · OUR TEAM':(e.team?' · '+dlcEsc(e.team):''))+'</div>'+
       '</div>'+
       '<div class="hp-item-wr-col">'+
         '<div class="hp-item-wr" style="color:'+wrColor+';">'+wr+'%</div>'+
@@ -128,14 +165,16 @@ function plRenderDetail(){
       '<div class="ph-sub">SELECT A PLAYER FROM THE LIST</div></div>';
     return;
   }
-  var agg=plAgg();
-  var x=agg.players[PL_SELECTED];
+  var agg=plAgg();                 // pure pro pool for peers/percentiles/style
+  var ours=(typeof ourIsKey==='function' && ourIsKey(PL_SELECTED));
+  var x=plLookup(PL_SELECTED);
   var s=plPlayerStats(PL_SELECTED);
   if (!x||!s||!s.games){ el.innerHTML='<div class="hd-placeholder-inner" style="min-height:300px;"><div class="ph-sub">NO DATA IN THIS FILTER</div></div>'; return; }
 
+  var dispName=ourDisplayName(PL_SELECTED, ours?ourBuildAgg():agg);
   var role=PL_ROLE!=='All'?PL_ROLE:dlcPrimaryRole(x);
-  var style=dlcStyleRead(agg, PL_SELECTED);
-  var init=PL_SELECTED.slice(0,2).toUpperCase();
+  var style=dlcStyleRead(agg, PL_SELECTED, ours?x:undefined);
+  var init=dispName.slice(0,2).toUpperCase();
   var wr=Math.round(s.wr*100);
   var wrColor=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
   var logo=DLC_TEAM_LOGOS[x.team]||'';
@@ -150,7 +189,7 @@ function plRenderDetail(){
     refVals={};
     DLC_RADAR_AXES.forEach(function(ax){ refVals[ax.key]=dlcRoleAvg(agg,'player',role,ax.key,10); });
   }
-  var series=[{name:PL_SELECTED, vals:s, colors:DLC_SERIES_COLORS[0]}];
+  var series=[{name:dispName, vals:s, colors:DLC_SERIES_COLORS[0]}];
   if (refVals) series.push({name:(role||'Role')+' avg', vals:refVals, colors:DLC_SERIES_COLORS[2]});
 
   var radarHtml=
@@ -161,7 +200,7 @@ function plRenderDetail(){
       '<div class="hd-radar-tip" id="pl-player-radar-canvas-tip"></div>'+
     '</div>'+
     '<div class="hd-radar-legend">'+
-      '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>'+dlcEsc(PL_SELECTED)+'</div>'+
+      '<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(100,180,255,0.9);"></div>'+dlcEsc(dispName)+'</div>'+
       (refVals?'<div class="hd-radar-legend-item"><div class="hd-radar-legend-line" style="background:rgba(80,220,140,0.7);"></div>'+(role||'Role')+' Avg</div>':'')+
     '</div>';
 
@@ -174,8 +213,8 @@ function plRenderDetail(){
           '<div class="hd-square-portrait-fallback">'+dlcEsc(init)+'</div>'+
           (logo?'<img class="hd-square-portrait-img" src="'+logo+'" alt="" loading="lazy" style="object-fit:contain;padding:14px;box-sizing:border-box;" onerror="this.style.display=\'none\'"/>':'')+
         '</div>'+
-        '<div class="hd-top-hero-name">'+dlcEsc(PL_SELECTED).toUpperCase()+'</div>'+
-        '<div class="hd-hdr-meta">'+s.games+' games · '+(role||'')+(x.team?' · '+dlcEsc(x.team):'')+'</div>'+
+        '<div class="hd-top-hero-name">'+dlcEsc(dispName).toUpperCase()+(ours?'<span style="font-size:9px;color:var(--warn);margin-left:8px;letter-spacing:1px;font-family:\'DM Mono\',monospace;vertical-align:middle;">OURS</span>':'')+'</div>'+
+        '<div class="hd-hdr-meta">'+s.games+' games · '+(role||'')+(ours?' · OUR TEAM':(x.team?' · '+dlcEsc(x.team):''))+'</div>'+
         '<div class="hd-top-badges">'+
           (role?'<span class="hd-badge-pool">'+role+'</span>':'')+
           (s.games<10?'<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>':'')+
@@ -204,7 +243,8 @@ function plRenderDetail(){
   else if (PL_DETAIL_TAB==='heropool') body=_plHeroPool(x, agg);
   else if (PL_DETAIL_TAB==='matchups') body=_plMatchups();
 
-  el.innerHTML=topHtml+tabBar+body;
+  var caveat=(ours && typeof ourCaveatBanner==='function')?ourCaveatBanner([PL_SELECTED]):'';
+  el.innerHTML=topHtml+tabBar+body+caveat;
   setTimeout(function(){ dlcDrawRadar('pl-player-radar-canvas', series); },30);
 }
 
@@ -300,7 +340,10 @@ function _plHeroPool(x, agg){
       var wr=r.st.g?r.st.w/r.st.g:0;
       var wrColor=wr>=0.6?'var(--success)':wr>=0.5?'var(--white)':'var(--danger)';
       var expBody='';
-      if (expanded){
+      if (expanded && typeof ourIsKey==='function' && ourIsKey(PL_SELECTED)){
+        expBody='<div style="padding:10px 14px;border-top:var(--border);font-family:\'DM Mono\',monospace;font-size:8px;color:var(--grey-5);">'+
+          r.st.g+' games · '+r.st.w+'W / '+(r.st.g-r.st.w)+'L · per-hero stat splits aren’t tracked for our games</div>';
+      } else if (expanded){
         var hs=dlcStatsWhere(plGames(), function(pk){return pk.player===PL_SELECTED&&pk.hero===r.h;}, agg.total, null, 'player');
         expBody='<div class="hd-alltime-grid" style="border-top:var(--border);margin:0;">'+
           _plCell('WR',dlcPct(hs.wr,1))+
