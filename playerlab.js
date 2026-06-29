@@ -4,13 +4,14 @@
 // tempo + trend, linked hero pool, shared compare drawer.
 // ═══════════════════════════════════════════════════════════
 
-var PL_TOUR     = 'All';
-var PL_SORT     = 'wr';          // wr | kda | games
-var PL_ROLE     = 'All';
-var PL_SELECTED = null;
+var PL_TOUR      = 'All';
+var PL_SORT      = 'wr';          // wr | kda | games
+var PL_ROLE      = 'All';
+var PL_SELECTED  = null;
 var PL_DETAIL_TAB = 'overview';
 var PL_HEROES_EXP = {};
 var PL_SHOW_OURS = true;         // include our Supabase roster in the list
+var PL_SCOUT_MODE = false;        // false = pro data, true = scout data
 
 // pure pro pool — always used for peer averages / percentiles / style reads
 function plPeerAgg(){ return dlcAgg(PL_TOUR); }
@@ -30,6 +31,18 @@ function plLookup(key){
 function plInit(){
   _dlcInjectCss();
   var listEl=document.getElementById('pl-player-list');
+  if (PL_SCOUT_MODE){
+    if (DLC_SCOUT_GAMES){ plRenderBars(); plRenderList(); plRenderDetail(); return; }
+    if (listEl) listEl.innerHTML='<div style="padding:20px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:1px;">Loading scout data…</div>';
+    dlcEnsureScout(function(err){
+      if (err){
+        if (listEl) listEl.innerHTML='<div style="padding:20px;color:var(--danger);font-family:\'DM Mono\',monospace;font-size:10px;">Failed to load scout data.<br>'+dlcEsc(err.message)+'</div>';
+        return;
+      }
+      plRenderBars(); plRenderList(); plRenderDetail();
+    });
+    return;
+  }
   if (DLC_GAMES){ plRenderBars(); plRenderList(); plRenderDetail(); return; }
   if (listEl) listEl.innerHTML='<div style="padding:20px;color:var(--grey-5);font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:1px;">Loading pro data…</div>';
   dlcEnsure(function(err){
@@ -41,8 +54,18 @@ function plInit(){
   });
 }
 
-function plAgg(){ return dlcAgg(PL_TOUR); }
-function plGames(){ return (DLC_GAMES||[]).filter(function(g){ return PL_TOUR==='All'||g.tour===PL_TOUR; }); }
+function plSetSource(scout){
+  PL_SCOUT_MODE=!!scout;
+  PL_TOUR='All';
+  PL_SELECTED=null;
+  plInit();
+}
+
+function plAgg(){ return PL_SCOUT_MODE ? dlcScoutAgg(PL_TOUR) : dlcAgg(PL_TOUR); }
+function plGames(){
+  var src=PL_SCOUT_MODE?(DLC_SCOUT_GAMES||[]):(DLC_GAMES||[]);
+  return src.filter(function(g){ return PL_TOUR==='All'||g.tour===PL_TOUR; });
+}
 
 function plPlayerStats(ign){
   // our players have no rows in the pro CSV — always use their own all-games
@@ -62,9 +85,26 @@ function plPlayerStats(ign){
 
 function plRenderBars(){
   var tourEl=document.getElementById('pl-tour-bar');
-  if (tourEl) tourEl.innerHTML=DLC_TOURS.map(function(t){
-    return '<button class="tier-mode-btn'+(t===PL_TOUR?' active':'')+'" onclick="PL_TOUR=\''+t+'\';plRenderBars();plRenderList();plRenderDetail();dlcRenderCmp();">'+t+'</button>';
-  }).join('');
+  if (tourEl){
+    // PRO / SCOUT source toggle
+    var srcHtml=
+      '<button class="tier-mode-btn'+(!PL_SCOUT_MODE?' active':'')+'" onclick="plSetSource(false)">PRO</button>'+
+      '<button class="tier-mode-btn'+(PL_SCOUT_MODE?' active':'')+'" onclick="plSetSource(true)">SCOUT</button>'+
+      '<span style="display:inline-block;width:1px;height:16px;background:var(--grey-3);margin:0 6px;vertical-align:middle;"></span>';
+    // Build tour list: for scout mode use the actual TYPE values from the loaded data
+    var tours;
+    if (PL_SCOUT_MODE && DLC_SCOUT_GAMES && DLC_SCOUT_GAMES.length){
+      var seen={};
+      DLC_SCOUT_GAMES.forEach(function(g){ if(g.tour) seen[g.tour]=true; });
+      tours=['All'].concat(Object.keys(seen));
+    } else {
+      tours=DLC_TOURS;
+    }
+    tourEl.innerHTML=srcHtml+tours.map(function(t){
+      var safe=t.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return '<button class="tier-mode-btn'+(t===PL_TOUR?' active':'')+'" onclick="PL_TOUR=\''+safe+'\';plRenderBars();plRenderList();plRenderDetail();dlcRenderCmp();">'+dlcEsc(t)+'</button>';
+    }).join('');
+  }
   var sortEl=document.getElementById('pl-sort-bar');
   if (sortEl) sortEl.innerHTML=[['wr','Win Rate'],['kda','KDA'],['games','Games']].map(function(s){
     return '<button class="tier-mode-btn'+(s[0]===PL_SORT?' active':'')+'" onclick="PL_SORT=\''+s[0]+'\';plRenderList();plRenderBars();">'+s[1]+'</button>';
@@ -95,12 +135,15 @@ function plRenderPlOurs(){ plRenderBars(); plRenderList(); plRenderDetail(); }
 
 function plRenderList(){
   var listEl=document.getElementById('pl-player-list');
-  if (!listEl||!DLC_GAMES) return;
-  var agg=plListAgg();
+  var ready=PL_SCOUT_MODE?!!DLC_SCOUT_GAMES:!!DLC_GAMES;
+  if (!listEl||!ready) return;
+  var agg=PL_SCOUT_MODE?plAgg():plListAgg();
 
   var list=Object.keys(agg.players).map(function(ign){
     var x=agg.players[ign];
     if (PL_ROLE!=='All' && !(x.roles[PL_ROLE]>0)) return null;
+    // In scout mode, hide opponent rows that have no real stats (all blank → 0)
+    if (PL_SCOUT_MODE && x.k===0 && x.dmg===0) return null;
     var s=plPlayerStats(ign);
     if (!s||!s.games) return null;
     return {ign:ign, name:ourDisplayName(ign,agg), ours:ourIsKey(ign), s:s, role:dlcPrimaryRole(x), team:x.team};

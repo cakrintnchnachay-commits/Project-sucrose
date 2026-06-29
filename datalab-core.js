@@ -15,6 +15,10 @@ var DLC_CMP   = {type:null, items:[]};   // compare pins
 var _DLC_CSS  = false;
 var _DLC_LOADCBS = [];
 
+var DLC_SCOUT_GAMES = null;      // ANK Female scout CSV (lazy-loaded)
+var DLC_SCOUT_AGGS  = {};        // separate agg cache — no collision with pro
+var _DLC_SCOUT_LOADCBS = [];
+
 var DLC_ROLES = ['DSL','JUG','MID','ADL','SUP'];
 var DLC_TOURS = ['All', 'RPL Summer', 'GCS Spring', 'AOG Spring', 'APL WC', 'APL 2026'];
 var DLC_WEEK_BUCKETS = ['W1','W2','W3','W4','W5','W6','W7','PO'];
@@ -1164,6 +1168,38 @@ function dlcEnsure(cb){
       var cbs=_DLC_LOADCBS; _DLC_LOADCBS=[];
       cbs.forEach(function(f){ try{f(err);}catch(e){console.error(e);} });
     });
+}
+
+// ── Scout data loader + aggregation ─────────────────────────
+
+function dlcEnsureScout(cb){
+  if (DLC_SCOUT_GAMES){ cb&&cb(); return; }
+  if (cb) _DLC_SCOUT_LOADCBS.push(cb);
+  if (_DLC_SCOUT_LOADCBS.length>1) return;
+  fetch('ank_female_scout.csv',{cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(function(txt){
+      DLC_SCOUT_GAMES=dlcBuildGames(txt);
+      DLC_SCOUT_AGGS={};
+      var cbs=_DLC_SCOUT_LOADCBS; _DLC_SCOUT_LOADCBS=[];
+      cbs.forEach(function(f){ try{f();}catch(e){console.error(e);} });
+    })
+    .catch(function(err){
+      var cbs=_DLC_SCOUT_LOADCBS; _DLC_SCOUT_LOADCBS=[];
+      cbs.forEach(function(f){ try{f(err);}catch(e){console.error(e);} });
+    });
+}
+
+// Runs dlcAgg() against the scout games by temporarily swapping
+// the two globals (JS is single-threaded so no race risk).
+function dlcScoutAgg(tour){
+  tour=tour||'All';
+  if (DLC_SCOUT_AGGS[tour]) return DLC_SCOUT_AGGS[tour];
+  var g0=DLC_GAMES, a0=DLC_AGGS;
+  DLC_GAMES=DLC_SCOUT_GAMES; DLC_AGGS=DLC_SCOUT_AGGS;
+  var agg=dlcAgg(tour);
+  DLC_GAMES=g0; DLC_AGGS=a0;
+  return agg;
 }
 
 // ── core CSS ─────────────────────────────────────────────────
