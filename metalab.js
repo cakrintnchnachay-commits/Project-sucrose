@@ -380,8 +380,8 @@ function _mlStats(s, agg, role){
 function _mlTempo(s, x, trend){
   var sideHtml=
     '<div class="dlc-tempo">'+
-      '<div class="dlc-tempo-cell"><div class="dlc-tempo-wr" style="color:'+(s.wrBlue==null?'var(--grey-5)':s.wrBlue>=0.55?'var(--success)':s.wrBlue<0.45?'var(--danger)':'var(--white)')+';">'+(s.wrBlue==null?'—':Math.round(s.wrBlue*100)+'%')+'</div><div class="dlc-tempo-lbl" style="color:rgba(100,180,255,0.9);">BLUE SIDE</div><div class="dlc-tempo-g">'+x.sideA.g+'G</div></div>'+
-      '<div class="dlc-tempo-cell"><div class="dlc-tempo-wr" style="color:'+(s.wrRed==null?'var(--grey-5)':s.wrRed>=0.55?'var(--success)':s.wrRed<0.45?'var(--danger)':'var(--white)')+';">'+(s.wrRed==null?'—':Math.round(s.wrRed*100)+'%')+'</div><div class="dlc-tempo-lbl" style="color:rgba(255,110,110,0.9);">RED SIDE</div><div class="dlc-tempo-g">'+x.sideB.g+'G</div></div>'+
+      '<div class="dlc-tempo-cell"><div class="dlc-tempo-wr" style="color:'+(s.wrBlue==null?'var(--grey-5)':s.wrBlue>=0.55?'var(--success)':s.wrBlue<0.45?'var(--danger)':'var(--white)')+';">'+(s.wrBlue==null?'—':Math.round(s.wrBlue*100)+'%')+'</div><div class="dlc-tempo-lbl" style="color:rgba(100,180,255,0.9);">BLUE SIDE</div><div class="dlc-tempo-g">'+((x.sideBlue&&x.sideBlue.g)||0)+'G</div></div>'+
+      '<div class="dlc-tempo-cell"><div class="dlc-tempo-wr" style="color:'+(s.wrRed==null?'var(--grey-5)':s.wrRed>=0.55?'var(--success)':s.wrRed<0.45?'var(--danger)':'var(--white)')+';">'+(s.wrRed==null?'—':Math.round(s.wrRed*100)+'%')+'</div><div class="dlc-tempo-lbl" style="color:rgba(255,110,110,0.9);">RED SIDE</div><div class="dlc-tempo-g">'+((x.sideRed&&x.sideRed.g)||0)+'G</div></div>'+
     '</div>';
   return _mlSectionHdr('GAME TEMPO','win rate by how games end')+
     dlcTempoHtml(s)+

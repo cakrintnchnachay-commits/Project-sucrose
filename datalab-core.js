@@ -95,6 +95,9 @@ function dlcBuildGames(csvText) {
     if (isNaN(dur)||dur<=0) continue;
     var teamA=get(row,'Team A'), teamB=get(row,'Team B');
     var winSide=(get(row,'MATCH WIN')===teamA)?'A':'B';
+    // 'Team A side' tells us whether Team A is on BLUE or RED map side.
+    // We store this so aggregation can assign sideBlue/sideRed correctly.
+    var teamASide=(get(row,'Team A side')||'').toUpperCase().trim(); // 'BLUE' or 'RED'
     var bans={A:[],B:[]};
     ['A','B'].forEach(function(S){
       for (var b=1;b<=4;b++){ var bn=dlcCanon(get(row,S+' BAN '+b)); if(bn) bans[S].push(bn); }
@@ -125,7 +128,8 @@ function dlcBuildGames(csvText) {
       endType:get(row,'END TYPE'),
       fb:(fb===teamA)?'A':(fb===teamB)?'B':null,
       obj:{A:{dr:obj('A','DRAGON'),sl:obj('A','SLAYER'),tw:obj('A','TOWER')},
-           B:{dr:obj('B','DRAGON'),sl:obj('B','SLAYER'),tw:obj('B','TOWER')}}
+           B:{dr:obj('B','DRAGON'),sl:obj('B','SLAYER'),tw:obj('B','TOWER')}},
+      teamASide:teamASide   // 'BLUE' or 'RED' — which map side Team A occupies
     });
   }
   return games;
@@ -158,13 +162,13 @@ function dlcAgg(tour) {
 
   function H(h){
     if(!agg.heroes[h]) agg.heroes[h]={g:0,w:0,bans:0,roles:{},players:{},
-      weeks:{},snow:{g:0,w:0},late:{g:0,w:0},sideA:{g:0,w:0},sideB:{g:0,w:0},
+      weeks:{},snow:{g:0,w:0},late:{g:0,w:0},sideBlue:{g:0,w:0},sideRed:{g:0,w:0},
       k:0,d:0,a:0,dmg:0,dtk:0,dur:0,kpSum:0,kpN:0,mvp:0};
     return agg.heroes[h];
   }
   function P(p){
     if(!agg.players[p]) agg.players[p]={g:0,w:0,team:'',roles:{},heroes:{},
-      weeks:{},snow:{g:0,w:0},late:{g:0,w:0},sideA:{g:0,w:0},sideB:{g:0,w:0},
+      weeks:{},snow:{g:0,w:0},late:{g:0,w:0},sideBlue:{g:0,w:0},sideRed:{g:0,w:0},
       k:0,d:0,a:0,dmg:0,dtk:0,dur:0,kpSum:0,kpN:0,mvp:0};
     return agg.players[p];
   }
@@ -175,19 +179,22 @@ function dlcAgg(tour) {
   }
 
   games.forEach(function(g){
-    if (g.winSide==='A') agg.blueWins++;
+    // Determine which CSV side (A or B) is actually on blue map side
+    var blueSide = (g.teamASide==='RED') ? 'B' : 'A';  // default A=blue when column missing
+    if (g.winSide===blueSide) agg.blueWins++;
     var bucket = dlcWeekBucket(g.week);
     if (bucket) agg.bucketTotals[bucket]=(agg.bucketTotals[bucket]||0)+1;
     var isSnow = g.endType==='SNOWBALL';
 
     ['A','B'].forEach(function(S){
       var won = g.winSide===S;
+      var isBlue = S===blueSide;
       var abbr=g.teams[S];
       if (abbr){
         var tm=T(abbr);
         tm.g++; if(won)tm.w++;
         tm.dur+=g.dur;
-        tm[S==='A'?'sideA':'sideB'].g++; if(won) tm[S==='A'?'sideA':'sideB'].w++;
+        tm[isBlue?'sideA':'sideB'].g++; if(won) tm[isBlue?'sideA':'sideB'].w++;
         if (g.fb===S){ tm.fbG++; if(won)tm.fbW++; }
         var o=g.obj[S], oo=g.obj[S==='A'?'B':'A'];
         if (o.dr!=null&&oo.dr!=null){ tm.dr+=o.dr-oo.dr; tm.sl+=(o.sl||0)-(oo.sl||0); tm.tw+=(o.tw||0)-(oo.tw||0); tm.objN++; }
@@ -211,7 +218,8 @@ function dlcAgg(tour) {
         x.k+=pk.k; x.d+=pk.d; x.a+=pk.a; x.dmg+=pk.dmg; x.dtk+=pk.dtk; x.dur+=g.dur;
         if (tk>0){ x.kpSum+=Math.min((pk.k+pk.a)/tk,1); x.kpN++; }
         if (pk.role) x.roles[pk.role]=(x.roles[pk.role]||0)+1;
-        x[pk.side==='A'?'sideA':'sideB'].g++; if(won) x[pk.side==='A'?'sideA':'sideB'].w++;
+        var _side=pk.side===blueSide?'sideBlue':'sideRed';
+        x[_side].g++; if(won) x[_side].w++;
         var t=x[isSnow?'snow':'late']; t.g++; if(won)t.w++;
         if (bucket){ if(!x.weeks[bucket])x.weeks[bucket]={g:0,bans:0,w:0}; x.weeks[bucket].g++; if(won)x.weeks[bucket].w++; }
       });
@@ -270,8 +278,8 @@ function dlcDerive(x, total) {       // hero or player raw agg → stat object
     dmgPerMin:x.dur?x.dmg/x.dur:0, dtkPerMin:x.dur?x.dtk/x.dur:0,
     kp:x.kpN?(x.kpSum/x.kpN)*100:0,
     mvpRate:x.g?x.mvp/x.g:0, avgDur:x.g?x.dur/x.g:0,
-    wrBlue:x.sideA.g?x.sideA.w/x.sideA.g:null,
-    wrRed:x.sideB.g?x.sideB.w/x.sideB.g:null,
+    wrBlue:x.sideBlue&&x.sideBlue.g?x.sideBlue.w/x.sideBlue.g:null,
+    wrRed:x.sideRed&&x.sideRed.g?x.sideRed.w/x.sideRed.g:null,
     snowG:x.snow.g, snowWR:x.snow.g?x.snow.w/x.snow.g:null,
     lateG:x.late.g, lateWR:x.late.g?x.late.w/x.late.g:null
   };
@@ -1129,10 +1137,11 @@ function _dlcCmp2Css(){
 // 'player' counts g.mvpPlayer===pk.player.
 function dlcStatsWhere(games, match, total, bans, mvpMode){
   var x={g:0,w:0,k:0,d:0,a:0,dmg:0,dtk:0,dur:0,kpSum:0,kpN:0,mvp:0,
-         sideA:{g:0,w:0},sideB:{g:0,w:0},snow:{g:0,w:0},late:{g:0,w:0},
+         sideBlue:{g:0,w:0},sideRed:{g:0,w:0},snow:{g:0,w:0},late:{g:0,w:0},
          roles:{},bans:bans!=null?bans:undefined};
   games.forEach(function(g){
     var isSnow=g.endType==='SNOWBALL';
+    var blueSide=(g.teamASide==='RED')?'B':'A';
     g.picks.forEach(function(pk){
       if(!match(pk,g)) return;
       var won=g.winSide===pk.side;
@@ -1141,7 +1150,7 @@ function dlcStatsWhere(games, match, total, bans, mvpMode){
       var tk=g.teamKills[pk.side];
       if(tk>0){x.kpSum+=Math.min((pk.k+pk.a)/tk,1);x.kpN++;}
       if(pk.role)x.roles[pk.role]=(x.roles[pk.role]||0)+1;
-      var sideObj=x[pk.side==='A'?'sideA':'sideB'];
+      var sideObj=x[pk.side===blueSide?'sideBlue':'sideRed'];
       sideObj.g++; if(won)sideObj.w++;
       var t=x[isSnow?'snow':'late']; t.g++; if(won)t.w++;
       if (mvpMode==='hero'  && g.mvpHero===pk.hero) x.mvp++;
