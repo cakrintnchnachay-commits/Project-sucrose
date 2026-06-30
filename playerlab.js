@@ -208,9 +208,9 @@ function plRenderDetail(){
       '<div class="ph-sub">SELECT A PLAYER FROM THE LIST</div></div>';
     return;
   }
-  var agg=plAgg();                 // pure pro pool for peers/percentiles/style
-  var ours=(typeof ourIsKey==='function' && ourIsKey(PL_SELECTED));
-  var x=plLookup(PL_SELECTED);
+  var agg=plAgg();
+  var ours=(typeof ourIsKey==='function' && !PL_SCOUT_MODE && ourIsKey(PL_SELECTED));
+  var x=PL_SCOUT_MODE?agg.players[PL_SELECTED]:plLookup(PL_SELECTED);
   var s=plPlayerStats(PL_SELECTED);
   if (!x||!s||!s.games){ el.innerHTML='<div class="hd-placeholder-inner" style="min-height:300px;"><div class="ph-sub">NO DATA IN THIS FILTER</div></div>'; return; }
 
