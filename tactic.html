@@ -337,11 +337,33 @@ const SUPABASE_URL='https://ihxnvlfilhcadqqcpqke.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloeG52bGZpbGhjYWRxcWNwcWtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTI4NDEsImV4cCI6MjA5Mzc4ODg0MX0.c0gKpFDmSiNpjjm2rbnPybbz91-SqmLmAHArotgjbKI';
 const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
 
-const HERO_ICON_BASE='Data Extraction/hero_icons/';
-const HERO_CSV='hero_name_reference.csv';
-const GAMES_CSV='game_results_detailed.csv';
+// Hero portraits come from Cloudinary (same source as the main app), so no
+// image files need to live in this public repo. A few heroes need a remapped
+// public-id; the rest resolve as <base>/<name>.jpg.
+const HERO_IMG_BASE='https://res.cloudinary.com/dtzdhbllb/image/upload/';
+const HERO_IMG_MAP={
+  "Azzen'Ka":'AzzenKa',"D'Arcy":'Darcy','Diaochan':'Diao_Chan',
+  "Eland'orr":'Elandorr',"Kil'Groth":'Kil_Groth',"Tel'Annas":'Tel_Annas',
+  'Wukong':'Wu_Kong','The Flash':'The_Flash','Brunhilda':'Celica',
+  'Arthur':'Mortos','Jinnar':'Jinna','Lu Bu':'Lu_Bu',
+  'Wonder Woman':'Wonder_Woman','Bolt Baron':'Bolt_Baron',"Y'bneth":'Y_bneth',
+  'Flowborn':'v1775747198/Flowborn.png','Flowborn Marksman':'v1775747198/Flowborn.png',
+  'Flowborn (Marksman)':'v1775747198/Flowborn.png','Flowborn (Mage)':'v1775747198/Flowborn.png'
+};
+let OVERRIDES={};   // hero_overrides from Supabase app_settings (custom imgs / roles)
 
 const POSITIONS=['DSL','JUG','MID','ADL','SUP'];
+// Map a hero's role label (from the DB) to one of the position tabs.
+// Handles synonyms: Jungle/Jungler, Midlane/Mid, Carry/Marksman, Support/Roam…
+function roleToTab(role){
+  const r=String(role||'').toLowerCase();
+  if(r.includes('off'))return 'DSL';
+  if(r.includes('jung'))return 'JUG';
+  if(r.includes('mid'))return 'MID';
+  if(r.includes('carry')||r.includes('marks')||r.includes('adc')||r.includes('dragon'))return 'ADL';
+  if(r.includes('sup')||r.includes('roam'))return 'SUP';
+  return null;
+}
 
 // Pen colour swatches (toolbar)
 const SWATCHES=['#FF4444','#4488FF','#FFD700','#44CC44','#FFFFFF','#FF8800'];
@@ -397,113 +419,55 @@ const penState={size:5,color:'#FF4444'};
 let _idc=0; const uid=()=>'t'+(++_idc)+'_'+Math.floor(performance.now());
 
 // ════════════════════════════════════════════════════════════════
-//  HERO ICON RESOLUTION
-//  Files use underscores for spaces & apostrophes (Eland'orr -> Eland_orr).
-//  We build a list of candidate filenames and let <img onerror> walk it.
+//  HERO PORTRAITS  (Cloudinary — mirrors the main app's heroImgUrl)
 // ════════════════════════════════════════════════════════════════
-// A few reference-CSV names spell heroes differently from their icon files.
-const ICON_ALIAS={'AzzenKa':'Azzen_Ka','Diao chan':'Diaochan','Diao_chan':'Diaochan','Jinna':'Jinnar'};
-function iconCandidates(name){
-  const norm=name.replace(/[^A-Za-z0-9]/g,'_');
-  const alias=ICON_ALIAS[name]||ICON_ALIAS[norm];
-  const bases=[...new Set([alias,name,norm].filter(Boolean))];
-  const out=[];
-  bases.forEach(b=>{ out.push(HERO_ICON_BASE+encodeURIComponent(b)+'.jpg');
-                     out.push(HERO_ICON_BASE+encodeURIComponent(b)+'.png'); });
-  return out;
+function heroImgUrl(name){
+  if(!name) return '';
+  if(OVERRIDES[name]&&OVERRIDES[name].img) return OVERRIDES[name].img;   // custom upload
+  const m=HERO_IMG_MAP[name];
+  if(m) return HERO_IMG_BASE+(m.includes('/')?m:m+'.jpg');
+  return HERO_IMG_BASE+encodeURIComponent(name)+'.jpg';
 }
 function initials(name){
   return (name||'?').split(/[ _'-]/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase()||'?';
 }
-// Returns an <img> string that tries each candidate filename in turn, then
-// hides itself so the initials underneath show through.
-// Candidates are stored as a '|'-delimited list (URLs never contain '|'),
-// which avoids any quote/JSON-escaping problems inside the HTML attribute.
+// <img> that hides itself on error so the initials underneath show through.
 function heroImgTag(name,extra){
-  const cands=iconCandidates(name);
-  return '<img '+(extra||'')+' src="'+cands[0]+'" data-cand="'+cands.join('|')+'" data-i="0" '+
-         'onerror="iconErr(this)" draggable="false"/>';
-}
-// Global fallback handler: advance to the next candidate, or hide on exhaustion.
-function iconErr(im){
-  const list=(im.dataset.cand||'').split('|');
-  const i=(+im.dataset.i||0)+1; im.dataset.i=i;
-  if(i<list.length) im.src=list[i]; else im.style.display='none';
-}
-window.iconErr=iconErr;
-
-// ════════════════════════════════════════════════════════════════
-//  CSV PARSING (handles quoted fields with commas)
-// ════════════════════════════════════════════════════════════════
-function parseCSV(text){
-  const rows=[]; let row=[],cur='',q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(q){
-      if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; }
-      else cur+=c;
-    }else{
-      if(c==='"')q=true;
-      else if(c===','){row.push(cur);cur='';}
-      else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur='';}
-      else if(c==='\r'){/*skip*/}
-      else cur+=c;
-    }
-  }
-  if(cur!==''||row.length){row.push(cur);rows.push(row);}
-  return rows;
+  return '<img '+(extra||'')+' src="'+heroImgUrl(name)+'" '+
+         'onerror="this.style.display=\'none\'" draggable="false"/>';
 }
 
 // ════════════════════════════════════════════════════════════════
-//  DATA LOADING
+//  DATA LOADING  (heroes + roles + image overrides — all from Supabase)
 // ════════════════════════════════════════════════════════════════
 async function loadData(){
-  // 1) hero name reference (canonical English names)
-  let heroNames=[];
-  try{
-    const t=await (await fetch(HERO_CSV)).text();
-    const rows=parseCSV(t);
-    const header=rows[0].map(s=>s.trim().toLowerCase());
-    const ei=header.indexOf('english');
-    for(let i=1;i<rows.length;i++){ const n=(rows[i][ei]||'').trim(); if(n)heroNames.push(n); }
-  }catch(e){ console.warn('hero csv failed',e); }
+  if(!sb){ document.getElementById('heroGrid').innerHTML=
+    '<div class="note" style="grid-column:1/-1;">Supabase did not load — check your connection.</div>'; return; }
 
-  // 2) game results — positions each hero is played in + import rows
+  // image / role overrides (best-effort; some heroes use a custom uploaded image)
   try{
-    const t=await (await fetch(GAMES_CSV)).text();
-    const rows=parseCSV(t);
-    const H=rows[0].map(s=>s.trim());
-    const idx=name=>H.indexOf(name);
-    const cA={DSL:idx('A DSL'),JUG:idx('A JUG'),MID:idx('A MID'),ADL:idx('A ADL'),SUP:idx('A SUP')};
-    const cB={DSL:idx('B DSL'),JUG:idx('B JUG'),MID:idx('B MID'),ADL:idx('B ADL'),SUP:idx('B SUP')};
-    const iDate=idx('DATE'), iGame=H.findIndex(h=>h.trim()==='GAME'), iMatch=idx('Match'),
-          iA=idx('Team A'), iB=idx('Team B'), iSide=idx('Team A side');
-    for(let i=1;i<rows.length;i++){
-      const r=rows[i]; if(!r||!r[iA])continue;
-      const aH={},bH={};
-      POSITIONS.forEach(p=>{
-        const av=(r[cA[p]]||'').trim(), bv=(r[cB[p]]||'').trim();
-        if(av){ aH[p]=av; addHeroPos(av,p); }
-        if(bv){ bH[p]=bv; addHeroPos(bv,p); }
-      });
-      state.games.push({
-        date:(r[iDate]||'').trim(),
-        game:(r[iGame]||'').trim(),
-        match:(r[iMatch]||'').trim(),
-        teamA:(r[iA]||'').trim(), teamB:(r[iB]||'').trim(),
-        side:(r[iSide]||'').trim().toUpperCase(),
-        aHeroes:aH, bHeroes:bH
-      });
-    }
-  }catch(e){ console.warn('games csv failed',e); }
+    const {data}=await sb.from('app_settings').select('value').eq('key','hero_overrides').single();
+    if(data&&data.value) OVERRIDES=data.value;
+  }catch(e){ console.warn('overrides load failed',e); }
 
-  // 3) merge into hero list (reference names ∪ heroes seen in games)
-  const set=new Map();
-  heroNames.forEach(n=>set.set(n.toLowerCase(),n));
-  Object.keys(state.heroPos).forEach(n=>{ if(!set.has(n.toLowerCase()))set.set(n.toLowerCase(),n); });
-  state.heroes=[...set.values()].sort((a,b)=>a.localeCompare(b));
-  if(!state.heroes.length){ document.getElementById('heroGrid').innerHTML=
-    '<div class="note" style="grid-column:1/-1;">Could not load hero list. Make sure the page is served over http (not opened as a file).</div>'; }
+  // hero list + roles
+  try{
+    const {data,error}=await sb.from('heroes').select('name,roles').order('name');
+    if(error)throw error;
+    state.heroes=data.map(h=>h.name).filter(Boolean);
+    data.forEach(h=>{
+      // a hero's roles can be overridden in app_settings; prefer those if present
+      const ov=OVERRIDES[h.name];
+      const roles=(ov&&ov.roles&&ov.roles.length)?ov.roles:(h.roles||[]);
+      roles.forEach(r=>String(r).split('/').forEach(part=>{
+        const tab=roleToTab(part); if(tab) addHeroPos(h.name,tab);
+      }));
+    });
+  }catch(e){
+    console.warn('heroes load failed',e);
+    document.getElementById('heroGrid').innerHTML=
+      '<div class="note" style="grid-column:1/-1;">Could not load heroes from the database.</div>';
+  }
   renderHeroGrid();
 }
 function addHeroPos(hero,pos){ (state.heroPos[hero]=state.heroPos[hero]||new Set()).add(pos); }
@@ -991,16 +955,41 @@ async function openLoad(){
 }
 
 // ════════════════════════════════════════════════════════════════
-//  IMPORT DRAFT
+//  IMPORT DRAFT  (from DraftLab's saved series — localStorage 'dl_scenarios_v2')
+//  DraftLab side B = Blue, side R = Red. Each saved series holds one or more
+//  games; we flatten them into a pick-list the user can choose from.
 // ════════════════════════════════════════════════════════════════
+function dlSavedGames(){
+  let scns=[]; try{ scns=JSON.parse(localStorage.getItem('dl_scenarios_v2')||'[]'); }catch(e){}
+  const order={DSL:0,JUG:1,MID:2,ADL:3,SUP:4};
+  const picks=(actions,side,roles)=>(actions||[])
+    .filter(a=>a.type==='pick'&&a.side===side&&a.hero)
+    .map(a=>({hero:a.hero,role:(roles&&roles[a.n])||''}))
+    .sort((x,y)=>(order[x.role]??9)-(order[y.role]??9))
+    .map(p=>p.hero);
+  const games=[];
+  scns.forEach(s=>{
+    const gs=[...(s.series||[])];
+    if(s.current&&s.current.actions&&s.current.actions.some(a=>a.type==='pick'&&a.hero))
+      gs.push({actions:s.current.actions,rolesB:s.current.rolesB,rolesR:s.current.rolesR});
+    gs.forEach((g,i)=>games.push({
+      scn:s.name||'Unnamed series', date:s.date||'', gameNum:i+1,
+      teamB:(s.teams&&s.teams.B)||'Blue', teamR:(s.teams&&s.teams.R)||'Red',
+      blue:picks(g.actions,'B',g.rolesB), red:picks(g.actions,'R',g.rolesR)
+    }));
+  });
+  return games.filter(g=>g.blue.length||g.red.length);
+}
 function openImport(){
-  if(!state.games.length)return toast('No game data loaded.',true);
-  const rowHTML=g=>'<div class="import-row" data-id="'+state.games.indexOf(g)+'">'+
-    '<span class="date">'+esc(g.date)+'</span><span class="vs">'+esc(g.teamA)+' vs '+esc(g.teamB)+'</span>'+
-    '<span class="gm">Game '+esc(g.game||g.match||'?')+'</span></div>';
-  showModal('Import draft',
-    '<input class="modal-search" id="impSearch" placeholder="search team / date…"/>'+
-    '<div class="import-list" id="impList">'+state.games.map(rowHTML).join('')+'</div>',
+  const games=dlSavedGames();
+  if(!games.length)return toast('No DraftLab saves found — save a draft in DraftLab first.',true);
+  const rowHTML=(g,i)=>'<div class="import-row" data-id="'+i+'">'+
+    '<span class="date">'+esc(g.date)+'</span>'+
+    '<span class="vs">'+esc(g.teamB)+' vs '+esc(g.teamR)+'</span>'+
+    '<span class="gm">Game '+g.gameNum+' · '+esc(g.scn)+'</span></div>';
+  showModal('Import draft (from DraftLab)',
+    '<input class="modal-search" id="impSearch" placeholder="search team / series / date…"/>'+
+    '<div class="import-list" id="impList">'+games.map(rowHTML).join('')+'</div>',
     (modal)=>{
       const list=modal.querySelector('#impList');
       modal.querySelector('#impSearch').addEventListener('input',function(){
@@ -1008,20 +997,15 @@ function openImport(){
         list.querySelectorAll('.import-row').forEach(r=>{ r.style.display=r.textContent.toLowerCase().includes(q)?'':'none'; });
       });
       list.querySelectorAll('.import-row').forEach(r=>r.addEventListener('click',()=>{
-        importGame(state.games[+r.dataset.id]); closeModal();
+        importGame(games[+r.dataset.id]); closeModal();
       }));
     });
 }
 function importGame(g){
-  // Team A side decides which bench gets Team A's heroes
-  const aSideBlue = g.side==='BLUE';
-  const blueHeroes = aSideBlue ? g.aHeroes : g.bHeroes;
-  const redHeroes  = aSideBlue ? g.bHeroes : g.aHeroes;
-  state.bench.blue=[]; state.bench.red=[];
-  POSITIONS.forEach(p=>{ if(blueHeroes[p])state.bench.blue.push({id:uid(),hero:blueHeroes[p]}); });
-  POSITIONS.forEach(p=>{ if(redHeroes[p]) state.bench.red.push({id:uid(),hero:redHeroes[p]}); });
+  state.bench.blue=g.blue.map(h=>({id:uid(),hero:h}));
+  state.bench.red =g.red.map(h=>({id:uid(),hero:h}));
   renderBench();
-  toast('Imported '+g.teamA+' vs '+g.teamB+' → bench');
+  toast('Imported '+g.teamB+' vs '+g.teamR+' (Game '+g.gameNum+') → bench');
 }
 
 // ════════════════════════════════════════════════════════════════
