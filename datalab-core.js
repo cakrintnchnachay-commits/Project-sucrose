@@ -356,12 +356,13 @@ function dlcRoleAvg(agg, kind, role, key, minG){
 
 // ── Player style read (label + evidence) ─────────────────────
 
-function dlcStyleRead(agg, ign, xOverride){
+function dlcStyleRead(agg, ign, xOverride, minG){
   // xOverride lets the subject's own rawAgg come from a different pool
   // (e.g. our players) while traits are still computed against the pure
   // pro `agg` passed in. Peer purity is preserved.
   var x=xOverride||agg.players[ign];
-  if (!x||x.g<10) return {traits:[{label:'LOW SAMPLE', ev:'fewer than 10 games — style read unreliable'}]};
+  var _thr=minG!=null?minG:10;
+  if (!x||x.g<_thr) return {traits:[{label:'LOW SAMPLE', ev:'fewer than '+_thr+' games — style read unreliable'}]};
   var role=dlcPrimaryRole(x);
   var s=dlcDerive(x, agg.total);
   function z(k){ return dlcZ(agg,'player',role,k,s[k]); }

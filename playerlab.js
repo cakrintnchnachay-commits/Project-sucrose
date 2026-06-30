@@ -151,7 +151,7 @@ function plRenderList(){
 
   var key=PL_SORT==='kda'?'kda':PL_SORT==='games'?'games':'wr';
   list.sort(function(a,b){
-    var aLow=a.s.games<10, bLow=b.s.games<10;
+    var _thr=PL_SCOUT_MODE?5:10; var aLow=a.s.games<_thr, bLow=b.s.games<_thr;
     if (aLow!==bLow) return aLow?1:-1;
     return (b.s[key]||0)-(a.s[key]||0);
   });
@@ -172,7 +172,7 @@ function plRenderList(){
       '<div class="hp-item-img" style="display:flex;align-items:center;justify-content:center;">'+avatar+'</div>'+
       '<div class="hp-item-body">'+
         '<div class="hp-item-name">'+dlcEsc(e.name).toUpperCase()+oursBadge+
-          (s.games<10?'<span style="font-size:7px;color:var(--warn);margin-left:5px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>':'')+
+          (s.games<(PL_SCOUT_MODE?5:10)?'<span style="font-size:7px;color:var(--warn);margin-left:5px;letter-spacing:0;font-family:\'DM Mono\',monospace;vertical-align:middle;">LOW N</span>':'')+
         '</div>'+
         '<div class="hp-item-meta">'+s.games+'G · '+(e.role||'')+(e.ours?' · OUR TEAM':(e.team?' · '+dlcEsc(e.team):''))+'</div>'+
       '</div>'+
@@ -217,7 +217,7 @@ function plRenderDetail(){
   var dispName=ourDisplayName(PL_SELECTED, ours?ourBuildAgg():agg);
   var role=PL_ROLE!=='All'?PL_ROLE:dlcPrimaryRole(x);
   var peerAgg=plPeerAgg();          // always pro data — for style read + role avg
-  var style=dlcStyleRead(peerAgg, PL_SELECTED, ours?x:undefined);
+  var style=dlcStyleRead(peerAgg, PL_SELECTED, ours?x:undefined, PL_SCOUT_MODE?5:undefined);
   var init=dispName.slice(0,2).toUpperCase();
   var wr=Math.round(s.wr*100);
   var wrColor=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
@@ -261,7 +261,7 @@ function plRenderDetail(){
         '<div class="hd-hdr-meta">'+s.games+' games · '+(role||'')+(ours?' · OUR TEAM':(x.team?' · '+dlcEsc(x.team):''))+'</div>'+
         '<div class="hd-top-badges">'+
           (role?'<span class="hd-badge-pool">'+role+'</span>':'')+
-          (s.games<10?'<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>':'')+
+          (s.games<(PL_SCOUT_MODE?5:10)?'<span class="hd-badge-main" style="color:var(--warn);background:rgba(255,204,68,0.1);border-color:rgba(255,204,68,0.35);">LOW SAMPLE</span>':'')+
         '</div>'+
         '<div style="margin-top:6px;">'+traitBadges+'</div>'+
         '<div style="margin-top:6px;">'+dlcCmpBtn('player', PL_SELECTED)+'</div>'+
@@ -320,7 +320,7 @@ function _plOverview(s, style, x, agg){
     '<div class="hd-stat-boxes">'+
       _plBox('WIN RATE',dlcPct(s.wr,1),s.wins+'/'+s.games+' games')+
       _plBox('KDA',dlcF(s.kda,2),'')+
-      _plBox('GAMES',String(s.games),s.games<10?'low sample':'')+
+      _plBox('GAMES',String(s.games),s.games<(PL_SCOUT_MODE?5:10)?'low sample':'')+
       _plBox('MVP RATE',dlcPct(s.mvpRate,1),'')+
       _plBox('KILL PART',dlcPct(s.kp/100,1),'')+
       _plBox('AVG LENGTH',dlcF(s.avgDur,1,'m'),'')+
