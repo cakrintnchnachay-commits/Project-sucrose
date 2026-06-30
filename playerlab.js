@@ -216,7 +216,8 @@ function plRenderDetail(){
 
   var dispName=ourDisplayName(PL_SELECTED, ours?ourBuildAgg():agg);
   var role=PL_ROLE!=='All'?PL_ROLE:dlcPrimaryRole(x);
-  var style=dlcStyleRead(agg, PL_SELECTED, ours?x:undefined);
+  var peerAgg=plPeerAgg();          // always pro data — for style read + role avg
+  var style=dlcStyleRead(peerAgg, PL_SELECTED, ours?x:undefined);
   var init=dispName.slice(0,2).toUpperCase();
   var wr=Math.round(s.wr*100);
   var wrColor=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
@@ -230,7 +231,7 @@ function plRenderDetail(){
   var refVals=null;
   if (role){
     refVals={};
-    DLC_RADAR_AXES.forEach(function(ax){ refVals[ax.key]=dlcRoleAvg(agg,'player',role,ax.key,10); });
+    DLC_RADAR_AXES.forEach(function(ax){ refVals[ax.key]=dlcRoleAvg(peerAgg,'player',role,ax.key,10); });
   }
   var series=[{name:dispName, vals:s, colors:DLC_SERIES_COLORS[0]}];
   if (refVals) series.push({name:(role||'Role')+' avg', vals:refVals, colors:DLC_SERIES_COLORS[2]});
