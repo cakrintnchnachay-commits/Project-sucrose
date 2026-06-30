@@ -1172,6 +1172,15 @@ function dlcEnsure(cb){
 
 // ── Scout data loader + aggregation ─────────────────────────
 
+// Alternate account names → canonical player names (ANK Female)
+var DLC_SCOUT_PLAYER_MAP = {
+  'aovthpro40': 'ZXuan',
+  'aovthpro41': 'YouNing',
+  'aovthpro42': 'Mico',
+  'aovthpro45': 'LuLu',
+  'OuL':        'LuoLuo'
+};
+
 function dlcEnsureScout(cb){
   if (DLC_SCOUT_GAMES){ cb&&cb(); return; }
   if (cb) _DLC_SCOUT_LOADCBS.push(cb);
@@ -1179,7 +1188,15 @@ function dlcEnsureScout(cb){
   fetch('ank_female_scout.csv',{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
     .then(function(txt){
-      DLC_SCOUT_GAMES=dlcBuildGames(txt);
+      var games=dlcBuildGames(txt);
+      // Merge alternate account names into canonical player names
+      games.forEach(function(g){
+        if (DLC_SCOUT_PLAYER_MAP[g.mvpPlayer]) g.mvpPlayer=DLC_SCOUT_PLAYER_MAP[g.mvpPlayer];
+        g.picks.forEach(function(pk){
+          if (DLC_SCOUT_PLAYER_MAP[pk.player]) pk.player=DLC_SCOUT_PLAYER_MAP[pk.player];
+        });
+      });
+      DLC_SCOUT_GAMES=games;
       DLC_SCOUT_AGGS={};
       var cbs=_DLC_SCOUT_LOADCBS; _DLC_SCOUT_LOADCBS=[];
       cbs.forEach(function(f){ try{f();}catch(e){console.error(e);} });
