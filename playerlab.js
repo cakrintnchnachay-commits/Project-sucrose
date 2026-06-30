@@ -217,7 +217,7 @@ function plRenderDetail(){
   var dispName=ourDisplayName(PL_SELECTED, ours?ourBuildAgg():agg);
   var role=PL_ROLE!=='All'?PL_ROLE:dlcPrimaryRole(x);
   var peerAgg=plPeerAgg();          // always pro data — for style read + role avg
-  var style=dlcStyleRead(peerAgg, PL_SELECTED, ours?x:undefined, PL_SCOUT_MODE?5:undefined);
+  var style=dlcStyleRead(peerAgg, PL_SELECTED, (ours||PL_SCOUT_MODE)?x:undefined, PL_SCOUT_MODE?5:undefined);
   var init=dispName.slice(0,2).toUpperCase();
   var wr=Math.round(s.wr*100);
   var wrColor=wr>=60?'var(--success)':wr>=50?'var(--white)':'var(--danger)';
