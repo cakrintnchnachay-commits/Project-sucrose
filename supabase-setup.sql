@@ -74,6 +74,23 @@ CREATE POLICY "anon_all" ON players
 UPDATE players SET status = CASE WHEN active THEN 'Starter' ELSE 'Inactive' END
   WHERE status IS NULL;
 
+-- tactic_scenarios: saved boards from the standalone tactic board (tactic.html).
+-- Referenced by openSave/openLoad in tactic.html but was never created here —
+-- without this block, Save/Load/Delete in the tactic board fail outright.
+CREATE TABLE IF NOT EXISTS tactic_scenarios (
+  id uuid primary key default gen_random_uuid(),
+  name text unique not null,
+  board_state jsonb not null,
+  preview_image text,
+  updated_at timestamptz default now()
+);
+ALTER TABLE tactic_scenarios ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon_all" ON tactic_scenarios;
+CREATE POLICY "anon_all" ON tactic_scenarios
+  FOR ALL TO anon
+  USING (true)
+  WITH CHECK (true);
+
 -- players.id must carry a unique constraint so upsert(onConflict:'id') resolves.
 -- Without it, every add/edit fails with "there is no unique or exclusion
 -- constraint matching the ON CONFLICT specification". Idempotent: only adds the

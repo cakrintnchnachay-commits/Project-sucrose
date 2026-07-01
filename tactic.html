@@ -327,6 +327,8 @@ input[type=range]{accent-color:var(--blue);cursor:pointer;}
       <button class="btn btn-sm btn-primary" onclick="openSave()" title="Save (Ctrl+S)">Save</button>
       <button class="btn btn-sm" onclick="openLoad()">Load</button>
       <button class="btn btn-sm" onclick="openImport()">Import Draft</button>
+      <span class="sep"></span>
+      <button class="btn btn-sm" onclick="openShortcuts()" title="Keyboard shortcuts">⌨</button>
     </div>
   </div>
 </div>
@@ -347,16 +349,82 @@ const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL,SUPABASE_
 // Shared passcode gate for Save / Overwrite / Delete — keeps casual visitors
 // from touching saved scenarios while Load/view stays open to anyone with the
 // link. This is a lightweight speed bump, not real security (it's client-side
-// and anyone reading this file can see it) — CHANGE THIS to a word only you
-// and your coach know before relying on it.
-const TEAM_PASSCODE='sucrose-tactics';
-function requirePasscode(action){
-  if(sessionStorage.getItem('tactic_pw_ok')==='1')return true;
-  const entered=prompt('Team passcode to '+action+':');
-  if(entered===null)return false;
-  if(entered===TEAM_PASSCODE){ sessionStorage.setItem('tactic_pw_ok','1'); return true; }
-  toast('Wrong passcode.',true);
-  return false;
+// and anyone reading this file can see it). Uses the SAME PIN as the main
+// site's Settings page (Supabase app_settings, key='settings_pin') so there's
+// only one passcode for the coach to manage — see loadData() for the fetch.
+let SITE_PIN=null;   // null = not loaded yet / fetch failed, '' = no PIN set on main site
+
+// action: 'save' | 'delete'. cb runs once the passcode is confirmed (or was
+// already unlocked earlier this tab).
+function gate(action,cb){
+  if(sessionStorage.getItem('tactic_pw_ok')==='1'){ cb(); return; }
+  if(SITE_PIN===null){ toast('Could not verify passcode — check your connection and reload.',true); return; }
+  showModal('Passcode to '+action,
+    '<input class="modal-search" type="password" id="pcInput" placeholder="Team PIN…" autocomplete="off"/>'+
+    '<div class="note" id="pcErr" style="color:var(--red);display:none;margin:-6px 0 12px;">Incorrect PIN.</div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;">'+
+    '<button class="btn btn-sm" id="pcCancel">Cancel</button>'+
+    '<button class="btn btn-sm btn-primary" id="pcSubmit">Unlock</button></div>',
+    (modal)=>{
+      const inp=modal.querySelector('#pcInput'), err=modal.querySelector('#pcErr');
+      inp.focus();
+      const submit=()=>{
+        if(inp.value===String(SITE_PIN)){
+          sessionStorage.setItem('tactic_pw_ok','1');
+          closeModal();
+          cb();
+        } else {
+          err.style.display='block'; inp.value=''; inp.focus();
+        }
+      };
+      modal.querySelector('#pcSubmit').onclick=submit;
+      modal.querySelector('#pcCancel').onclick=closeModal;
+      inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } });
+    });
+}
+
+// Small text-input modal, used in place of prompt() for naming a save.
+function openSaveNameModal(cb){
+  showModal('Save scenario as',
+    '<input class="modal-search" id="snInput" placeholder="Scenario name…" autocomplete="off"/>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;">'+
+    '<button class="btn btn-sm" id="snCancel">Cancel</button>'+
+    '<button class="btn btn-sm btn-primary" id="snSubmit">Save</button></div>',
+    (modal)=>{
+      const inp=modal.querySelector('#snInput');
+      inp.focus();
+      const submit=()=>{ const v=inp.value.trim(); if(!v)return; closeModal(); cb(v); };
+      modal.querySelector('#snSubmit').onclick=submit;
+      modal.querySelector('#snCancel').onclick=closeModal;
+      inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } });
+    });
+}
+
+// Small Yes/Cancel modal, used in place of confirm().
+function openConfirmModal(title,msg,cb){
+  showModal(title,
+    '<div class="note" style="margin-bottom:14px;">'+esc(msg)+'</div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;">'+
+    '<button class="btn btn-sm" id="cfNo">Cancel</button>'+
+    '<button class="btn btn-sm btn-danger" id="cfYes">Delete</button></div>',
+    (modal)=>{
+      modal.querySelector('#cfYes').onclick=()=>{ closeModal(); cb(); };
+      modal.querySelector('#cfNo').onclick=closeModal;
+    });
+}
+
+const SHORTCUTS=[
+  ['A','Drag tool'],['S','Pen tool'],['D','Eraser tool'],
+  ['Ctrl/Cmd + S','Save'],['Ctrl/Cmd + Z','Undo drawing'],['Ctrl/Cmd + Shift + Z (or + Y)','Redo drawing'],
+  ['Esc','Close popup / menu / modal'],
+];
+function openShortcuts(){
+  showModal('Keyboard shortcuts',
+    '<div class="import-list">'+SHORTCUTS.map(([k,d])=>
+      '<div class="import-row" style="cursor:default;"><span class="vs">'+esc(d)+'</span>'+
+      '<span class="gm" style="font-family:\'DM Mono\',monospace;">'+esc(k)+'</span></div>'
+    ).join('')+'</div>'+
+    '<div class="note" style="margin-top:10px;">Shortcuts are ignored while typing in a text field.</div>');
 }
 
 // Hero portraits come from Cloudinary (same source as the main app), so no
@@ -433,7 +501,7 @@ const state={
   summons:[],                 // [{id,type,x,y}]
   objectives:{dragon:true,slayer:true},
   dragonPos:{x:0.666,y:0.666},
-  slayerPos:{x:0.394,y:0.350},  // fixed, not draggable
+  slayerPos:{x:0.414,y:0.232},  // fixed, not draggable
   towers:{blue:{top:[true,true,true],mid:[true,true,true],bot:[true,true,true]},
           red:{ top:[true,true,true],mid:[true,true,true],bot:[true,true,true]}},
   strokes:[],         // [{color,size,erase,pts:[{x,y}]}] coords normalized
@@ -458,7 +526,7 @@ function initials(name){
 }
 // <img> that hides itself on error so the initials underneath show through.
 function heroImgTag(name,extra){
-  return '<img '+(extra||'')+' src="'+esc(heroImgUrl(name))+'" '+
+  return '<img '+(extra||'')+' src="'+esc(heroImgUrl(name))+'" alt="'+esc(name)+'" '+
          'onerror="this.style.display=\'none\'" draggable="false"/>';
 }
 
@@ -474,6 +542,15 @@ async function loadData(){
     const {data}=await sb.from('app_settings').select('value').eq('key','hero_overrides').single();
     if(data&&data.value) OVERRIDES=data.value;
   }catch(e){ console.warn('overrides load failed',e); }
+
+  // shared passcode — same PIN as the main site's Settings page. No matching
+  // row just means the coach hasn't set a PIN yet (SITE_PIN=''), same as the
+  // main site's own default — only a real query failure sets SITE_PIN=null.
+  try{
+    const {data,error}=await sb.from('app_settings').select('value').eq('key','settings_pin').limit(1);
+    if(error)throw error;
+    SITE_PIN=(data&&data.length&&data[0].value!=null)?data[0].value:'';
+  }catch(e){ console.warn('site PIN load failed',e); SITE_PIN=null; }
 
   // hero list + roles
   try{
@@ -1047,7 +1124,7 @@ function buildPreview(){
   try{ x.drawImage(mapImg,0,0,W,H); }catch(e){}
   // hero tokens as colored dots
   state.mapHeroes.forEach(h=>{
-    x.beginPath(); x.arc(h.x*W,h.y*H,9,0,7); x.fillStyle=h.team==='blue'?'#4488FF':'#FF4444'; x.fill();
+    x.beginPath(); x.arc(h.x*W,h.y*H,9,0,Math.PI*2); x.fillStyle=h.team==='blue'?'#4488FF':'#FF4444'; x.fill();
     x.fillStyle='#fff'; x.font='8px monospace'; x.textAlign='center'; x.textBaseline='middle';
     x.fillText(initials(h.hero),h.x*W,h.y*H);
   });
@@ -1059,19 +1136,22 @@ function buildPreview(){
   return c.toDataURL('image/jpeg',0.7);
 }
 
-async function openSave(){
+function openSave(){
   if(!sb)return toast('Supabase library not loaded.',true);
-  if(!requirePasscode('save'))return;
-  const name=prompt('Save scenario as:'); if(!name)return;
-  const payload={name:name.trim(),board_state:boardState(),preview_image:buildPreview(),updated_at:new Date().toISOString()};
-  toast('Saving…');
-  // try update-by-name first, else insert (works whether or not a unique constraint exists)
-  let {data:existing}=await sb.from('tactic_scenarios').select('id').eq('name',payload.name).limit(1);
-  let res;
-  if(existing&&existing.length){ res=await sb.from('tactic_scenarios').update(payload).eq('id',existing[0].id); }
-  else { res=await sb.from('tactic_scenarios').insert(payload); }
-  if(res.error)return toast('Save failed: '+res.error.message,true);
-  toast('Saved “'+payload.name+'”');
+  gate('save',()=>{
+    openSaveNameModal(async(name)=>{
+      const payload={name,board_state:boardState(),preview_image:buildPreview(),updated_at:new Date().toISOString()};
+      toast('Saving…');
+      // try update-by-name first, else insert (works whether or not a unique constraint exists)
+      const {data:existing,error:selErr}=await sb.from('tactic_scenarios').select('id').eq('name',payload.name).limit(1);
+      if(selErr)return toast('Save failed: '+selErr.message,true);
+      let res;
+      if(existing&&existing.length){ res=await sb.from('tactic_scenarios').update(payload).eq('id',existing[0].id); }
+      else { res=await sb.from('tactic_scenarios').insert(payload); }
+      if(res.error)return toast('Save failed: '+res.error.message,true);
+      toast('Saved “'+payload.name+'”');
+    });
+  });
 }
 
 async function openLoad(){
@@ -1093,12 +1173,18 @@ async function openLoad(){
           applyBoardState(rec.board_state); closeModal(); toast('Loaded “'+rec.name+'”');
         });
       });
-      modal.querySelectorAll('.del').forEach(d=>d.addEventListener('click',async e=>{
+      modal.querySelectorAll('.del').forEach(d=>d.addEventListener('click',e=>{
         e.stopPropagation();
-        if(!requirePasscode('delete'))return;
-        if(!confirm('Delete this scenario?'))return;
-        await sb.from('tactic_scenarios').delete().eq('id',d.dataset.del);
-        e.target.closest('.scenario-card').remove();
+        const delId=d.dataset.del;
+        const rec=data.find(x=>String(x.id)===delId);
+        gate('delete',()=>{
+          openConfirmModal('Delete scenario','Delete “'+(rec?rec.name:'this scenario')+'”? This cannot be undone.',async()=>{
+            const {error}=await sb.from('tactic_scenarios').delete().eq('id',delId);
+            if(error){ toast('Delete failed: '+error.message,true); openLoad(); return; }
+            toast('Deleted “'+(rec?rec.name:'')+'”');
+            openLoad(); // refresh the list from the DB rather than trusting local removal
+          });
+        });
       }));
     });
 }
@@ -1109,7 +1195,7 @@ async function openLoad(){
 //  games; we flatten them into a pick-list the user can choose from.
 // ════════════════════════════════════════════════════════════════
 function dlSavedGames(){
-  let scns=[]; try{ scns=JSON.parse(localStorage.getItem('dl_scenarios_v2')||'[]'); }catch(e){}
+  let scns=[]; try{ scns=JSON.parse(localStorage.getItem('dl_scenarios_v2')||'[]'); }catch(e){ console.warn('Failed to parse draft saves:',e); }
   const order={DSL:0,JUG:1,MID:2,ADL:3,SUP:4};
   const picks=(actions,side,roles)=>(actions||[])
     .filter(a=>a.type==='pick'&&a.side===side&&a.hero)
