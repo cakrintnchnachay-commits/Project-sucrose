@@ -38,7 +38,10 @@ html,body{height:100%;margin:0;}
 body{
   background:var(--black); color:var(--white);
   font-family:'DM Sans',sans-serif; font-size:13px;
-  overflow:hidden;
+  overflow:auto; /* auto, not hidden — Safari's address bar changes the real
+    visible height after 100vh is computed, so this is a safety net that lets
+    you scroll to the top bar / toolbar if that ever clips instead of them
+    becoming permanently unreachable. */
 }
 button{font-family:inherit;}
 
@@ -53,7 +56,7 @@ button{font-family:inherit;}
 .btn-danger:hover{background:rgba(255,68,68,.08);}
 
 /* ─────────── App shell ─────────── */
-#app{display:flex;flex-direction:column;height:100vh;}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;}
 #topbar{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:var(--border);background:var(--grey-1);flex:0 0 auto;}
 #topbar h1{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin:0;}
 #topbar .sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1px;}
@@ -88,8 +91,8 @@ button{font-family:inherit;}
 .hero-cell{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:3px;border-radius:4px;}
 .hero-cell:hover{background:var(--grey-2);}
 .hero-portrait{width:46px;height:46px;border-radius:50%;overflow:hidden;position:relative;background:var(--grey-3);display:flex;align-items:center;justify-content:center;border:1px solid var(--grey-4);}
-.hero-portrait img{width:100%;height:100%;object-fit:cover;}
-.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;}
+.hero-portrait img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;z-index:1;}
 .hero-cell .nm{font-family:'DM Mono',monospace;font-size:8px;text-align:center;line-height:1.1;color:var(--grey-6);max-width:54px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .section-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--grey-5);padding:4px 10px 2px;text-transform:uppercase;}
 
@@ -100,14 +103,15 @@ button{font-family:inherit;}
 #drawCanvas{position:absolute;inset:0;z-index:50;touch-action:none;}
 .tower{position:absolute;transform:translate(-50%,-50%);z-index:20;pointer-events:none;}
 .objective,.token{position:absolute;transform:translate(-50%,-50%);z-index:30;user-select:none;}
-.objective img,.token img{width:100%;height:100%;-webkit-user-drag:none;pointer-events:none;}
+.objective img{width:100%;height:100%;object-fit:contain;-webkit-user-drag:none;pointer-events:none;}
+.token img{width:100%;height:100%;-webkit-user-drag:none;pointer-events:none;}
 .token{z-index:40;cursor:grab;display:flex;flex-direction:column;align-items:center;}
 .token.dragging{cursor:grabbing;z-index:60;}
 .token .ring{border-radius:50%;overflow:hidden;width:100%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
 .token.blue .ring{box-shadow:0 0 0 3px var(--blue),0 0 8px rgba(68,136,255,.6);}
 .token.red  .ring{box-shadow:0 0 0 3px var(--red),0 0 8px rgba(255,68,68,.6);}
-.token .ring img{width:100%;height:100%;object-fit:cover;}
-.token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);}
+.token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
 .token .lbl{font-family:'DM Mono',monospace;font-size:9px;margin-top:2px;color:var(--white);text-shadow:0 1px 3px #000;white-space:nowrap;}
 .objective{cursor:default;}
 .objective.draggable{cursor:grab;}
@@ -127,14 +131,17 @@ button{font-family:inherit;}
 .bench-row.blue .side-lbl{color:var(--blue);}
 .bench-row.red .side-lbl{color:var(--red);}
 .bench-tokens{display:flex;gap:10px;flex-wrap:wrap;flex:1 1 auto;}
-.bench-token{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:grab;}
+.bench-token{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
+.bt-rm{position:absolute;top:-5px;right:4px;width:15px;height:15px;border-radius:50%;background:var(--grey-2);border:1px solid var(--grey-4);color:var(--grey-6);font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:1;}
+.bt-rm:hover{color:var(--red);border-color:var(--red);}
+.selected-for-place{outline:2px solid var(--blue);outline-offset:2px;border-radius:4px;}
 .bench-token .ring{border-radius:50%;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
 .bench-token.blue .ring{box-shadow:0 0 0 3px var(--blue);}
 .bench-token.red .ring{box-shadow:0 0 0 3px var(--red);}
-.bench-token .ring img{width:100%;height:100%;object-fit:cover;}
-.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);}
+.bench-token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
 .bench-token .nm{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-6);max-width:60px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.bench-empty{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-4);font-style:italic;}
+.bench-empty{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-6);font-style:italic;}
 
 /* ─────────── Toolbar ─────────── */
 #toolbar{flex:0 0 auto;display:flex;align-items:center;gap:18px;padding:7px 14px;background:var(--grey-1);border-top:var(--border);flex-wrap:wrap;}
@@ -268,11 +275,11 @@ input[type=range]{accent-color:var(--blue);cursor:pointer;}
           <div class="section-label" style="padding-left:0;">Drag onto map →</div>
           <div class="summon-src" draggable="true" data-summon="vanguard">
             <div class="vis" id="vgVis"></div>
-            <div class="meta">Vanguard<small>drag to add copies</small></div>
+            <div class="meta">Vanguard<small>drag, or tap then tap map</small></div>
           </div>
           <div class="summon-src" draggable="true" data-summon="darkslayer">
             <div class="vis" id="dsVis"></div>
-            <div class="meta">Summoned Darkslayer<small>drag to add copies</small></div>
+            <div class="meta">Summoned Darkslayer<small>drag, or tap then tap map</small></div>
           </div>
 
           <div class="trash-zone" id="trashZone">🗑 drop summon here to delete</div>
@@ -288,7 +295,7 @@ input[type=range]{accent-color:var(--blue);cursor:pointer;}
   <div id="bench">
     <div class="bench-head">
       <span class="ttl">Bench</span>
-      <span class="hint">drag a token onto the map · click to remove</span>
+      <span class="hint">drag onto map, or tap then tap the map · × to remove</span>
       <button class="panel-toggle" style="margin-left:auto;" onclick="toggleBench()">⌄</button>
     </div>
     <div class="bench-body">
@@ -313,11 +320,11 @@ input[type=range]{accent-color:var(--blue);cursor:pointer;}
       <span id="swatches" style="display:flex;gap:5px;"></span>
     </div>
     <div id="rightActions">
-      <button class="btn btn-sm" onclick="undoStroke()" title="Undo drawing">Undo</button>
-      <button class="btn btn-sm" onclick="redoStroke()" title="Redo drawing">Redo</button>
+      <button class="btn btn-sm" onclick="undoStroke()" title="Undo drawing (Ctrl+Z)">Undo</button>
+      <button class="btn btn-sm" onclick="redoStroke()" title="Redo drawing (Ctrl+Shift+Z)">Redo</button>
       <button class="btn btn-sm btn-danger" onclick="clearDrawing()">Clear Drawing</button>
       <span class="sep"></span>
-      <button class="btn btn-sm btn-primary" onclick="openSave()">Save</button>
+      <button class="btn btn-sm btn-primary" onclick="openSave()" title="Save (Ctrl+S)">Save</button>
       <button class="btn btn-sm" onclick="openLoad()">Load</button>
       <button class="btn btn-sm" onclick="openImport()">Import Draft</button>
     </div>
@@ -336,6 +343,21 @@ input[type=range]{accent-color:var(--blue);cursor:pointer;}
 const SUPABASE_URL='https://ihxnvlfilhcadqqcpqke.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloeG52bGZpbGhjYWRxcWNwcWtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMTI4NDEsImV4cCI6MjA5Mzc4ODg0MX0.c0gKpFDmSiNpjjm2rbnPybbz91-SqmLmAHArotgjbKI';
 const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
+
+// Shared passcode gate for Save / Overwrite / Delete — keeps casual visitors
+// from touching saved scenarios while Load/view stays open to anyone with the
+// link. This is a lightweight speed bump, not real security (it's client-side
+// and anyone reading this file can see it) — CHANGE THIS to a word only you
+// and your coach know before relying on it.
+const TEAM_PASSCODE='sucrose-tactics';
+function requirePasscode(action){
+  if(sessionStorage.getItem('tactic_pw_ok')==='1')return true;
+  const entered=prompt('Team passcode to '+action+':');
+  if(entered===null)return false;
+  if(entered===TEAM_PASSCODE){ sessionStorage.setItem('tactic_pw_ok','1'); return true; }
+  toast('Wrong passcode.',true);
+  return false;
+}
 
 // Hero portraits come from Cloudinary (same source as the main app), so no
 // image files need to live in this public repo. A few heroes need a remapped
@@ -370,27 +392,29 @@ const SWATCHES=['#FF4444','#4488FF','#FFD700','#44CC44','#FFFFFF','#FF8800'];
 
 // Tower positions as %(x,y) from the top-left of the map.
 // Easy to nudge: just change the x/y numbers.
+// tier:0 = "T1" = outermost tower (first one you meet), tier:2 = "T3" = innermost
+// (closest to that side's own base) — matches the in-game naming convention.
 const TOWER_POSITIONS=[
   // BLUE side (light blue)
-  {side:'blue',lane:'bot',tier:0,x:18,y:87},
-  {side:'blue',lane:'bot',tier:1,x:22,y:78},
-  {side:'blue',lane:'bot',tier:2,x:28,y:70},
-  {side:'blue',lane:'mid',tier:0,x:32,y:72},
-  {side:'blue',lane:'mid',tier:1,x:38,y:60},
-  {side:'blue',lane:'mid',tier:2,x:44,y:50},
-  {side:'blue',lane:'top',tier:0,x:14,y:52},
-  {side:'blue',lane:'top',tier:1,x:18,y:42},
-  {side:'blue',lane:'top',tier:2,x:24,y:32},
+  {side:'blue',lane:'bot',tier:0,x:72.9,y:86.8},
+  {side:'blue',lane:'bot',tier:1,x:49.9,y:86.0},
+  {side:'blue',lane:'bot',tier:2,x:30.6,y:85.8},
+  {side:'blue',lane:'mid',tier:0,x:44.2,y:47.3},
+  {side:'blue',lane:'mid',tier:1,x:38.3,y:58.5},
+  {side:'blue',lane:'mid',tier:2,x:27.2,y:69.9},
+  {side:'blue',lane:'top',tier:0,x:22.2,y:26.7},
+  {side:'blue',lane:'top',tier:1,x:19.1,y:45.3},
+  {side:'blue',lane:'top',tier:2,x:16.9,y:63.2},
   // RED side (orange)
-  {side:'red',lane:'top',tier:0,x:82,y:13},
-  {side:'red',lane:'top',tier:1,x:78,y:23},
-  {side:'red',lane:'top',tier:2,x:72,y:33},
-  {side:'red',lane:'mid',tier:0,x:68,y:30},
-  {side:'red',lane:'mid',tier:1,x:62,y:42},
-  {side:'red',lane:'mid',tier:2,x:56,y:52},
-  {side:'red',lane:'bot',tier:0,x:86,y:48},
-  {side:'red',lane:'bot',tier:1,x:82,y:58},
-  {side:'red',lane:'bot',tier:2,x:76,y:68},
+  {side:'red',lane:'top',tier:0,x:40.2,y:9.9},
+  {side:'red',lane:'top',tier:1,x:52.5,y:10.5},
+  {side:'red',lane:'top',tier:2,x:64.9,y:10.5},
+  {side:'red',lane:'mid',tier:0,x:57.9,y:34.9},
+  {side:'red',lane:'mid',tier:1,x:62.1,y:26.0},
+  {side:'red',lane:'mid',tier:2,x:69.5,y:18.6},
+  {side:'red',lane:'bot',tier:0,x:86.0,y:61.8},
+  {side:'red',lane:'bot',tier:1,x:81.5,y:35.0},
+  {side:'red',lane:'bot',tier:2,x:78.6,y:22.5},
 ];
 const MAP_ASPECT=0.62; // height / width fallback until real image loads
 
@@ -408,12 +432,13 @@ const state={
   mapHeroes:[],               // [{id,hero,team,x,y}]  x,y normalized 0..1
   summons:[],                 // [{id,type,x,y}]
   objectives:{dragon:true,slayer:true},
-  dragonPos:{x:0.62,y:0.58},
-  slayerPos:{x:0.38,y:0.32},  // fixed, not draggable
+  dragonPos:{x:0.666,y:0.666},
+  slayerPos:{x:0.394,y:0.350},  // fixed, not draggable
   towers:{blue:{top:[true,true,true],mid:[true,true,true],bot:[true,true,true]},
           red:{ top:[true,true,true],mid:[true,true,true],bot:[true,true,true]}},
   strokes:[],         // [{color,size,erase,pts:[{x,y}]}] coords normalized
   redo:[],
+  pending:null,       // tap-to-place selection: {kind:'bench',team,id,hero} or {kind:'summon',type}
 };
 const penState={size:5,color:'#FF4444'};
 let _idc=0; const uid=()=>'t'+(++_idc)+'_'+Math.floor(performance.now());
@@ -433,7 +458,7 @@ function initials(name){
 }
 // <img> that hides itself on error so the initials underneath show through.
 function heroImgTag(name,extra){
-  return '<img '+(extra||'')+' src="'+heroImgUrl(name)+'" '+
+  return '<img '+(extra||'')+' src="'+esc(heroImgUrl(name))+'" '+
          'onerror="this.style.display=\'none\'" draggable="false"/>';
 }
 
@@ -511,6 +536,17 @@ function buildStaticUI(){
   document.getElementById('dsVis').innerHTML=summonSVG('darkslayer');
   document.querySelectorAll('.summon-src').forEach(el=>{
     el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/summon',el.dataset.summon); });
+    el.addEventListener('click',()=>{
+      const type=el.dataset.summon;
+      if(state.pending&&state.pending.kind==='summon'&&state.pending.type===type){ cancelPending(); return; }
+      startPending({kind:'summon',type});
+    });
+  });
+  // hero cells are rendered via innerHTML (recent + full grid), so their click
+  // is handled here via delegation rather than a per-cell listener/inline onclick.
+  document.querySelector('#leftPanel .panel-body').addEventListener('click',e=>{
+    const cell=e.target.closest('.hero-cell'); if(!cell)return;
+    openHeroPick(e,cell.dataset.hero);
   });
   buildTowersTab();
 }
@@ -528,9 +564,9 @@ function heroMatchesFilter(name){
   const s=state.heroPos[name]; return s && s.has(state.posFilter);
 }
 function heroCellHTML(name){
-  return '<div class="hero-cell" onclick="openHeroPick(event,\''+name.replace(/'/g,"\\'")+'\')">'+
-    '<div class="hero-portrait"><span class="init">'+initials(name)+'</span>'+heroImgTag(name)+'</div>'+
-    '<div class="nm">'+name+'</div></div>';
+  return '<div class="hero-cell" data-hero="'+esc(name)+'">'+
+    '<div class="hero-portrait"><span class="init">'+esc(initials(name))+'</span>'+heroImgTag(name)+'</div>'+
+    '<div class="nm">'+esc(name)+'</div></div>';
 }
 function renderHeroGrid(){
   const q=(document.getElementById('heroSearch').value||'').toLowerCase().trim();
@@ -551,7 +587,7 @@ let _pop=null;
 function openHeroPick(ev,name){
   closePop();
   const p=document.createElement('div'); p.className='mini-pop';
-  p.innerHTML='<div class="ph">'+name+'</div><div class="row">'+
+  p.innerHTML='<div class="ph">'+esc(name)+'</div><div class="row">'+
     '<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue);" data-team="blue">Blue</button>'+
     '<button class="btn btn-sm" style="border-color:var(--red);color:var(--red);" data-team="red">Red</button></div>';
   document.body.appendChild(p);
@@ -570,9 +606,10 @@ function closePop(){ if(_pop){_pop.remove();_pop=null;document.removeEventListen
 function addToBench(hero,team){ state.bench[team].push({id:uid(),hero}); renderBench(); }
 function benchTokenHTML(item,team){
   const sz=Math.round(state.tokenSize*0.85);
-  return '<div class="bench-token '+team+'" draggable="true" data-id="'+item.id+'" data-team="'+team+'" title="drag to map · click to remove">'+
-    '<div class="ring" style="width:'+sz+'px;height:'+sz+'px;"><span class="init" style="font-size:'+Math.round(sz*0.34)+'px;">'+initials(item.hero)+'</span>'+heroImgTag(item.hero)+'</div>'+
-    '<div class="nm">'+item.hero+'</div></div>';
+  return '<div class="bench-token '+team+'" draggable="true" data-id="'+item.id+'" data-team="'+team+'" title="drag to map, or tap then tap the map">'+
+    '<button class="bt-rm" data-id="'+item.id+'" data-team="'+team+'" title="remove from bench">×</button>'+
+    '<div class="ring" style="width:'+sz+'px;height:'+sz+'px;"><span class="init" style="font-size:'+Math.round(sz*0.34)+'px;">'+esc(initials(item.hero))+'</span>'+heroImgTag(item.hero)+'</div>'+
+    '<div class="nm">'+esc(item.hero)+'</div></div>';
 }
 function renderBench(){
   ['blue','red'].forEach(team=>{
@@ -581,8 +618,16 @@ function renderBench(){
     el.innerHTML=arr.length?arr.map(it=>benchTokenHTML(it,team)).join(''):'<span class="bench-empty">empty</span>';
     el.querySelectorAll('.bench-token').forEach(node=>{
       const id=node.dataset.id;
-      node.addEventListener('click',()=>removeFromBench(team,id));
+      node.addEventListener('click',e=>{
+        if(e.target.closest('.bt-rm'))return;
+        if(state.pending&&state.pending.kind==='bench'&&state.pending.id===id){ cancelPending(); return; }
+        const item=arr.find(x=>x.id===id); if(!item)return;
+        startPending({kind:'bench',team,id,hero:item.hero});
+      });
       node.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/bench',JSON.stringify({team,id})); });
+    });
+    el.querySelectorAll('.bt-rm').forEach(btn=>{
+      btn.addEventListener('click',e=>{ e.stopPropagation(); removeFromBench(btn.dataset.team,btn.dataset.id); });
     });
   });
 }
@@ -649,10 +694,15 @@ function renderMap(){
   // canvas must stay on top → re-append
   mapBox.appendChild(canvas);
 }
+// dragon.png and slayer.png aren't square (slayer especially is much wider
+// than tall) — size each box to its native ratio so object-fit:contain
+// doesn't have to squeeze/letterbox it down.
+const OBJECTIVE_SIZE={dragon:{w:40,h:36},slayer:{w:46,h:28}};
 function objEl(type,pos,draggable){
   const d=document.createElement('div'); d.className='objective'+(draggable?' draggable':'');
   d.id=type+'Icon'; d.style.left=(pos.x*100)+'%'; d.style.top=(pos.y*100)+'%';
-  d.style.width='40px'; d.style.height='40px';
+  const sz=OBJECTIVE_SIZE[type];
+  d.style.width=sz.w+'px'; d.style.height=sz.h+'px';
   const file=type==='dragon'?'assets/dragon.png':'assets/slayer.png';
   d.innerHTML='<img src="'+file+'" alt="'+type+'"/>';
   if(draggable) enableObjectiveDrag(d);
@@ -663,12 +713,29 @@ function tokenEl(h){
   d.style.left=(h.x*100)+'%'; d.style.top=(h.y*100)+'%';
   d.style.width=state.tokenSize+'px';
   d.innerHTML='<div class="ring" style="width:'+state.tokenSize+'px;height:'+state.tokenSize+'px;">'+
-    '<span class="init" style="font-size:'+Math.round(state.tokenSize*0.34)+'px;">'+initials(h.hero)+'</span>'+heroImgTag(h.hero)+'</div>'+
-    '<div class="lbl">'+h.hero+'</div>';
+    '<span class="init" style="font-size:'+Math.round(state.tokenSize*0.34)+'px;">'+esc(initials(h.hero))+'</span>'+heroImgTag(h.hero)+'</div>'+
+    '<div class="lbl">'+esc(h.hero)+'</div>';
   enableTokenDrag(d,h);
   d.addEventListener('dblclick',e=>{ e.preventDefault(); sendTokenToBench(h); });
-  d.addEventListener('contextmenu',e=>{ e.preventDefault(); h.team=h.team==='blue'?'red':'blue'; renderMap(); });
+  d.addEventListener('contextmenu',e=>{ e.preventDefault(); openTokenMenu(h,e.clientX,e.clientY); });
   return d;
+}
+// right-click (desktop) or long-press (touch) → small menu instead of an
+// instant, unconfirmed action.
+function openTokenMenu(h,cx,cy){
+  closePop();
+  const otherTeam=h.team==='blue'?'red':'blue';
+  const p=document.createElement('div'); p.className='mini-pop';
+  p.innerHTML='<div class="ph">'+esc(h.hero)+'</div><div class="row">'+
+    '<button class="btn btn-sm" data-act="swap">Switch to '+otherTeam.toUpperCase()+'</button>'+
+    '<button class="btn btn-sm" data-act="bench">To bench</button></div>';
+  document.body.appendChild(p);
+  const x=Math.min(cx,window.innerWidth-170), y=Math.min(cy,window.innerHeight-90);
+  p.style.left=x+'px'; p.style.top=y+'px';
+  p.querySelector('[data-act="swap"]').onclick=()=>{ h.team=otherTeam; renderMap(); closePop(); };
+  p.querySelector('[data-act="bench"]').onclick=()=>{ sendTokenToBench(h); closePop(); };
+  _pop=p;
+  setTimeout(()=>document.addEventListener('mousedown',popOutside),0);
 }
 function sendTokenToBench(h){
   state.mapHeroes=state.mapHeroes.filter(x=>x.id!==h.id);
@@ -692,8 +759,20 @@ function enableTokenDrag(el,h){
     if(state.tool!=='drag')return;          // only move heroes in Drag mode
     if(e.button!==0)return;
     e.preventDefault(); el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
-    const move=ev=>{ const n=clientToNorm(ev.clientX,ev.clientY); h.x=n.x;h.y=n.y; el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%'; };
-    const up=ev=>{ el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); };
+    const startX=e.clientX,startY=e.clientY; let moved=false;
+    // holding still (no drag) for ~500ms opens the switch-team/bench menu —
+    // this is the touch equivalent of a right-click.
+    const lpTimer=setTimeout(()=>{
+      if(moved)return;
+      el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId);
+      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+      openTokenMenu(h,startX,startY);
+    },500);
+    const move=ev=>{
+      if(!moved&&(Math.abs(ev.clientX-startX)>6||Math.abs(ev.clientY-startY)>6)){ moved=true; clearTimeout(lpTimer); }
+      const n=clientToNorm(ev.clientX,ev.clientY); h.x=n.x;h.y=n.y; el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%';
+    };
+    const up=ev=>{ clearTimeout(lpTimer); el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); };
     el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
   });
 }
@@ -742,6 +821,48 @@ mapBox.addEventListener('drop',e=>{
   }else if(summon){
     state.summons.push({id:uid(),type:summon,x:n.x,y:n.y}); renderMap();
   }
+});
+
+// ── Tap-to-place: touch-friendly alternative to the native drag above.
+// Tap a bench token or a summon source to select it, then tap the map to
+// place it there. Tapping the same source again (or Escape, or tapping
+// anywhere outside the map/bench/summon list) cancels the selection. ──
+function startPending(p){
+  state.pending=p;
+  highlightPending();
+  mapBox.style.cursor='crosshair';
+  const label=p.kind==='bench'?p.hero:(p.type==='vanguard'?'Vanguard':'Summoned Darkslayer');
+  toast('Tap the map to place '+label+' — tap it again to cancel.');
+}
+function cancelPending(){
+  state.pending=null;
+  mapBox.style.cursor='';
+  document.querySelectorAll('.selected-for-place').forEach(n=>n.classList.remove('selected-for-place'));
+}
+function highlightPending(){
+  document.querySelectorAll('.selected-for-place').forEach(n=>n.classList.remove('selected-for-place'));
+  if(!state.pending)return;
+  const sel=state.pending.kind==='bench'
+    ? '.bench-token[data-id="'+state.pending.id+'"]'
+    : '.summon-src[data-summon="'+state.pending.type+'"]';
+  const el=document.querySelector(sel); if(el)el.classList.add('selected-for-place');
+}
+mapBox.addEventListener('click',e=>{
+  if(!state.pending)return;
+  const n=clientToNorm(e.clientX,e.clientY);
+  if(state.pending.kind==='bench'){
+    const {team,id,hero}=state.pending;
+    removeFromBench(team,id);
+    placeHero(hero,team,n.x,n.y);
+  }else{
+    state.summons.push({id:uid(),type:state.pending.type,x:n.x,y:n.y}); renderMap();
+  }
+  cancelPending();
+});
+document.addEventListener('click',e=>{
+  if(!state.pending)return;
+  if(e.target.closest('#mapBox')||e.target.closest('.bench-token')||e.target.closest('.summon-src'))return;
+  cancelPending();
 });
 
 // objectives toggle
@@ -808,15 +929,25 @@ function redraw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   state.strokes.forEach(drawStroke);
 }
-function drawStroke(s){
-  if(s.pts.length<1)return;
+// paints one segment (or a dot, if from===to) straight onto the canvas
+// without clearing it — used both to replay a whole stroke (redraw) and to
+// draw just the newest bit while the pen is moving (fast path below).
+function paintSegment(s,from,to){
   ctx.save();
   ctx.globalCompositeOperation = s.erase?'destination-out':'source-over';
-  ctx.strokeStyle=s.color; ctx.lineWidth=s.size; ctx.lineCap='round'; ctx.lineJoin='round';
-  ctx.beginPath();
-  s.pts.forEach((p,i)=>{ const x=p.x*canvas.width,y=p.y*canvas.height; if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
-  if(s.pts.length===1){ ctx.lineTo(s.pts[0].x*canvas.width+0.01,s.pts[0].y*canvas.height); }
-  ctx.stroke(); ctx.restore();
+  ctx.strokeStyle=s.color; ctx.fillStyle=s.color; ctx.lineWidth=s.size; ctx.lineCap='round'; ctx.lineJoin='round';
+  const fx=from.x*canvas.width, fy=from.y*canvas.height, tx=to.x*canvas.width, ty=to.y*canvas.height;
+  if(fx===tx&&fy===ty){
+    ctx.beginPath(); ctx.arc(tx,ty,s.size/2,0,Math.PI*2); ctx.fill();
+  }else{
+    ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(tx,ty); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawStroke(s){
+  if(!s.pts.length)return;
+  if(s.pts.length===1){ paintSegment(s,s.pts[0],s.pts[0]); return; }
+  for(let i=1;i<s.pts.length;i++) paintSegment(s,s.pts[i-1],s.pts[i]);
 }
 let _cur=null;
 canvas.addEventListener('pointerdown',e=>{
@@ -824,10 +955,15 @@ canvas.addEventListener('pointerdown',e=>{
   e.preventDefault(); canvas.setPointerCapture(e.pointerId);
   const n=clientToNorm(e.clientX,e.clientY);
   _cur={color:penState.color,size:penState.size,erase:state.tool==='eraser',pts:[n]};
-  state.strokes.push(_cur); state.redo=[]; redraw();
+  state.strokes.push(_cur); state.redo=[];
+  paintSegment(_cur,n,n);
 });
 canvas.addEventListener('pointermove',e=>{
-  if(!_cur)return; const n=clientToNorm(e.clientX,e.clientY); _cur.pts.push(n); redraw();
+  if(!_cur)return;
+  const n=clientToNorm(e.clientX,e.clientY);
+  const prev=_cur.pts[_cur.pts.length-1];
+  _cur.pts.push(n);
+  paintSegment(_cur,prev,n);
 });
 function endStroke(){ if(_cur)_cur=null; }
 canvas.addEventListener('pointerup',endStroke);
@@ -837,12 +973,22 @@ function undoStroke(){ if(state.strokes.length){ state.redo.push(state.strokes.p
 function redoStroke(){ if(state.redo.length){ state.strokes.push(state.redo.pop()); redraw(); } }
 function clearDrawing(){ state.strokes=[]; state.redo=[]; redraw(); }
 
-// keyboard hotkeys A/S/D
+// keyboard hotkeys: A/S/D for tools, Ctrl/Cmd+S/Z/Y for save/undo/redo, Escape to back out
 document.addEventListener('keydown',e=>{
-  if(/input|textarea/i.test(e.target.tagName))return;
-  if(e.key==='a'||e.key==='A')setTool('drag');
-  else if(e.key==='s'||e.key==='S')setTool('pen');
-  else if(e.key==='d'||e.key==='D')setTool('eraser');
+  const t=e.target;
+  if(/input|textarea|select/i.test(t.tagName)||t.isContentEditable)return;
+  if(e.ctrlKey||e.metaKey){
+    const k=e.key.toLowerCase();
+    if(k==='s'){ e.preventDefault(); openSave(); }
+    else if(k==='z'&&!e.shiftKey){ e.preventDefault(); undoStroke(); }
+    else if((k==='z'&&e.shiftKey)||k==='y'){ e.preventDefault(); redoStroke(); }
+    return;
+  }
+  if(e.key==='Escape'){ cancelPending(); closePop(); closeModal(); return; }
+  const k=e.key.toLowerCase();
+  if(k==='a')setTool('drag');
+  else if(k==='s')setTool('pen');
+  else if(k==='d')setTool('eraser');
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -915,6 +1061,7 @@ function buildPreview(){
 
 async function openSave(){
   if(!sb)return toast('Supabase library not loaded.',true);
+  if(!requirePasscode('save'))return;
   const name=prompt('Save scenario as:'); if(!name)return;
   const payload={name:name.trim(),board_state:boardState(),preview_image:buildPreview(),updated_at:new Date().toISOString()};
   toast('Saving…');
@@ -947,7 +1094,9 @@ async function openLoad(){
         });
       });
       modal.querySelectorAll('.del').forEach(d=>d.addEventListener('click',async e=>{
-        e.stopPropagation(); if(!confirm('Delete this scenario?'))return;
+        e.stopPropagation();
+        if(!requirePasscode('delete'))return;
+        if(!confirm('Delete this scenario?'))return;
         await sb.from('tactic_scenarios').delete().eq('id',d.dataset.del);
         e.target.closest('.scenario-card').remove();
       }));
