@@ -38,7 +38,10 @@ html,body{height:100%;margin:0;}
 body{
   background:var(--black); color:var(--white);
   font-family:'DM Sans',sans-serif; font-size:13px;
-  overflow:hidden;
+  overflow:auto; /* auto, not hidden — Safari's address bar changes the real
+    visible height after 100vh is computed, so this is a safety net that lets
+    you scroll to the top bar / toolbar if that ever clips instead of them
+    becoming permanently unreachable. */
 }
 button{font-family:inherit;}
 
@@ -53,7 +56,7 @@ button{font-family:inherit;}
 .btn-danger:hover{background:rgba(255,68,68,.08);}
 
 /* ─────────── App shell ─────────── */
-#app{display:flex;flex-direction:column;height:100vh;}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;}
 #topbar{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:var(--border);background:var(--grey-1);flex:0 0 auto;}
 #topbar h1{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin:0;}
 #topbar .sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1px;}
@@ -88,8 +91,8 @@ button{font-family:inherit;}
 .hero-cell{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:3px;border-radius:4px;}
 .hero-cell:hover{background:var(--grey-2);}
 .hero-portrait{width:46px;height:46px;border-radius:50%;overflow:hidden;position:relative;background:var(--grey-3);display:flex;align-items:center;justify-content:center;border:1px solid var(--grey-4);}
-.hero-portrait img{width:100%;height:100%;object-fit:cover;}
-.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;}
+.hero-portrait img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;z-index:1;}
 .hero-cell .nm{font-family:'DM Mono',monospace;font-size:8px;text-align:center;line-height:1.1;color:var(--grey-6);max-width:54px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .section-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--grey-5);padding:4px 10px 2px;text-transform:uppercase;}
 
@@ -100,14 +103,15 @@ button{font-family:inherit;}
 #drawCanvas{position:absolute;inset:0;z-index:50;touch-action:none;}
 .tower{position:absolute;transform:translate(-50%,-50%);z-index:20;pointer-events:none;}
 .objective,.token{position:absolute;transform:translate(-50%,-50%);z-index:30;user-select:none;}
-.objective img,.token img{width:100%;height:100%;-webkit-user-drag:none;pointer-events:none;}
+.objective img{width:100%;height:100%;object-fit:contain;-webkit-user-drag:none;pointer-events:none;}
+.token img{width:100%;height:100%;-webkit-user-drag:none;pointer-events:none;}
 .token{z-index:40;cursor:grab;display:flex;flex-direction:column;align-items:center;}
 .token.dragging{cursor:grabbing;z-index:60;}
 .token .ring{border-radius:50%;overflow:hidden;width:100%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
 .token.blue .ring{box-shadow:0 0 0 3px var(--blue),0 0 8px rgba(68,136,255,.6);}
 .token.red  .ring{box-shadow:0 0 0 3px var(--red),0 0 8px rgba(255,68,68,.6);}
-.token .ring img{width:100%;height:100%;object-fit:cover;}
-.token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);}
+.token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
 .token .lbl{font-family:'DM Mono',monospace;font-size:9px;margin-top:2px;color:var(--white);text-shadow:0 1px 3px #000;white-space:nowrap;}
 .objective{cursor:default;}
 .objective.draggable{cursor:grab;}
@@ -134,8 +138,8 @@ button{font-family:inherit;}
 .bench-token .ring{border-radius:50%;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
 .bench-token.blue .ring{box-shadow:0 0 0 3px var(--blue);}
 .bench-token.red .ring{box-shadow:0 0 0 3px var(--red);}
-.bench-token .ring img{width:100%;height:100%;object-fit:cover;}
-.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);}
+.bench-token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
+.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
 .bench-token .nm{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-6);max-width:60px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .bench-empty{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-6);font-style:italic;}
 
@@ -388,27 +392,29 @@ const SWATCHES=['#FF4444','#4488FF','#FFD700','#44CC44','#FFFFFF','#FF8800'];
 
 // Tower positions as %(x,y) from the top-left of the map.
 // Easy to nudge: just change the x/y numbers.
+// tier:0 = "T1" = outermost tower (first one you meet), tier:2 = "T3" = innermost
+// (closest to that side's own base) — matches the in-game naming convention.
 const TOWER_POSITIONS=[
   // BLUE side (light blue)
-  {side:'blue',lane:'bot',tier:0,x:18,y:87},
-  {side:'blue',lane:'bot',tier:1,x:22,y:78},
-  {side:'blue',lane:'bot',tier:2,x:28,y:70},
-  {side:'blue',lane:'mid',tier:0,x:32,y:72},
-  {side:'blue',lane:'mid',tier:1,x:38,y:60},
-  {side:'blue',lane:'mid',tier:2,x:44,y:50},
-  {side:'blue',lane:'top',tier:0,x:14,y:52},
-  {side:'blue',lane:'top',tier:1,x:18,y:42},
-  {side:'blue',lane:'top',tier:2,x:24,y:32},
+  {side:'blue',lane:'bot',tier:0,x:72.9,y:86.8},
+  {side:'blue',lane:'bot',tier:1,x:49.9,y:86.0},
+  {side:'blue',lane:'bot',tier:2,x:30.6,y:85.8},
+  {side:'blue',lane:'mid',tier:0,x:44.2,y:47.3},
+  {side:'blue',lane:'mid',tier:1,x:38.3,y:58.5},
+  {side:'blue',lane:'mid',tier:2,x:27.2,y:69.9},
+  {side:'blue',lane:'top',tier:0,x:22.2,y:26.7},
+  {side:'blue',lane:'top',tier:1,x:19.1,y:45.3},
+  {side:'blue',lane:'top',tier:2,x:16.9,y:63.2},
   // RED side (orange)
-  {side:'red',lane:'top',tier:0,x:82,y:13},
-  {side:'red',lane:'top',tier:1,x:78,y:23},
-  {side:'red',lane:'top',tier:2,x:72,y:33},
-  {side:'red',lane:'mid',tier:0,x:68,y:30},
-  {side:'red',lane:'mid',tier:1,x:62,y:42},
-  {side:'red',lane:'mid',tier:2,x:56,y:52},
-  {side:'red',lane:'bot',tier:0,x:86,y:48},
-  {side:'red',lane:'bot',tier:1,x:82,y:58},
-  {side:'red',lane:'bot',tier:2,x:76,y:68},
+  {side:'red',lane:'top',tier:0,x:40.2,y:9.9},
+  {side:'red',lane:'top',tier:1,x:52.5,y:10.5},
+  {side:'red',lane:'top',tier:2,x:64.9,y:10.5},
+  {side:'red',lane:'mid',tier:0,x:57.9,y:34.9},
+  {side:'red',lane:'mid',tier:1,x:62.1,y:26.0},
+  {side:'red',lane:'mid',tier:2,x:69.5,y:18.6},
+  {side:'red',lane:'bot',tier:0,x:86.0,y:61.8},
+  {side:'red',lane:'bot',tier:1,x:81.5,y:35.0},
+  {side:'red',lane:'bot',tier:2,x:78.6,y:22.5},
 ];
 const MAP_ASPECT=0.62; // height / width fallback until real image loads
 
@@ -426,8 +432,8 @@ const state={
   mapHeroes:[],               // [{id,hero,team,x,y}]  x,y normalized 0..1
   summons:[],                 // [{id,type,x,y}]
   objectives:{dragon:true,slayer:true},
-  dragonPos:{x:0.62,y:0.58},
-  slayerPos:{x:0.38,y:0.32},  // fixed, not draggable
+  dragonPos:{x:0.666,y:0.666},
+  slayerPos:{x:0.394,y:0.350},  // fixed, not draggable
   towers:{blue:{top:[true,true,true],mid:[true,true,true],bot:[true,true,true]},
           red:{ top:[true,true,true],mid:[true,true,true],bot:[true,true,true]}},
   strokes:[],         // [{color,size,erase,pts:[{x,y}]}] coords normalized
@@ -688,10 +694,15 @@ function renderMap(){
   // canvas must stay on top → re-append
   mapBox.appendChild(canvas);
 }
+// dragon.png and slayer.png aren't square (slayer especially is much wider
+// than tall) — size each box to its native ratio so object-fit:contain
+// doesn't have to squeeze/letterbox it down.
+const OBJECTIVE_SIZE={dragon:{w:40,h:36},slayer:{w:46,h:28}};
 function objEl(type,pos,draggable){
   const d=document.createElement('div'); d.className='objective'+(draggable?' draggable':'');
   d.id=type+'Icon'; d.style.left=(pos.x*100)+'%'; d.style.top=(pos.y*100)+'%';
-  d.style.width='40px'; d.style.height='40px';
+  const sz=OBJECTIVE_SIZE[type];
+  d.style.width=sz.w+'px'; d.style.height=sz.h+'px';
   const file=type==='dragon'?'assets/dragon.png':'assets/slayer.png';
   d.innerHTML='<img src="'+file+'" alt="'+type+'"/>';
   if(draggable) enableObjectiveDrag(d);
