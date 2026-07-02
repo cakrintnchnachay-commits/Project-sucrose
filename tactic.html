@@ -1,17 +1,27 @@
 <!DOCTYPE html>
-<!-- TACTIC BOARD v1.0 — tactic.html -->
+<!-- TACTIC BOARD v2.0 — tactic.html -->
 <!--
-  Single-file tactic board for esport drafting / positioning.
-  Everything (CSS + JS) is inline. The only external things it touches are:
-    - assets already in the project (map, dragon/slayer/vanguard icons, hero_icons)
-    - the Supabase JS library (loaded from CDN) for Save / Load
-  Tower positions live in the TOWER_POSITIONS constant near the top so they are
-  easy to nudge later.
+  Single-file tactic board for esport drafting / positioning, rebuilt mobile-first.
+  Everything (CSS + JS) is inline. External dependencies:
+    - assets already in the project (map, dragon/slayer images)
+    - hero portraits from Cloudinary (same source as the main app)
+    - the Supabase JS library (CDN) for Save / Load
+  New in v2 over v1:
+    - Mobile-first layout: bottom sheets on phones, side panels on >=900px
+    - Multi-step plays (frames) with animated playback
+    - Arrow / zone drawing tools with select-and-edit, plus the freehand pen
+    - Ward markers with toggleable vision-range circles
+    - Notes saved with each scenario
+    - Zoom controls + drag-to-pan for small screens
+    - Unified undo/redo across pen strokes and shapes
+  v1 saved scenarios still load (see applyBoardState).
+  Tower positions live in TOWER_POSITIONS so they are easy to nudge later.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+<meta name="theme-color" content="#080808"/>
 <title>Tactic Board — Sucrose</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
@@ -20,316 +30,381 @@
 
 <style>
 /* ─────────────────────────────────────────────
-   THEME — mirrors style.css variables so this page
-   feels like the rest of the site.
+   THEME — mirrors style.css so this page feels
+   like the rest of the site (home dashboard).
    ───────────────────────────────────────────── */
 :root{
   --black:#080808; --white:#f4f4f0;
   --grey-1:#141414; --grey-2:#1e1e1e; --grey-3:#2a2a2a; --grey-4:#444; --grey-5:#888; --grey-6:#bbb;
-  --blue:#4488FF; --red:#FF4444;
+  --blue:#4488FF; --red:#FF4444; --accent:#44ff88; --warn:#ffcc44;
   --tower-blue:#64B5F6; --tower-red:#FF7043;
   --border:1px solid #2a2a2a;
-  /* Dragon recolor: the source art is purple — this filter pushes it to yellow/gold.
-     Tweak the hue-rotate value if you want a different shade. */
+  /* Dragon recolor: source art is purple — this pushes it to yellow/gold. */
   --dragon-filter: hue-rotate(150deg) saturate(1.6) brightness(1.15);
 }
-*{box-sizing:border-box;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;margin:0;}
 body{
   background:var(--black); color:var(--white);
   font-family:'DM Sans',sans-serif; font-size:13px;
-  overflow:auto; /* auto, not hidden — Safari's address bar changes the real
-    visible height after 100vh is computed, so this is a safety net that lets
-    you scroll to the top bar / toolbar if that ever clips instead of them
-    becoming permanently unreachable. */
+  overflow:hidden; overscroll-behavior:none;
 }
 button{font-family:inherit;}
 
 /* generic button look (from style.css .btn) */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;border:var(--border);background:none;color:var(--white);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;transition:all .15s;border-radius:2px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border:var(--border);background:none;color:var(--white);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;transition:all .15s;border-radius:2px;}
 .btn:hover{background:var(--grey-2);}
-.btn.active{background:var(--white);color:var(--black);border-color:var(--white);}
-.btn-sm{padding:6px 10px;font-size:9px;}
+.btn-sm{padding:7px 11px;font-size:9px;}
 .btn-primary{background:var(--white);color:var(--black);border-color:var(--white);}
 .btn-primary:hover{background:var(--grey-6);}
 .btn-danger{border-color:var(--red);color:var(--red);}
 .btn-danger:hover{background:rgba(255,68,68,.08);}
+.icon-btn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:var(--border);background:var(--grey-1);color:var(--grey-6);cursor:pointer;border-radius:3px;padding:0;transition:all .15s;flex:0 0 auto;}
+.icon-btn:hover{color:var(--white);background:var(--grey-2);}
+.icon-btn svg{width:17px;height:17px;}
+.section-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);padding:16px 14px 8px;}
+.section-label .sub{letter-spacing:1px;font-size:8px;color:var(--grey-4);text-transform:none;margin-left:6px;}
+.note{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);line-height:1.5;}
 
 /* ─────────── App shell ─────────── */
-#app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;}
-#topbar{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:var(--border);background:var(--grey-1);flex:0 0 auto;}
-#topbar h1{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin:0;}
-#topbar .sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);letter-spacing:1px;}
-#topbar a.back{margin-left:auto;color:var(--grey-5);text-decoration:none;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;}
-#topbar a.back:hover{color:var(--white);}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+#topbar{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:var(--border);background:var(--black);flex:0 0 auto;}
+#topbar .back{color:var(--grey-5);display:inline-flex;align-items:center;text-decoration:none;padding:4px;}
+#topbar .back:hover{color:var(--white);}
+#topbar .back svg{width:18px;height:18px;}
+.tb-title{display:flex;flex-direction:column;min-width:0;}
+.tb-title h1{font-family:'Bebas Neue',sans-serif;font-size:23px;letter-spacing:3px;margin:0;line-height:1;white-space:nowrap;}
+.tb-title h1 .accent{color:var(--accent);}
+.tb-sub{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+.tb-actions{margin-left:auto;display:flex;gap:8px;align-items:center;}
 
-#mid{display:flex;flex:1 1 auto;min-height:0;}
-
-/* Panels */
-.panel{background:rgba(20,20,20,.92);border-right:var(--border);display:flex;flex-direction:column;flex:0 0 auto;transition:width .18s ease;min-height:0;}
-#rightPanel{border-right:none;border-left:var(--border);}
-.panel.collapsed{width:34px !important;}
-.panel-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:var(--border);flex:0 0 auto;}
-.panel-head .ttl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--grey-6);white-space:nowrap;overflow:hidden;}
-.panel-toggle{margin-left:auto;width:22px;height:22px;border:var(--border);background:none;color:var(--grey-5);cursor:pointer;border-radius:2px;flex:0 0 auto;font-size:12px;line-height:1;}
-.panel-toggle:hover{color:var(--white);background:var(--grey-2);}
-.panel.collapsed .panel-head{flex-direction:column;padding:8px 4px;gap:10px;}
-.panel.collapsed .panel-head .ttl{writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:2px;}
-.panel.collapsed .panel-toggle{margin-left:0;}
-.panel-body{flex:1 1 auto;overflow-y:auto;min-height:0;}
-.panel.collapsed .panel-body{display:none;}
-
-#leftPanel{width:230px;}
-#rightPanel{width:230px;}
-
-/* ─────────── Hero panel ─────────── */
-.pos-tabs{display:flex;flex-wrap:wrap;gap:3px;padding:8px;}
-.pos-tabs .tab{flex:1 1 auto;padding:5px 0;text-align:center;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;border:var(--border);border-radius:2px;cursor:pointer;color:var(--grey-5);background:none;}
-.pos-tabs .tab.active{background:var(--white);color:var(--black);border-color:var(--white);}
-.hero-search{margin:0 8px 8px;width:calc(100% - 16px);padding:7px 9px;background:var(--grey-1);border:var(--border);color:var(--white);border-radius:2px;font-family:'DM Mono',monospace;font-size:11px;}
-.hero-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:0 8px 12px;}
-.hero-cell{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:3px;border-radius:4px;}
-.hero-cell:hover{background:var(--grey-2);}
-.hero-portrait{width:46px;height:46px;border-radius:50%;overflow:hidden;position:relative;background:var(--grey-3);display:flex;align-items:center;justify-content:center;border:1px solid var(--grey-4);}
-.hero-portrait img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
-.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;z-index:1;}
-.hero-cell .nm{font-family:'DM Mono',monospace;font-size:8px;text-align:center;line-height:1.1;color:var(--grey-6);max-width:54px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.section-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--grey-5);padding:4px 10px 2px;text-transform:uppercase;}
+#mid{display:flex;flex:1 1 auto;min-height:0;position:relative;}
 
 /* ─────────── Map ─────────── */
-#mapWrap{flex:1 1 auto;position:relative;min-width:0;background:#0a0a0a;display:flex;align-items:center;justify-content:center;padding:8px;}
-#mapBox{position:relative;background:#000;box-shadow:0 0 0 1px var(--grey-3);}
-#mapImg{display:block;width:100%;height:100%;position:absolute;inset:0;object-fit:fill;user-select:none;-webkit-user-drag:none;}
-#drawCanvas{position:absolute;inset:0;z-index:50;touch-action:none;}
+#mapWrap{flex:1 1 auto;position:relative;min-width:0;background:#0a0a0a;display:flex;align-items:center;justify-content:center;padding:8px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}
+#mapBox{position:relative;background:#000;box-shadow:0 0 0 1px var(--grey-3);transform-origin:center center;}
+#mapImg{display:block;width:100%;height:100%;position:absolute;inset:0;object-fit:fill;user-select:none;-webkit-user-drag:none;pointer-events:none;}
+#shapeSvg{position:absolute;inset:0;width:100%;height:100%;z-index:46;overflow:visible;pointer-events:none;transition:opacity .2s;}
+#shapeSvg .shp{pointer-events:none;}
+body.tool-move #shapeSvg .shp{pointer-events:visiblePainted;cursor:pointer;}
+#shapeSvg .handle{pointer-events:all;cursor:grab;}
+#drawCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:50;touch-action:none;pointer-events:none;transition:opacity .2s;}
+body.tool-pen #drawCanvas,body.tool-erase #drawCanvas{pointer-events:auto;cursor:crosshair;}
+body.tool-arrow #mapBox,body.tool-zone #mapBox{cursor:crosshair;}
 .tower{position:absolute;transform:translate(-50%,-50%);z-index:20;pointer-events:none;}
-.objective,.token{position:absolute;transform:translate(-50%,-50%);z-index:30;user-select:none;}
+.objective{position:absolute;transform:translate(-50%,-50%);z-index:30;user-select:none;cursor:default;}
+.objective.draggable{cursor:grab;}
 .objective img{width:100%;height:100%;object-fit:contain;-webkit-user-drag:none;pointer-events:none;}
-.token img{width:100%;height:100%;-webkit-user-drag:none;pointer-events:none;}
-.token{z-index:40;cursor:grab;display:flex;flex-direction:column;align-items:center;}
+#dragonIcon img{filter:var(--dragon-filter);}
+.token{position:absolute;transform:translate(-50%,-50%);z-index:40;cursor:grab;display:flex;flex-direction:column;align-items:center;user-select:none;}
 .token.dragging{cursor:grabbing;z-index:60;}
+.token img{-webkit-user-drag:none;pointer-events:none;}
 .token .ring{border-radius:50%;overflow:hidden;width:100%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
-.token.blue .ring{box-shadow:0 0 0 3px var(--blue),0 0 8px rgba(68,136,255,.6);}
-.token.red  .ring{box-shadow:0 0 0 3px var(--red),0 0 8px rgba(255,68,68,.6);}
+.token.blue .ring{box-shadow:0 0 0 2.5px var(--blue),0 0 10px rgba(68,136,255,.55);}
+.token.red  .ring{box-shadow:0 0 0 2.5px var(--red),0 0 10px rgba(255,68,68,.55);}
 .token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
 .token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
 .token .lbl{font-family:'DM Mono',monospace;font-size:9px;margin-top:2px;color:var(--white);text-shadow:0 1px 3px #000;white-space:nowrap;}
-.objective{cursor:default;}
-.objective.draggable{cursor:grab;}
-#dragonIcon img{filter:var(--dragon-filter);}
-.summon-token{position:absolute;transform:translate(-50%,-50%);z-index:45;cursor:grab;width:36px;height:36px;}
-.summon-token.dragging{cursor:grabbing;z-index:60;}
+body.hide-names .token .lbl{display:none;}
+.summon-token{position:absolute;transform:translate(-50%,-50%);z-index:35;cursor:grab;width:34px;height:34px;user-select:none;}
+.summon-token.dragging,.ward.dragging{cursor:grabbing;z-index:60;}
+.ward{position:absolute;transform:translate(-50%,-50%);z-index:36;cursor:grab;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(8,8,8,.75);user-select:none;}
+.ward svg{width:16px;height:16px;}
+.ward.blue{box-shadow:0 0 0 2px var(--blue);color:var(--blue);}
+.ward.red{box-shadow:0 0 0 2px var(--red);color:var(--red);}
+/* playback: positions glide between steps */
+#mapBox.anim .token,#mapBox.anim .summon-token,#mapBox.anim .ward,#mapBox.anim .objective{transition:left .7s cubic-bezier(.5,0,.3,1),top .7s cubic-bezier(.5,0,.3,1),opacity .45s;}
 
-/* ─────────── Bench ─────────── */
-#bench{flex:0 0 auto;background:rgba(20,20,20,.95);border-top:var(--border);transition:height .18s ease;}
-#bench.collapsed .bench-body{display:none;}
-.bench-head{display:flex;align-items:center;gap:10px;padding:5px 14px;border-bottom:var(--border);}
-.bench-head .ttl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.5px;color:var(--grey-6);text-transform:uppercase;}
-.bench-head .hint{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);}
-.bench-body{display:flex;flex-direction:column;gap:4px;padding:8px 14px;}
-.bench-row{display:flex;align-items:center;gap:8px;min-height:54px;}
-.bench-row .side-lbl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;width:42px;flex:0 0 auto;}
+/* floating map UI */
+#zoomCtrl{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:6px;z-index:150;}
+#pendingPill{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:160;display:flex;align-items:center;gap:10px;background:rgba(8,8,8,.92);border:1px solid rgba(68,255,136,.45);border-radius:999px;padding:7px 8px 7px 14px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.5px;color:var(--accent);max-width:88%;white-space:nowrap;overflow:hidden;}
+#pendingPill button{border:none;background:var(--grey-2);color:var(--grey-6);border-radius:999px;padding:5px 10px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;flex:0 0 auto;}
+#pendingPill button:hover{color:var(--white);}
+#selPill{position:absolute;transform:translate(-50%,-130%);z-index:65;display:flex;gap:6px;}
+#selPill .btn{background:rgba(8,8,8,.9);}
+
+/* ─────────── Sheets (mobile) / Panels (desktop) ─────────── */
+.sheet{background:var(--grey-1);display:flex;flex-direction:column;min-height:0;}
+.sheet-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:var(--border);flex:0 0 auto;position:relative;}
+.sheet-head .ttl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-6);}
+.sheet-head .grip{position:absolute;top:6px;left:50%;transform:translateX(-50%);width:36px;height:4px;border-radius:2px;background:var(--grey-3);}
+.sheet-head .x{margin-left:auto;border:none;background:none;width:30px;height:30px;}
+.sheet-body{flex:1 1 auto;overflow-y:auto;min-height:0;padding-bottom:14px;-webkit-overflow-scrolling:touch;}
+#backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1400;opacity:0;pointer-events:none;transition:opacity .2s;}
+#backdrop.show{opacity:1;pointer-events:auto;}
+@media(max-width:899px){
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:1500;border-top:var(--border);border-radius:14px 14px 0 0;max-height:68vh;max-height:68dvh;transform:translateY(103%);transition:transform .24s ease;box-shadow:0 -12px 40px rgba(0,0,0,.55);}
+  .sheet.open{transform:translateY(0);}
+  .sheet-head{padding-top:16px;}
+  .desktop-only{display:none!important;}
+}
+@media(min-width:900px){
+  .sheet{width:270px;flex:0 0 auto;border-right:var(--border);}
+  #sheetBoard{border-right:none;border-left:var(--border);}
+  .mobile-only{display:none!important;}
+  #backdrop{display:none!important;}
+}
+
+/* ─────────── Hero grid / bench (heroes sheet) ─────────── */
+.pos-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:12px 14px 0;}
+.pos-tabs .tab{flex:1 1 auto;padding:7px 0;text-align:center;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;border:var(--border);border-radius:2px;cursor:pointer;color:var(--grey-5);background:none;min-width:40px;}
+.pos-tabs .tab.active{background:var(--white);color:var(--black);border-color:var(--white);}
+.hero-search{margin:10px 14px 0;width:calc(100% - 28px);padding:9px 11px;background:var(--grey-2);border:var(--border);color:var(--white);border-radius:2px;font-family:'DM Mono',monospace;font-size:12px;outline:none;}
+.hero-search:focus{border-color:var(--grey-5);}
+.hero-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px;padding:4px 14px 8px;}
+.hero-cell{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:4px 2px;border-radius:4px;}
+.hero-cell:hover{background:var(--grey-2);}
+.hero-portrait{width:46px;height:46px;border-radius:50%;overflow:hidden;position:relative;background:var(--grey-3);display:flex;align-items:center;justify-content:center;border:1px solid var(--grey-4);}
+.hero-portrait img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;-webkit-user-drag:none;}
+.hero-portrait .init{font-family:'DM Mono',monospace;font-size:14px;color:var(--grey-6);position:absolute;z-index:1;}
+.hero-cell .nm{font-family:'DM Mono',monospace;font-size:8px;text-align:center;line-height:1.1;color:var(--grey-6);max-width:60px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bench-row{display:flex;align-items:center;gap:8px;min-height:50px;padding:0 14px;}
+.bench-row .side-lbl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;width:34px;flex:0 0 auto;text-transform:uppercase;}
 .bench-row.blue .side-lbl{color:var(--blue);}
 .bench-row.red .side-lbl{color:var(--red);}
-.bench-tokens{display:flex;gap:10px;flex-wrap:wrap;flex:1 1 auto;}
-.bench-token{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
-.bt-rm{position:absolute;top:-5px;right:4px;width:15px;height:15px;border-radius:50%;background:var(--grey-2);border:1px solid var(--grey-4);color:var(--grey-6);font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:1;}
+.bench-tokens{display:flex;gap:10px;flex:1 1 auto;overflow-x:auto;padding:6px 0;}
+.bench-token{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;flex:0 0 auto;}
+.bench-token .ring{border-radius:50%;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);width:40px;height:40px;}
+.bench-token.blue .ring{box-shadow:0 0 0 2px var(--blue);}
+.bench-token.red .ring{box-shadow:0 0 0 2px var(--red);}
+.bench-token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;-webkit-user-drag:none;}
+.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;font-size:13px;color:var(--grey-6);z-index:1;}
+.bench-token .nm{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-6);max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bt-rm{position:absolute;top:-4px;right:-2px;width:16px;height:16px;border-radius:50%;background:var(--grey-2);border:1px solid var(--grey-4);color:var(--grey-6);font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:2;}
 .bt-rm:hover{color:var(--red);border-color:var(--red);}
-.selected-for-place{outline:2px solid var(--blue);outline-offset:2px;border-radius:4px;}
-.bench-token .ring{border-radius:50%;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;background:var(--grey-3);}
-.bench-token.blue .ring{box-shadow:0 0 0 3px var(--blue);}
-.bench-token.red .ring{box-shadow:0 0 0 3px var(--red);}
-.bench-token .ring img{width:100%;height:100%;object-fit:cover;position:relative;z-index:2;}
-.bench-token .ring .init{position:absolute;font-family:'DM Mono',monospace;color:var(--grey-6);z-index:1;}
-.bench-token .nm{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-6);max-width:60px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.bench-empty{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-6);font-style:italic;}
+.selected-for-place{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}
+.bench-empty{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);font-style:italic;}
 
-/* ─────────── Toolbar ─────────── */
-#toolbar{flex:0 0 auto;display:flex;align-items:center;gap:18px;padding:7px 14px;background:var(--grey-1);border-top:var(--border);flex-wrap:wrap;}
-.tool-cluster{display:flex;align-items:center;gap:6px;}
-.tool-cluster .sep{width:1px;height:22px;background:var(--grey-3);}
-.tool-cluster .lab{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;text-transform:uppercase;margin-right:2px;}
-.swatch{width:20px;height:20px;border-radius:3px;border:2px solid var(--grey-3);cursor:pointer;}
+/* ─────────── Board sheet ─────────── */
+.board-actions{display:flex;gap:8px;padding:14px 14px 0;}
+.board-actions .btn{flex:1;}
+.notes{width:calc(100% - 28px);margin:0 14px;min-height:72px;resize:vertical;background:var(--grey-2);border:var(--border);border-radius:2px;color:var(--white);font-family:'DM Sans',sans-serif;font-size:12px;padding:9px 11px;outline:none;line-height:1.5;}
+.notes:focus{border-color:var(--grey-5);}
+.obj-toggles{display:flex;gap:8px;padding:0 14px;}
+.toggle-btn{display:flex;align-items:center;gap:8px;flex:1;padding:10px 11px;border:var(--border);border-radius:3px;background:none;color:var(--white);cursor:pointer;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;}
+.toggle-btn .dot{width:9px;height:9px;border-radius:50%;background:var(--grey-4);flex:0 0 auto;}
+.toggle-btn.on{border-color:rgba(68,255,136,.5);}
+.toggle-btn.on .dot{background:var(--accent);box-shadow:0 0 6px var(--accent);}
+.src-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 14px;}
+.src{display:flex;align-items:center;gap:8px;padding:9px 10px;border:var(--border);border-radius:3px;background:none;color:var(--grey-6);cursor:pointer;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.5px;text-transform:uppercase;min-height:44px;text-align:left;}
+.src:hover{background:var(--grey-2);color:var(--white);}
+.src .vis{width:26px;height:26px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+.src .vis svg{width:100%;height:100%;}
+.src.wblue .vis{color:var(--blue);} .src.wred .vis{color:var(--red);}
+.size-row{padding:10px 14px 0;}
+.size-row label{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;display:block;margin-bottom:6px;text-transform:uppercase;}
+.size-row .rr{display:flex;align-items:center;gap:10px;}
+.size-row input[type=range]{flex:1;accent-color:var(--accent);}
+.size-row .val{font-family:'DM Mono',monospace;font-size:10px;width:36px;text-align:right;color:var(--grey-6);}
+.tower-side{padding:0 14px 6px;}
+.tower-side h4{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;margin:8px 0 6px;text-transform:uppercase;}
+.tower-side.blue h4{color:var(--tower-blue);} .tower-side.red h4{color:var(--tower-red);}
+.tw-row{display:flex;gap:6px;margin-bottom:6px;align-items:stretch;}
+.tw-lane{width:44px;flex:0 0 auto;border:none;background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;text-align:left;padding:0;}
+.tw-lane:hover{color:var(--white);}
+.tw-pip{flex:1;padding:9px 0;border:var(--border);border-radius:2px;background:none;color:var(--grey-4);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;transition:all .12s;}
+.tw-pip.on{color:var(--white);border-color:var(--grey-5);background:var(--grey-2);}
+
+/* ─────────── Frame strip (steps) ─────────── */
+#frameStrip{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:var(--border);background:var(--black);}
+.fs-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--grey-5);flex:0 0 auto;}
+#frameChips{display:flex;gap:6px;overflow-x:auto;flex:1 1 auto;padding:2px 0;scrollbar-width:none;}
+#frameChips::-webkit-scrollbar{display:none;}
+.f-chip{min-width:32px;height:30px;border-radius:15px;border:var(--border);background:none;color:var(--grey-5);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;flex:0 0 auto;transition:all .12s;padding:0 10px;}
+.f-chip.on{border-color:var(--accent);color:var(--accent);background:rgba(68,255,136,.07);}
+#btnPlay.playing{border-color:var(--accent);color:var(--accent);}
+
+/* ─────────── Context bar + toolbar ─────────── */
+#ctxBar{flex:0 0 auto;display:none;align-items:center;gap:12px;padding:7px 12px;border-top:var(--border);background:var(--grey-1);}
+body.tool-pen #ctxBar,body.tool-arrow #ctxBar,body.tool-zone #ctxBar,body.tool-erase #ctxBar{display:flex;}
+#ctxBar .lab{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);letter-spacing:1px;text-transform:uppercase;}
+#ctxColor,#ctxSize{display:flex;align-items:center;gap:8px;}
+body.tool-erase #ctxColor{display:none;}
+body.tool-arrow #ctxSize,body.tool-zone #ctxSize{display:none;}
+#swatches{display:flex;gap:7px;}
+.swatch{width:22px;height:22px;border-radius:50%;border:2px solid var(--grey-3);cursor:pointer;padding:0;}
 .swatch.active{border-color:var(--white);transform:scale(1.12);}
-input[type=range]{accent-color:var(--blue);cursor:pointer;}
-.pen-only{display:flex;align-items:center;gap:6px;transition:opacity .15s;}
-.pen-only.disabled{opacity:.35;pointer-events:none;}
-#rightActions{margin-left:auto;display:flex;gap:6px;}
+#ctxSize input[type=range]{width:110px;accent-color:var(--accent);}
+#ctxSize .val{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-6);width:20px;}
+#ctxClear{margin-left:auto;}
 
-/* ─────────── Hero pick popup ─────────── */
-.mini-pop{position:fixed;z-index:2000;background:var(--grey-1);border:var(--border);border-radius:4px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:8px;}
-.mini-pop .ph{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-6);text-align:center;}
+#toolbar{flex:0 0 auto;display:flex;align-items:stretch;gap:4px;padding:7px 8px calc(7px + env(safe-area-inset-bottom));background:var(--black);border-top:var(--border);overflow-x:auto;scrollbar-width:none;}
+#toolbar::-webkit-scrollbar{display:none;}
+.tool-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:40px;padding:5px 4px 4px;border:var(--border);background:none;color:var(--grey-5);cursor:pointer;border-radius:3px;transition:all .12s;flex:0 0 auto;}
+@media(min-width:900px){.tool-btn{min-width:48px;}#toolbar{gap:6px;padding:7px 12px;}}
+.tool-btn svg{width:17px;height:17px;}
+.tool-btn span{font-family:'DM Mono',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;}
+.tool-btn:hover{color:var(--white);}
+.tool-btn.active{color:var(--accent);border-color:rgba(68,255,136,.55);background:rgba(68,255,136,.06);}
+#toolbar .sep{width:1px;background:var(--grey-3);margin:4px 3px;}
+#toolbar .spacer{flex:1;}
+
+/* ─────────── Hero pick popup / mini menus ─────────── */
+.mini-pop{position:fixed;z-index:2600;background:var(--grey-1);border:var(--border);border-radius:5px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.65);display:flex;flex-direction:column;gap:8px;min-width:150px;}
+.mini-pop .ph{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--grey-6);text-align:center;text-transform:uppercase;}
 .mini-pop .row{display:flex;gap:6px;}
+.mini-pop .row .btn{flex:1;}
 
-/* ─────────── Modals ─────────── */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:3000;display:flex;align-items:center;justify-content:center;}
-.modal{background:var(--grey-1);border:var(--border);border-radius:6px;width:min(680px,92vw);max-height:86vh;display:flex;flex-direction:column;}
+/* ─────────── Modals / toast ─────────── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:3000;display:flex;align-items:center;justify-content:center;padding:14px;}
+.modal{background:var(--grey-1);border:var(--border);border-radius:6px;width:min(680px,96vw);max-height:84vh;max-height:84dvh;display:flex;flex-direction:column;}
 .modal-head{display:flex;align-items:center;padding:14px 18px;border-bottom:var(--border);}
-.modal-head h2{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;margin:0;}
-.modal-head .x{margin-left:auto;cursor:pointer;color:var(--grey-5);font-size:20px;background:none;border:none;}
+.modal-head h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin:0;}
+.modal-head .x{margin-left:auto;cursor:pointer;color:var(--grey-5);font-size:22px;background:none;border:none;padding:2px 6px;}
 .modal-head .x:hover{color:var(--white);}
-.modal-body{padding:16px 18px;overflow-y:auto;}
-.modal-search{width:100%;padding:9px 11px;background:var(--grey-2);border:var(--border);color:var(--white);border-radius:3px;font-family:'DM Mono',monospace;font-size:12px;margin-bottom:12px;}
-.scenario-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
-.scenario-card{border:var(--border);border-radius:4px;overflow:hidden;cursor:pointer;background:var(--grey-2);}
-.scenario-card:hover{border-color:var(--blue);}
-.scenario-card img{width:100%;height:110px;object-fit:cover;background:#000;display:block;}
-.scenario-card .cap{padding:6px 8px;font-family:'DM Mono',monospace;font-size:10px;display:flex;align-items:center;gap:6px;}
-.scenario-card .cap .del{margin-left:auto;color:var(--grey-5);cursor:pointer;}
+.modal-body{padding:16px 18px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.modal-search{width:100%;padding:11px;background:var(--grey-2);border:var(--border);color:var(--white);border-radius:3px;font-family:'DM Mono',monospace;font-size:12px;margin-bottom:12px;outline:none;}
+.modal-search:focus{border-color:var(--grey-5);}
+.input-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--grey-5);margin-bottom:6px;display:block;}
+.scenario-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
+.scenario-card{border:var(--border);border-radius:4px;overflow:hidden;cursor:pointer;background:var(--grey-2);transition:border-color .12s;}
+.scenario-card:hover{border-color:var(--accent);}
+.scenario-card img{width:100%;height:100px;object-fit:cover;background:#000;display:block;}
+.scenario-card .cap{padding:7px 9px;font-family:'DM Mono',monospace;font-size:10px;display:flex;align-items:center;gap:6px;}
+.scenario-card .cap .steps{color:var(--grey-5);font-size:8px;flex:0 0 auto;}
+.scenario-card .cap .nmm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.scenario-card .cap .del{color:var(--grey-5);cursor:pointer;flex:0 0 auto;padding:2px 4px;}
 .scenario-card .cap .del:hover{color:var(--red);}
 .import-list{display:flex;flex-direction:column;gap:2px;}
-.import-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:var(--border);border-radius:3px;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px;}
-.import-row:hover{background:var(--grey-2);border-color:var(--blue);}
-.import-row .date{color:var(--grey-5);font-size:10px;width:84px;flex:0 0 auto;}
-.import-row .vs{flex:1 1 auto;}
-.import-row .gm{color:var(--grey-5);font-size:10px;}
-.note{font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);line-height:1.5;}
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--grey-2);border:var(--border);border-radius:4px;padding:10px 18px;font-family:'DM Mono',monospace;font-size:11px;z-index:4000;box-shadow:0 6px 24px rgba(0,0,0,.5);}
+.import-row{display:flex;align-items:center;gap:10px;padding:11px 10px;border:var(--border);border-radius:3px;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px;}
+.import-row:hover{background:var(--grey-2);border-color:var(--accent);}
+.import-row .date{color:var(--grey-5);font-size:10px;width:80px;flex:0 0 auto;}
+.import-row .vs{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.import-row .gm{color:var(--grey-5);font-size:9px;flex:0 0 auto;}
+.toast{position:fixed;bottom:calc(118px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--grey-2);border:var(--border);border-radius:4px;padding:10px 16px;font-family:'DM Mono',monospace;font-size:10px;z-index:4000;box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:92vw;text-align:center;}
 .toast.err{border-color:var(--red);color:#ffb3b3;}
-
-/* Towers tab grids */
-.tower-side{margin-bottom:14px;}
-.tower-side h4{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;margin:0 0 6px;}
-.tower-side.blue h4{color:var(--tower-blue);}
-.tower-side.red h4{color:var(--tower-red);}
-.tower-grid{display:grid;grid-template-columns:auto repeat(3,1fr);gap:3px;}
-.tower-grid .hc{font-family:'DM Mono',monospace;font-size:8px;color:var(--grey-5);text-align:center;padding:3px;cursor:pointer;user-select:none;}
-.tower-grid .hc:hover{color:var(--white);}
-.tower-grid .rh{text-align:left;}
-.tower-grid .cell{display:flex;align-items:center;justify-content:center;padding:4px 0;}
-.tower-grid input{width:15px;height:15px;accent-color:var(--blue);cursor:pointer;}
-.summon-src{display:flex;align-items:center;gap:10px;padding:8px;border:var(--border);border-radius:4px;margin-bottom:8px;cursor:grab;}
-.summon-src:hover{background:var(--grey-2);}
-.summon-src .vis{width:36px;height:36px;flex:0 0 auto;}
-.summon-src .meta{font-family:'DM Mono',monospace;font-size:10px;}
-.summon-src .meta small{display:block;color:var(--grey-5);font-size:8px;}
-.trash-zone{margin-top:10px;border:1px dashed var(--grey-4);border-radius:4px;padding:14px;text-align:center;font-family:'DM Mono',monospace;font-size:10px;color:var(--grey-5);}
-.trash-zone.over{border-color:var(--red);color:var(--red);background:rgba(255,68,68,.06);}
-.toggle-btn{display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;border:var(--border);border-radius:3px;background:none;color:var(--white);cursor:pointer;margin-bottom:8px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;}
-.toggle-btn .dot{width:10px;height:10px;border-radius:50%;background:var(--grey-4);flex:0 0 auto;}
-.toggle-btn.on{border-color:var(--blue);}
-.toggle-btn.on .dot{background:var(--blue);box-shadow:0 0 6px var(--blue);}
-.env-tabs{display:flex;gap:4px;padding:8px;}
-.env-tabs .tab{flex:1;padding:6px 0;text-align:center;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;border:var(--border);border-radius:2px;cursor:pointer;color:var(--grey-5);}
-.env-tabs .tab.active{background:var(--white);color:var(--black);}
-.env-pane{padding:0 10px 14px;}
-.size-row{padding:10px;border-bottom:var(--border);}
-.size-row label{font-family:'DM Mono',monospace;font-size:9px;color:var(--grey-5);letter-spacing:1px;display:block;margin-bottom:5px;}
-.size-row .rr{display:flex;align-items:center;gap:8px;}
-.size-row input[type=range]{flex:1;}
-.size-row .val{font-family:'DM Mono',monospace;font-size:10px;width:34px;text-align:right;}
 </style>
 </head>
-<body>
+<body class="tool-move">
 <div id="app">
 
   <!-- TOP BAR -->
-  <div id="topbar">
-    <h1>Tactic Board</h1>
-    <span class="sub">v1.0</span>
-    <a class="back" href="index-v2.html">← back to app</a>
-  </div>
+  <header id="topbar">
+    <a class="back" href="index-v2.html" title="Back to app" data-icon="back"></a>
+    <div class="tb-title">
+      <h1>TACTIC <span class="accent">BOARD</span></h1>
+      <span class="tb-sub">Project Sucrose · v2.0</span>
+    </div>
+    <div class="tb-actions">
+      <button class="btn btn-sm btn-primary" onclick="openSave()" title="Save scenario (Ctrl+S)">Save</button>
+      <button class="icon-btn mobile-only" onclick="openSheet('sheetBoard')" title="Board menu" data-icon="menu"></button>
+    </div>
+  </header>
 
   <div id="mid">
 
-    <!-- LEFT: HERO PANEL -->
-    <div class="panel" id="leftPanel">
-      <div class="panel-head">
+    <!-- HEROES — bottom sheet on mobile, left panel on desktop -->
+    <aside class="sheet" id="sheetHeroes">
+      <div class="sheet-head">
+        <span class="grip mobile-only"></span>
         <span class="ttl">Heroes</span>
-        <button class="panel-toggle" onclick="togglePanel('leftPanel')" title="Collapse / expand">‹</button>
+        <button class="icon-btn x mobile-only" onclick="closeSheets()" data-icon="close"></button>
       </div>
-      <div class="panel-body">
+      <div class="sheet-body">
         <div class="pos-tabs" id="posTabs"></div>
-        <input class="hero-search" id="heroSearch" placeholder="search hero…" oninput="renderHeroGrid()"/>
+        <input class="hero-search" id="heroSearch" placeholder="Search hero…" oninput="renderHeroGrid()"/>
         <div id="recentWrap"></div>
         <div class="section-label" id="allLabel">All heroes</div>
         <div class="hero-grid" id="heroGrid"></div>
+        <div class="section-label">Bench <span class="sub">tap a token, then tap the map</span></div>
+        <div class="bench-row blue"><span class="side-lbl">Blue</span><div class="bench-tokens" id="benchBlue"></div></div>
+        <div class="bench-row red"><span class="side-lbl">Red</span><div class="bench-tokens" id="benchRed"></div></div>
       </div>
-    </div>
+    </aside>
 
     <!-- CENTER: MAP -->
-    <div id="mapWrap">
+    <main id="mapWrap">
       <div id="mapBox">
         <img id="mapImg" src="assets/tactic-map.png" alt="map" draggable="false"/>
         <!-- towers, objectives, tokens injected here -->
+        <svg id="shapeSvg"></svg>
         <canvas id="drawCanvas"></canvas>
       </div>
-    </div>
-
-    <!-- RIGHT: ENV CONTROLS -->
-    <div class="panel" id="rightPanel">
-      <div class="panel-head">
-        <span class="ttl">Environment</span>
-        <button class="panel-toggle" onclick="togglePanel('rightPanel')" title="Collapse / expand">›</button>
+      <div id="zoomCtrl">
+        <button class="icon-btn" onclick="zoomBy(1.35)" title="Zoom in" data-icon="plus"></button>
+        <button class="icon-btn" onclick="zoomBy(1/1.35)" title="Zoom out" data-icon="minus"></button>
       </div>
-      <div class="panel-body">
-        <div class="env-tabs">
-          <div class="tab active" data-env="summons" onclick="setEnvTab('summons')">Summons</div>
-          <div class="tab" data-env="towers" onclick="setEnvTab('towers')">Towers</div>
-        </div>
-
-        <!-- Summons pane -->
-        <div class="env-pane" id="envSummons">
-          <button class="toggle-btn on" id="tglDragon" onclick="toggleObjective('dragon')"><span class="dot"></span> Dragon</button>
-          <button class="toggle-btn on" id="tglSlayer" onclick="toggleObjective('slayer')"><span class="dot"></span> Slayer</button>
-
-          <div class="section-label" style="padding-left:0;">Drag onto map →</div>
-          <div class="summon-src" draggable="true" data-summon="vanguard">
-            <div class="vis" id="vgVis"></div>
-            <div class="meta">Vanguard<small>drag, or tap then tap map</small></div>
-          </div>
-          <div class="summon-src" draggable="true" data-summon="darkslayer">
-            <div class="vis" id="dsVis"></div>
-            <div class="meta">Summoned Darkslayer<small>drag, or tap then tap map</small></div>
-          </div>
-
-          <div class="trash-zone" id="trashZone">🗑 drop summon here to delete</div>
-        </div>
-
-        <!-- Towers pane -->
-        <div class="env-pane" id="envTowers" style="display:none;"></div>
+      <div id="pendingPill" style="display:none;">
+        <span id="pendingTxt"></span>
+        <button onclick="cancelPending()">Cancel</button>
       </div>
-    </div>
+    </main>
+
+    <!-- BOARD — bottom sheet on mobile, right panel on desktop -->
+    <aside class="sheet" id="sheetBoard">
+      <div class="sheet-head">
+        <span class="grip mobile-only"></span>
+        <span class="ttl">Board</span>
+        <button class="icon-btn x mobile-only" onclick="closeSheets()" data-icon="close"></button>
+      </div>
+      <div class="sheet-body">
+        <div class="board-actions">
+          <button class="btn btn-sm" onclick="openLoad()">Load</button>
+          <button class="btn btn-sm" onclick="openImport()">Import draft</button>
+        </div>
+        <div class="section-label">Notes <span class="sub">saved with the scenario</span></div>
+        <textarea id="notesBox" class="notes" placeholder="Play notes — win condition, timings, who starts the engage…"></textarea>
+        <div class="section-label">Objectives</div>
+        <div class="obj-toggles">
+          <button class="toggle-btn on" id="tglDragon" onclick="toggleObjective('dragon')"><span class="dot"></span>Dragon</button>
+          <button class="toggle-btn on" id="tglSlayer" onclick="toggleObjective('slayer')"><span class="dot"></span>Slayer</button>
+        </div>
+        <div class="section-label">Place on map <span class="sub">tap, then tap the map</span></div>
+        <div class="src-grid">
+          <button class="src wblue" data-place="ward:blue"><span class="vis" data-icon="ward"></span>Blue ward</button>
+          <button class="src wred" data-place="ward:red"><span class="vis" data-icon="ward"></span>Red ward</button>
+          <button class="src" data-place="summon:vanguard"><span class="vis" id="vgVis"></span>Vanguard</button>
+          <button class="src" data-place="summon:darkslayer"><span class="vis" id="dsVis"></span>Darkslayer</button>
+        </div>
+        <div class="section-label">Display</div>
+        <div class="size-row">
+          <label>Token size</label>
+          <div class="rr">
+            <input type="range" id="tokSize" min="24" max="80" value="42" oninput="setTokenSize(this.value)"/>
+            <span class="val" id="tokSizeVal">42px</span>
+          </div>
+        </div>
+        <div class="size-row">
+          <div class="rr">
+            <button class="toggle-btn on" id="tglNames" onclick="toggleNames()"><span class="dot"></span>Hero names</button>
+          </div>
+        </div>
+        <div class="section-label">Towers <span class="sub">tap a lane name to toggle the row</span></div>
+        <div id="towersWrap"></div>
+      </div>
+    </aside>
   </div>
 
-  <!-- BENCH -->
-  <div id="bench">
-    <div class="bench-head">
-      <span class="ttl">Bench</span>
-      <span class="hint">drag onto map, or tap then tap the map · × to remove</span>
-      <button class="panel-toggle" style="margin-left:auto;" onclick="toggleBench()">⌄</button>
-    </div>
-    <div class="bench-body">
-      <div class="bench-row blue"><span class="side-lbl">BLUE</span><div class="bench-tokens" id="benchBlue"></div></div>
-      <div class="bench-row red"><span class="side-lbl">RED</span><div class="bench-tokens" id="benchRed"></div></div>
-    </div>
+  <!-- STEP STRIP -->
+  <div id="frameStrip">
+    <span class="fs-label">Steps</span>
+    <div id="frameChips"></div>
+    <button class="icon-btn" onclick="addFrame()" title="Duplicate current step — then move pieces to build the play" data-icon="plus"></button>
+    <button class="icon-btn" id="btnPlay" onclick="togglePlay()" title="Play the steps" data-icon="play"></button>
+  </div>
+
+  <!-- CONTEXT BAR (visible for draw tools) -->
+  <div id="ctxBar">
+    <span id="ctxColor"><span class="lab">Color</span><span id="swatches"></span></span>
+    <span id="ctxSize"><span class="lab">Size</span><input type="range" min="2" max="30" value="5" id="penSize"/><span class="val" id="penSizeVal">5</span></span>
+    <button class="btn btn-sm btn-danger" id="ctxClear" onclick="clearDrawing()">Clear</button>
   </div>
 
   <!-- TOOLBAR -->
-  <div id="toolbar">
-    <div class="tool-cluster">
-      <span class="lab">Tool</span>
-      <button class="btn btn-sm active" id="toolDrag" onclick="setTool('drag')" title="Drag heroes (A)">Drag</button>
-      <button class="btn btn-sm" id="toolPen" onclick="setTool('pen')" title="Draw (S)">Pen</button>
-      <button class="btn btn-sm" id="toolEraser" onclick="setTool('eraser')" title="Erase (D)">Eraser</button>
-    </div>
-    <div class="tool-cluster pen-only disabled" id="penOpts">
-      <span class="lab">Size</span>
-      <input type="range" min="2" max="30" value="5" id="penSize" oninput="penState.size=+this.value"/>
-      <span class="sep"></span>
-      <span class="lab">Color</span>
-      <span id="swatches" style="display:flex;gap:5px;"></span>
-    </div>
-    <div id="rightActions">
-      <button class="btn btn-sm" onclick="undoStroke()" title="Undo drawing (Ctrl+Z)">Undo</button>
-      <button class="btn btn-sm" onclick="redoStroke()" title="Redo drawing (Ctrl+Shift+Z)">Redo</button>
-      <button class="btn btn-sm btn-danger" onclick="clearDrawing()">Clear Drawing</button>
-      <span class="sep"></span>
-      <button class="btn btn-sm btn-primary" onclick="openSave()" title="Save (Ctrl+S)">Save</button>
-      <button class="btn btn-sm" onclick="openLoad()">Load</button>
-      <button class="btn btn-sm" onclick="openImport()">Import Draft</button>
-    </div>
-  </div>
+  <nav id="toolbar">
+    <button class="tool-btn active" data-tool="move" data-icon="move" title="Move pieces (V)"><span>Move</span></button>
+    <button class="tool-btn" data-tool="pen" data-icon="pen" title="Freehand pen (P)"><span>Pen</span></button>
+    <button class="tool-btn" data-tool="arrow" data-icon="arrow" title="Drag an arrow (A)"><span>Arrow</span></button>
+    <button class="tool-btn" data-tool="zone" data-icon="zone" title="Drag a zone (Z)"><span>Zone</span></button>
+    <button class="tool-btn" data-tool="erase" data-icon="erase" title="Erase pen strokes (E)"><span>Erase</span></button>
+    <span class="sep"></span>
+    <button class="tool-btn" onclick="doUndo()" data-icon="undo" title="Undo (Ctrl+Z)"><span>Undo</span></button>
+    <button class="tool-btn" onclick="doRedo()" data-icon="redo" title="Redo (Ctrl+Shift+Z)"><span>Redo</span></button>
+    <span class="spacer"></span>
+    <button class="tool-btn mobile-only" onclick="openSheet('sheetHeroes')" data-icon="heroes" title="Open hero picker"><span>Heroes</span></button>
+  </nav>
 </div>
+<div id="backdrop" onclick="closeSheets()"></div>
 
 <script>
 'use strict';
@@ -387,8 +462,9 @@ function roleToTab(role){
   return null;
 }
 
-// Pen colour swatches (toolbar)
-const SWATCHES=['#FF4444','#4488FF','#FFD700','#44CC44','#FFFFFF','#FF8800'];
+// Pen / arrow / zone colour swatches. Arrowhead markers are generated per
+// swatch, so keep this list in sync if you add colours.
+const SWATCHES=['#FF4444','#4488FF','#FFD700','#44ff88','#FFFFFF','#FF8800'];
 
 // Tower positions as %(x,y) from the top-left of the map.
 // Easy to nudge: just change the x/y numbers.
@@ -416,32 +492,140 @@ const TOWER_POSITIONS=[
   {side:'red',lane:'bot',tier:1,x:81.5,y:35.0},
   {side:'red',lane:'bot',tier:2,x:78.6,y:22.5},
 ];
-const MAP_ASPECT=0.62; // height / width fallback until real image loads
+const MAP_ASPECT=0.62;                 // height / width fallback until real image loads
+const MOVE_MS=700, PAUSE_MS=450;       // playback timing per step
 
 // ════════════════════════════════════════════════════════════════
-//  STATE
+//  PERSPECTIVE MAPPING
+//  The map art is a 3D perspective render of a square arena, so equal
+//  in-game distances shrink toward the top of the image. ARENA_CORNERS
+//  pins the arena's four corners on the image (normalized 0..1) in world
+//  order TL, TR, BR, BL — "world" being the flat top-down square map.
+//  From those a homography H maps world → image. Ward vision is a true
+//  circle in world space projected through H, which is why it renders
+//  wider near the bottom of the screen and flatter near the top.
+//  To recalibrate: open the page with ?cal=1 — a world grid is drawn over
+//  the map, every click prints its coordinates, and pressing 1/2/3/4
+//  moves the matching corner to the last click (new values are logged).
 // ════════════════════════════════════════════════════════════════
+// Fitted numerically so the hand-tuned TOWER_POSITIONS obey in-game
+// geometry (point symmetry, mid towers on the diagonal, side lanes at a
+// fixed offset from their wall) — see PR notes. Refine with ?cal=1.
+const ARENA_CORNERS=[
+  {x:0.2266,y:0.0809},   // 1 · TL
+  {x:0.7845,y:0.0774},   // 2 · TR (red base corner)
+  {x:0.9738,y:0.9261},   // 3 · BR
+  {x:0.0812,y:0.9347},   // 4 · BL (blue base corner)
+];
+// Gaussian elimination for the 8x8 DLT system (partial pivoting)
+function solveLin(A,b){
+  const n=A.length, M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<n;c++){
+    let p=c; for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;
+    const t=M[c]; M[c]=M[p]; M[p]=t;
+    for(let r=0;r<n;r++){ if(r===c)continue; const f=M[r][c]/M[c][c];
+      for(let k=c;k<=n;k++)M[r][k]-=f*M[c][k]; }
+  }
+  return M.map((r,i)=>r[n]/r[i]);
+}
+function computeHomography(dst){   // world unit square TL,TR,BR,BL → dst
+  const src=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+  const A=[],b=[];
+  for(let i=0;i<4;i++){
+    const u=src[i].x,v=src[i].y,x=dst[i].x,y=dst[i].y;
+    A.push([u,v,1,0,0,0,-u*x,-v*x]); b.push(x);
+    A.push([0,0,0,u,v,1,-u*y,-v*y]); b.push(y);
+  }
+  const h=solveLin(A,b);
+  return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+}
+function inv3(m){
+  const [a,b,c,d,e,f,g,h,i]=m;
+  const A=e*i-f*h,B=c*h-b*i,C=b*f-c*e,D=f*g-d*i,E=a*i-c*g,F=c*d-a*f,G=d*h-e*g,Hh=b*g-a*h,I=a*e-b*d;
+  const det=a*A+b*D+c*G;
+  return [A/det,B/det,C/det,D/det,E/det,F/det,G/det,Hh/det,I/det];
+}
+let Hm=null,HmInv=null;
+function rebuildHomography(){ Hm=computeHomography(ARENA_CORNERS); HmInv=inv3(Hm); }
+rebuildHomography();
+function worldToImg(u,v){
+  const w=Hm[6]*u+Hm[7]*v+Hm[8];
+  return {x:(Hm[0]*u+Hm[1]*v+Hm[2])/w, y:(Hm[3]*u+Hm[4]*v+Hm[5])/w};
+}
+function imgToWorld(x,y){
+  const w=HmInv[6]*x+HmInv[7]*y+HmInv[8];
+  return {u:(HmInv[0]*x+HmInv[1]*y+HmInv[2])/w, v:(HmInv[3]*x+HmInv[4]*y+HmInv[5])/w};
+}
+
+// Pit positions calibrated by the coach against the in-game map
+// (normalized image coords). Slayer is fixed; dragon is the draggable
+// objective's default spot.
+const SLAYER_POS={x:0.416,y:0.267};
+const DRAGON_POS={x:0.639,y:0.609};
+const WARD_RANGE_W=0.115;              // ward vision radius, as a fraction of the arena side
+const CAL=new URLSearchParams(location.search).has('cal');
+
+// ════════════════════════════════════════════════════════════════
+//  ICONS  (inline SVG, stroke = currentColor)
+// ════════════════════════════════════════════════════════════════
+function I(paths,fill){ return '<svg viewBox="0 0 20 20" fill="'+(fill?'currentColor':'none')+'" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>'; }
+const ICONS={
+  back : I('<path d="M12 4l-6 6 6 6"/>'),
+  menu : I('<path d="M3 5h14M3 10h14M3 15h14"/>'),
+  close: I('<path d="M5 5l10 10M15 5L5 15"/>'),
+  plus : I('<path d="M10 4v12M4 10h12"/>'),
+  minus: I('<path d="M4 10h12"/>'),
+  move : I('<path d="M10 2v16M2 10h16M10 2l-2.2 2.2M10 2l2.2 2.2M10 18l-2.2-2.2M10 18l2.2-2.2M2 10l2.2-2.2M2 10l2.2 2.2M18 10l-2.2-2.2M18 10l-2.2 2.2"/>'),
+  pen  : I('<path d="M3.5 16.5l1-4L14 3a1.9 1.9 0 012.8 2.8L7.5 15.3l-4 1.2z"/>'),
+  arrow: I('<path d="M4 16L15 5M9.5 5H15v5.5"/>'),
+  zone : I('<ellipse cx="10" cy="10" rx="7" ry="4.8" stroke-dasharray="3 2.6"/>'),
+  erase: I('<path d="M8 14.5L4.5 11a1.6 1.6 0 010-2.2L10.8 2.4a1.6 1.6 0 012.2 0l3.6 3.6a1.6 1.6 0 010 2.2L10.5 14.5z"/><path d="M3 17.5h14"/>'),
+  undo : I('<path d="M4 8h8.2a3.8 3.8 0 110 7.6H7M4 8l3-3M4 8l3 3"/>'),
+  redo : I('<path d="M16 8H7.8a3.8 3.8 0 100 7.6H13M16 8l-3-3M16 8l-3 3"/>'),
+  play : I('<path d="M6.5 4.5l9 5.5-9 5.5z"/>',true),
+  stop : I('<rect x="5" y="5" width="10" height="10" rx="1"/>',true),
+  ward : I('<path d="M2 10s3-4.8 8-4.8 8 4.8 8 4.8-3 4.8-8 4.8S2 10 2 10z"/><circle cx="10" cy="10" r="2.1"/>'),
+  heroes:I('<circle cx="10" cy="6.4" r="3.1"/><path d="M3.8 17c.5-3.3 3-5 6.2-5s5.7 1.7 6.2 5"/>'),
+};
+
+// ════════════════════════════════════════════════════════════════
+//  STATE — one board = global settings + a list of frames (steps).
+//  Each frame is an independent snapshot of everything that moves.
+// ════════════════════════════════════════════════════════════════
+function blankFrame(){
+  return {heroes:[],   // [{id,hero,team,x,y}]  x,y normalized 0..1
+          summons:[],  // [{id,type,x,y}]
+          wards:[],    // [{id,team,x,y,range}]
+          strokes:[],  // [{color,size,erase,pts:[{x,y}]}]
+          shapes:[],   // [{id,kind:'arrow'|'zone',color,x1,y1,x2,y2}]
+          dragonPos:{x:DRAGON_POS.x,y:DRAGON_POS.y}};
+}
 const state={
-  heroes:[],          // [{name, positions:Set}]
-  heroPos:{},         // name -> Set of positions
-  games:[],           // parsed rows for import
-  posFilter:'All',
-  tool:'drag',
-  tokenSize:40,
-  bench:{blue:[],red:[]},     // [{id,hero}]
-  mapHeroes:[],               // [{id,hero,team,x,y}]  x,y normalized 0..1
-  summons:[],                 // [{id,type,x,y}]
-  objectives:{dragon:true,slayer:true},
-  dragonPos:{x:0.666,y:0.666},
-  slayerPos:{x:0.394,y:0.350},  // fixed, not draggable
+  heroes:[], heroPos:{}, posFilter:'All',
+  tool:'move', tokenSize:42, showNames:true,
+  bench:{blue:[],red:[]},
   towers:{blue:{top:[true,true,true],mid:[true,true,true],bot:[true,true,true]},
           red:{ top:[true,true,true],mid:[true,true,true],bot:[true,true,true]}},
-  strokes:[],         // [{color,size,erase,pts:[{x,y}]}] coords normalized
-  redo:[],
-  pending:null,       // tap-to-place selection: {kind:'bench',team,id,hero} or {kind:'summon',type}
+  objectives:{dragon:true,slayer:true},
+  frames:[blankFrame()], cur:0,
+  notes:'', scnName:'',
+  pending:null,        // tap-to-place: {kind:'bench',team,id,hero} | {kind:'ward',team} | {kind:'summon',type}
+  sel:null,            // selected shape id (move tool)
+  playing:false,
+  view:{s:1,tx:0,ty:0},// map zoom / pan
 };
 const penState={size:5,color:'#FF4444'};
 let _idc=0; const uid=()=>'t'+(++_idc)+'_'+Math.floor(performance.now());
+const F=()=>state.frames[state.cur];
+const $=id=>document.getElementById(id);
+const clone=o=>JSON.parse(JSON.stringify(o));
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const clamp01=v=>Math.max(0,Math.min(1,v));
+
+// unsaved-work guard: mobile browsers make it easy to swipe-back out of the page
+let dirty=false;
+function markDirty(){ dirty=true; }
+window.addEventListener('beforeunload',e=>{ if(dirty){e.preventDefault(); e.returnValue='';} });
 
 // ════════════════════════════════════════════════════════════════
 //  HERO PORTRAITS  (Cloudinary — mirrors the main app's heroImgUrl)
@@ -457,31 +641,25 @@ function initials(name){
   return (name||'?').split(/[ _'-]/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase()||'?';
 }
 // <img> that hides itself on error so the initials underneath show through.
-function heroImgTag(name,extra){
-  return '<img '+(extra||'')+' src="'+esc(heroImgUrl(name))+'" '+
-         'onerror="this.style.display=\'none\'" draggable="false"/>';
+function heroImgTag(name){
+  return '<img src="'+esc(heroImgUrl(name))+'" onerror="this.style.display=\'none\'" draggable="false"/>';
 }
 
 // ════════════════════════════════════════════════════════════════
 //  DATA LOADING  (heroes + roles + image overrides — all from Supabase)
 // ════════════════════════════════════════════════════════════════
 async function loadData(){
-  if(!sb){ document.getElementById('heroGrid').innerHTML=
+  if(!sb){ $('heroGrid').innerHTML=
     '<div class="note" style="grid-column:1/-1;">Supabase did not load — check your connection.</div>'; return; }
-
-  // image / role overrides (best-effort; some heroes use a custom uploaded image)
   try{
     const {data}=await sb.from('app_settings').select('value').eq('key','hero_overrides').single();
     if(data&&data.value) OVERRIDES=data.value;
   }catch(e){ console.warn('overrides load failed',e); }
-
-  // hero list + roles
   try{
     const {data,error}=await sb.from('heroes').select('name,roles').order('name');
     if(error)throw error;
     state.heroes=data.map(h=>h.name).filter(Boolean);
     data.forEach(h=>{
-      // a hero's roles can be overridden in app_settings; prefer those if present
       const ov=OVERRIDES[h.name];
       const roles=(ov&&ov.roles&&ov.roles.length)?ov.roles:(h.roles||[]);
       roles.forEach(r=>String(r).split('/').forEach(part=>{
@@ -490,7 +668,7 @@ async function loadData(){
     });
   }catch(e){
     console.warn('heroes load failed',e);
-    document.getElementById('heroGrid').innerHTML=
+    $('heroGrid').innerHTML=
       '<div class="note" style="grid-column:1/-1;">Could not load heroes from the database.</div>';
   }
   renderHeroGrid();
@@ -498,57 +676,68 @@ async function loadData(){
 function addHeroPos(hero,pos){ (state.heroPos[hero]=state.heroPos[hero]||new Set()).add(pos); }
 
 // ════════════════════════════════════════════════════════════════
-//  PANELS / TABS / TOOLS
+//  SHEETS (mobile bottom drawers / desktop side panels)
 // ════════════════════════════════════════════════════════════════
-function togglePanel(id){ document.getElementById(id).classList.toggle('collapsed'); requestResize(); }
-function toggleBench(){ document.getElementById('bench').classList.toggle('collapsed'); requestResize(); }
-
-function setEnvTab(t){
-  document.querySelectorAll('.env-tabs .tab').forEach(x=>x.classList.toggle('active',x.dataset.env===t));
-  document.getElementById('envSummons').style.display = t==='summons'?'':'none';
-  document.getElementById('envTowers').style.display  = t==='towers'?'':'none';
+const isDesktop=()=>window.matchMedia('(min-width:900px)').matches;
+function openSheet(id){
+  if(isDesktop())return;               // panels are always open on desktop
+  closeSheets();
+  $(id).classList.add('open'); $('backdrop').classList.add('show');
 }
+function closeSheets(){
+  document.querySelectorAll('.sheet.open').forEach(s=>s.classList.remove('open'));
+  $('backdrop').classList.remove('show');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOOLS
+// ════════════════════════════════════════════════════════════════
 function setTool(t){
   state.tool=t;
-  ['drag','pen','eraser'].forEach(x=>document.getElementById('tool'+x[0].toUpperCase()+x.slice(1)).classList.toggle('active',x===t));
-  const penActive=(t==='pen'||t==='eraser');
-  document.getElementById('penOpts').classList.toggle('disabled',!penActive);
-  // canvas only catches pointer events while drawing/erasing
-  document.getElementById('drawCanvas').style.pointerEvents = penActive?'auto':'none';
+  ['move','pen','arrow','zone','erase'].forEach(x=>document.body.classList.toggle('tool-'+x,x===t));
+  document.querySelectorAll('#toolbar [data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
+  if(t!=='move') setSel(null);
 }
 
-// position tabs + swatches
+// static UI: icons, position tabs, swatches, sources, towers
 function buildStaticUI(){
-  const pt=document.getElementById('posTabs');
+  document.querySelectorAll('[data-icon]').forEach(el=>{ el.insertAdjacentHTML('afterbegin',ICONS[el.dataset.icon]||''); });
+  document.querySelectorAll('#toolbar [data-tool]').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+
+  const pt=$('posTabs');
   ['All',...POSITIONS].forEach(p=>{
     const b=document.createElement('div'); b.className='tab'+(p==='All'?' active':''); b.textContent=p;
     b.onclick=()=>{ state.posFilter=p; document.querySelectorAll('#posTabs .tab').forEach(x=>x.classList.toggle('active',x.textContent===p)); renderHeroGrid(); };
     pt.appendChild(b);
   });
-  const sw=document.getElementById('swatches');
+
+  const sw=$('swatches');
   SWATCHES.forEach((c,i)=>{
-    const s=document.createElement('span'); s.className='swatch'+(i===0?' active':''); s.style.background=c;
+    const s=document.createElement('button'); s.className='swatch'+(i===0?' active':''); s.style.background=c; s.title=c;
     s.onclick=()=>{ penState.color=c; document.querySelectorAll('#swatches .swatch').forEach(x=>x.classList.remove('active')); s.classList.add('active'); };
     sw.appendChild(s);
   });
-  // summon source visuals + drag
-  document.getElementById('vgVis').innerHTML=summonSVG('vanguard');
-  document.getElementById('dsVis').innerHTML=summonSVG('darkslayer');
-  document.querySelectorAll('.summon-src').forEach(el=>{
-    el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/summon',el.dataset.summon); });
+  $('penSize').addEventListener('input',function(){ penState.size=+this.value; $('penSizeVal').textContent=this.value; });
+
+  $('vgVis').innerHTML=summonSVG('vanguard');
+  $('dsVis').innerHTML=summonSVG('darkslayer');
+  document.querySelectorAll('.src[data-place]').forEach(el=>{
     el.addEventListener('click',()=>{
-      const type=el.dataset.summon;
-      if(state.pending&&state.pending.kind==='summon'&&state.pending.type===type){ cancelPending(); return; }
-      startPending({kind:'summon',type});
+      const [kind,arg]=el.dataset.place.split(':');
+      if(state.pending&&state.pending.kind===kind&&(state.pending.team===arg||state.pending.type===arg)){ cancelPending(); return; }
+      startPending(kind==='ward'?{kind:'ward',team:arg}:{kind:'summon',type:arg});
     });
   });
+
   // hero cells are rendered via innerHTML (recent + full grid), so their click
-  // is handled here via delegation rather than a per-cell listener/inline onclick.
-  document.querySelector('#leftPanel .panel-body').addEventListener('click',e=>{
+  // is handled here via delegation rather than a per-cell listener.
+  document.querySelector('#sheetHeroes .sheet-body').addEventListener('click',e=>{
     const cell=e.target.closest('.hero-cell'); if(!cell)return;
     openHeroPick(e,cell.dataset.hero);
   });
-  buildTowersTab();
+
+  $('notesBox').addEventListener('input',function(){ state.notes=this.value; markDirty(); });
+  buildTowersUI();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -569,51 +758,73 @@ function heroCellHTML(name){
     '<div class="nm">'+esc(name)+'</div></div>';
 }
 function renderHeroGrid(){
-  const q=(document.getElementById('heroSearch').value||'').toLowerCase().trim();
-  // recent strip
+  const q=($('heroSearch').value||'').toLowerCase().trim();
   const rec=recentHeroes().filter(n=>state.heroes.includes(n));
-  const recWrap=document.getElementById('recentWrap');
+  const recWrap=$('recentWrap');
   if(rec.length && !q){
     recWrap.innerHTML='<div class="section-label">Recent</div><div class="hero-grid">'+rec.map(heroCellHTML).join('')+'</div>';
   }else recWrap.innerHTML='';
-  document.getElementById('allLabel').style.display=q?'none':'';
+  $('allLabel').style.display=q?'none':'';
   const list=state.heroes.filter(n=>heroMatchesFilter(n) && (!q||n.toLowerCase().includes(q)));
-  document.getElementById('heroGrid').innerHTML=list.map(heroCellHTML).join('') ||
+  $('heroGrid').innerHTML=list.map(heroCellHTML).join('') ||
     '<div class="note" style="grid-column:1/-1;">No heroes match.</div>';
 }
 
-// hero pick popup (blue/red -> bench)
+// hero pick popup: place straight on the map (or add to bench)
 let _pop=null;
 function openHeroPick(ev,name){
   closePop();
   const p=document.createElement('div'); p.className='mini-pop';
-  p.innerHTML='<div class="ph">'+esc(name)+'</div><div class="row">'+
-    '<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue);" data-team="blue">Blue</button>'+
-    '<button class="btn btn-sm" style="border-color:var(--red);color:var(--red);" data-team="red">Red</button></div>';
+  p.innerHTML='<div class="ph">'+esc(name)+'</div>'+
+    '<div class="row">'+
+      '<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue);" data-place-team="blue">Blue</button>'+
+      '<button class="btn btn-sm" style="border-color:var(--red);color:var(--red);" data-place-team="red">Red</button></div>'+
+    '<div class="row">'+
+      '<button class="btn btn-sm" data-bench-team="blue">Bench B</button>'+
+      '<button class="btn btn-sm" data-bench-team="red">Bench R</button></div>';
   document.body.appendChild(p);
-  const x=Math.min(ev.clientX,window.innerWidth-150), y=Math.min(ev.clientY,window.innerHeight-90);
-  p.style.left=x+'px'; p.style.top=y+'px';
-  p.querySelectorAll('button').forEach(b=>b.onclick=()=>{ addToBench(name,b.dataset.team); pushRecent(name); renderHeroGrid(); closePop(); });
+  placePop(p,ev.clientX,ev.clientY);
+  p.querySelectorAll('[data-place-team]').forEach(b=>b.onclick=()=>{
+    const spot=spawnSpot(b.dataset.placeTeam);
+    placeHero(name,b.dataset.placeTeam,spot.x,spot.y);
+    pushRecent(name); renderHeroGrid(); closePop(); closeSheets();
+    toast(name+' placed — drag it into position.');
+  });
+  p.querySelectorAll('[data-bench-team]').forEach(b=>b.onclick=()=>{
+    state.bench[b.dataset.benchTeam].push({id:uid(),hero:name});
+    pushRecent(name); renderBench(); renderHeroGrid(); closePop(); markDirty();
+  });
   _pop=p;
-  setTimeout(()=>document.addEventListener('mousedown',popOutside),0);
+  setTimeout(()=>document.addEventListener('pointerdown',popOutside),0);
+}
+function placePop(p,cx,cy){
+  const r=p.getBoundingClientRect();
+  p.style.left=Math.max(6,Math.min(cx,window.innerWidth-r.width-6))+'px';
+  p.style.top =Math.max(6,Math.min(cy,window.innerHeight-r.height-6))+'px';
 }
 function popOutside(e){ if(_pop && !_pop.contains(e.target))closePop(); }
-function closePop(){ if(_pop){_pop.remove();_pop=null;document.removeEventListener('mousedown',popOutside);} }
+function closePop(){ if(_pop){_pop.remove();_pop=null;document.removeEventListener('pointerdown',popOutside);} }
+
+// spawn spot: stagger new tokens on their side's half so they never stack
+function spawnSpot(team){
+  const n=F().heroes.filter(h=>h.team===team).length;
+  const dir=team==='blue'?1:-1;
+  const base=team==='blue'?{x:0.30,y:0.74}:{x:0.70,y:0.24};
+  return {x:clamp01(base.x+dir*(n%5)*0.06), y:clamp01(base.y+dir*Math.floor(n/5)*0.09)};
+}
 
 // ════════════════════════════════════════════════════════════════
 //  BENCH
 // ════════════════════════════════════════════════════════════════
-function addToBench(hero,team){ state.bench[team].push({id:uid(),hero}); renderBench(); }
 function benchTokenHTML(item,team){
-  const sz=Math.round(state.tokenSize*0.85);
-  return '<div class="bench-token '+team+'" draggable="true" data-id="'+item.id+'" data-team="'+team+'" title="drag to map, or tap then tap the map">'+
+  return '<div class="bench-token '+team+'" draggable="true" data-id="'+item.id+'" data-team="'+team+'" title="tap, then tap the map">'+
     '<button class="bt-rm" data-id="'+item.id+'" data-team="'+team+'" title="remove from bench">×</button>'+
-    '<div class="ring" style="width:'+sz+'px;height:'+sz+'px;"><span class="init" style="font-size:'+Math.round(sz*0.34)+'px;">'+esc(initials(item.hero))+'</span>'+heroImgTag(item.hero)+'</div>'+
+    '<div class="ring"><span class="init">'+esc(initials(item.hero))+'</span>'+heroImgTag(item.hero)+'</div>'+
     '<div class="nm">'+esc(item.hero)+'</div></div>';
 }
 function renderBench(){
   ['blue','red'].forEach(team=>{
-    const el=document.getElementById('bench'+team[0].toUpperCase()+team.slice(1));
+    const el=$('bench'+team[0].toUpperCase()+team.slice(1));
     const arr=state.bench[team];
     el.innerHTML=arr.length?arr.map(it=>benchTokenHTML(it,team)).join(''):'<span class="bench-empty">empty</span>';
     el.querySelectorAll('.bench-token').forEach(node=>{
@@ -631,18 +842,19 @@ function renderBench(){
     });
   });
 }
-function removeFromBench(team,id){ state.bench[team]=state.bench[team].filter(x=>x.id!==id); renderBench(); }
+function removeFromBench(team,id){ state.bench[team]=state.bench[team].filter(x=>x.id!==id); renderBench(); markDirty(); }
 
 // ════════════════════════════════════════════════════════════════
-//  MAP — towers, objectives, hero tokens, summons
+//  MAP — towers, objectives, hero tokens, summons, wards
 // ════════════════════════════════════════════════════════════════
-const mapBox=document.getElementById('mapBox');
-const canvas=document.getElementById('drawCanvas');
+const mapBox=$('mapBox');
+const canvas=$('drawCanvas');
 const ctx=canvas.getContext('2d');
+const svg=$('shapeSvg');
+let mapW=300,mapH=200;   // current layout size of mapBox in px (pre-zoom)
 
 function towerSVG(side){
   const col=side==='blue'?'var(--tower-blue)':'var(--tower-red)';
-  // simple chess-pawn silhouette
   return '<svg width="18" height="22" viewBox="0 0 24 30">'+
     '<circle cx="12" cy="6" r="5" fill="'+col+'"/>'+
     '<path d="M7 11 h10 l-1.5 5 h-7 z" fill="'+col+'"/>'+
@@ -653,22 +865,21 @@ function towerVisible(t){ return state.towers[t.side][t.lane][t.tier]; }
 
 function summonSVG(type){
   if(type==='vanguard'){ // purple horned helmet
-    return '<svg width="36" height="36" viewBox="0 0 40 40"><g fill="#9b5cff" stroke="#5a2da8" stroke-width="1.5">'+
+    return '<svg width="100%" height="100%" viewBox="0 0 40 40"><g fill="#9b5cff" stroke="#5a2da8" stroke-width="1.5">'+
       '<path d="M6 14 C2 8 8 4 12 8 L14 12 Z"/><path d="M34 14 C38 8 32 4 28 8 L26 12 Z"/>'+
       '<path d="M10 14 a10 10 0 0 1 20 0 v8 a10 10 0 0 1 -20 0 z"/></g>'+
       '<rect x="16" y="20" width="8" height="4" fill="#2a1250"/></svg>';
   }
   // darkslayer: purple bat-wing
-  return '<svg width="36" height="36" viewBox="0 0 40 40"><g fill="#7a3df0" stroke="#3d1f80" stroke-width="1.5">'+
+  return '<svg width="100%" height="100%" viewBox="0 0 40 40"><g fill="#7a3df0" stroke="#3d1f80" stroke-width="1.5">'+
     '<path d="M20 10 C12 6 4 8 2 18 C8 16 10 18 12 22 C14 18 17 16 20 18 C23 16 26 18 28 22 C30 18 32 16 38 18 C36 8 28 6 20 10 Z"/>'+
     '<circle cx="20" cy="24" r="6"/></g><circle cx="17.5" cy="23" r="1.3" fill="#ffcf3a"/><circle cx="22.5" cy="23" r="1.3" fill="#ffcf3a"/></svg>';
 }
 
 function renderMap(){
-  // remove previously injected elements (keep img + canvas)
-  [...mapBox.querySelectorAll('.tower,.objective,.token,.summon-token')].forEach(n=>n.remove());
+  [...mapBox.querySelectorAll('.tower,.objective,.token,.summon-token,.ward,#selPill')].forEach(n=>n.remove());
+  const f=F();
 
-  // towers
   TOWER_POSITIONS.forEach(t=>{
     if(!towerVisible(t))return;
     const d=document.createElement('div'); d.className='tower';
@@ -676,27 +887,32 @@ function renderMap(){
     mapBox.appendChild(d);
   });
 
-  // objectives
-  if(state.objectives.slayer) mapBox.appendChild(objEl('slayer',state.slayerPos,false));
-  if(state.objectives.dragon) mapBox.appendChild(objEl('dragon',state.dragonPos,true));
+  if(state.objectives.slayer) mapBox.appendChild(objEl('slayer',SLAYER_POS,false));
+  if(state.objectives.dragon) mapBox.appendChild(objEl('dragon',f.dragonPos,true));
 
-  // summons
-  state.summons.forEach(s=>{
+  f.summons.forEach(s=>{
     const d=document.createElement('div'); d.className='summon-token'; d.id=s.id;
     d.style.left=(s.x*100)+'%'; d.style.top=(s.y*100)+'%'; d.innerHTML=summonSVG(s.type);
-    enableSummonDrag(d,s);
+    enablePieceDrag(d,s,()=>openSummonMenu(s));
     mapBox.appendChild(d);
   });
 
-  // hero tokens
-  state.mapHeroes.forEach(h=>mapBox.appendChild(tokenEl(h)));
+  f.wards.forEach(w=>{
+    const d=document.createElement('div'); d.className='ward '+w.team; d.id=w.id;
+    d.style.left=(w.x*100)+'%'; d.style.top=(w.y*100)+'%'; d.innerHTML=ICONS.ward;
+    enablePieceDrag(d,w,()=>openWardMenu(w),renderShapes);   // range circle follows while dragging
+    mapBox.appendChild(d);
+  });
 
-  // canvas must stay on top → re-append
+  f.heroes.forEach(h=>mapBox.appendChild(tokenEl(h)));
+
+  // overlays stay on top, in this order
+  mapBox.appendChild(svg);
   mapBox.appendChild(canvas);
+  renderSelPill();
 }
-// dragon.png and slayer.png aren't square (slayer especially is much wider
-// than tall) — size each box to its native ratio so object-fit:contain
-// doesn't have to squeeze/letterbox it down.
+// dragon.png and slayer.png aren't square — size each box to its native
+// ratio so object-fit:contain doesn't letterbox it down.
 const OBJECTIVE_SIZE={dragon:{w:40,h:36},slayer:{w:46,h:28}};
 function objEl(type,pos,draggable){
   const d=document.createElement('div'); d.className='objective'+(draggable?' draggable':'');
@@ -705,7 +921,7 @@ function objEl(type,pos,draggable){
   d.style.width=sz.w+'px'; d.style.height=sz.h+'px';
   const file=type==='dragon'?'assets/dragon.png':'assets/slayer.png';
   d.innerHTML='<img src="'+file+'" alt="'+type+'"/>';
-  if(draggable) enableObjectiveDrag(d);
+  if(draggable) enablePieceDrag(d,F().dragonPos,null);   // dragon: drag only, no menu
   return d;
 }
 function tokenEl(h){
@@ -715,128 +931,119 @@ function tokenEl(h){
   d.innerHTML='<div class="ring" style="width:'+state.tokenSize+'px;height:'+state.tokenSize+'px;">'+
     '<span class="init" style="font-size:'+Math.round(state.tokenSize*0.34)+'px;">'+esc(initials(h.hero))+'</span>'+heroImgTag(h.hero)+'</div>'+
     '<div class="lbl">'+esc(h.hero)+'</div>';
-  enableTokenDrag(d,h);
-  d.addEventListener('dblclick',e=>{ e.preventDefault(); sendTokenToBench(h); });
-  d.addEventListener('contextmenu',e=>{ e.preventDefault(); openTokenMenu(h,e.clientX,e.clientY); });
+  enablePieceDrag(d,h,()=>openTokenMenu(h));
   return d;
 }
-// right-click (desktop) or long-press (touch) → small menu instead of an
-// instant, unconfirmed action.
-function openTokenMenu(h,cx,cy){
-  closePop();
-  const otherTeam=h.team==='blue'?'red':'blue';
-  const p=document.createElement('div'); p.className='mini-pop';
-  p.innerHTML='<div class="ph">'+esc(h.hero)+'</div><div class="row">'+
-    '<button class="btn btn-sm" data-act="swap">Switch to '+otherTeam.toUpperCase()+'</button>'+
-    '<button class="btn btn-sm" data-act="bench">To bench</button></div>';
-  document.body.appendChild(p);
-  const x=Math.min(cx,window.innerWidth-170), y=Math.min(cy,window.innerHeight-90);
-  p.style.left=x+'px'; p.style.top=y+'px';
-  p.querySelector('[data-act="swap"]').onclick=()=>{ h.team=otherTeam; renderMap(); closePop(); };
-  p.querySelector('[data-act="bench"]').onclick=()=>{ sendTokenToBench(h); closePop(); };
-  _pop=p;
-  setTimeout(()=>document.addEventListener('mousedown',popOutside),0);
+
+// ── one drag helper for every piece on the map ──
+// pos: object with mutable x/y (normalized). menuFn: quick-tap / long-press
+// menu (null = drag only). onMove: extra per-move callback (wards move their
+// range circle along). Only active with the Move tool.
+function clientToNorm(cx,cy){
+  const r=mapBox.getBoundingClientRect();
+  return {x:clamp01((cx-r.left)/r.width), y:clamp01((cy-r.top)/r.height)};
 }
-function sendTokenToBench(h){
-  state.mapHeroes=state.mapHeroes.filter(x=>x.id!==h.id);
-  state.bench[h.team].push({id:uid(),hero:h.hero});
-  renderMap(); renderBench();
+function enablePieceDrag(el,pos,menuFn,onMove){
+  el.addEventListener('pointerdown',e=>{
+    if(state.tool!=='move'||state.playing)return;
+    if(e.button!==undefined&&e.button!==0)return;
+    e.preventDefault(); e.stopPropagation();
+    el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
+    const startX=e.clientX,startY=e.clientY,t0=performance.now(); let moved=false;
+    // holding still for ~500ms opens the menu — the touch right-click
+    const lpTimer=menuFn?setTimeout(()=>{ if(!moved){ cleanup(); menuFn(); } },500):null;
+    const move=ev=>{
+      if(!moved&&(Math.abs(ev.clientX-startX)>6||Math.abs(ev.clientY-startY)>6)){ moved=true; if(lpTimer)clearTimeout(lpTimer); }
+      if(!moved)return;
+      const n=clientToNorm(ev.clientX,ev.clientY); pos.x=n.x; pos.y=n.y;
+      el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%';
+      if(onMove)onMove();
+    };
+    const up=()=>{
+      cleanup();
+      if(moved){ markDirty(); }
+      else if(menuFn&&performance.now()-t0<300){ menuFn(); }   // quick tap = menu too
+    };
+    function cleanup(){
+      if(lpTimer)clearTimeout(lpTimer);
+      el.classList.remove('dragging');
+      try{el.releasePointerCapture(e.pointerId);}catch(_){}
+      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up);
+    }
+    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+  });
+  el.addEventListener('contextmenu',e=>{ e.preventDefault(); if(menuFn)menuFn(); });
+}
+
+// piece menus
+function miniMenu(title,items,cx,cy){
+  closePop();
+  const p=document.createElement('div'); p.className='mini-pop';
+  p.innerHTML='<div class="ph">'+esc(title)+'</div>'+
+    items.map((it,i)=>'<button class="btn btn-sm" data-i="'+i+'" '+(it.style?'style="'+it.style+'"':'')+'>'+it.label+'</button>').join('');
+  document.body.appendChild(p);
+  placePop(p,cx==null?window.innerWidth/2:cx,cy==null?window.innerHeight/2:cy);
+  p.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{ closePop(); items[+b.dataset.i].fn(); });
+  _pop=p;
+  setTimeout(()=>document.addEventListener('pointerdown',popOutside),0);
+}
+function pieceCenter(id){ const el=$(id); if(!el)return {cx:null,cy:null}; const r=el.getBoundingClientRect(); return {cx:r.left+r.width/2,cy:r.top+r.height/2}; }
+function openTokenMenu(h){
+  const other=h.team==='blue'?'red':'blue'; const c=pieceCenter(h.id);
+  miniMenu(h.hero,[
+    {label:'Switch to '+other.toUpperCase(),fn:()=>{h.team=other;renderMap();markDirty();}},
+    {label:'To bench',fn:()=>{ F().heroes=F().heroes.filter(x=>x.id!==h.id); state.bench[h.team].push({id:uid(),hero:h.hero}); renderMap(); renderBench(); markDirty(); }},
+    {label:'Remove',style:'border-color:var(--red);color:var(--red);',fn:()=>{ F().heroes=F().heroes.filter(x=>x.id!==h.id); renderMap(); markDirty(); }},
+  ],c.cx,c.cy);
+}
+function openWardMenu(w){
+  const other=w.team==='blue'?'red':'blue'; const c=pieceCenter(w.id);
+  miniMenu((w.team+' ward').toUpperCase(),[
+    {label:(w.range?'Hide':'Show')+' vision range',fn:()=>{w.range=!w.range;renderShapes();markDirty();}},
+    {label:'Switch to '+other.toUpperCase(),fn:()=>{w.team=other;renderMap();renderShapes();markDirty();}},
+    {label:'Remove',style:'border-color:var(--red);color:var(--red);',fn:()=>{ F().wards=F().wards.filter(x=>x.id!==w.id); renderMap(); renderShapes(); markDirty(); }},
+  ],c.cx,c.cy);
+}
+function openSummonMenu(s){
+  const c=pieceCenter(s.id);
+  miniMenu(s.type==='vanguard'?'Vanguard':'Darkslayer',[
+    {label:'Remove',style:'border-color:var(--red);color:var(--red);',fn:()=>{ F().summons=F().summons.filter(x=>x.id!==s.id); renderMap(); markDirty(); }},
+  ],c.cx,c.cy);
 }
 
 // place a hero on the map at normalized x,y
 function placeHero(hero,team,x,y){
-  state.mapHeroes.push({id:uid(),hero,team,x,y});
-  renderMap();
+  F().heroes.push({id:uid(),hero,team,x,y});
+  renderMap(); markDirty();
 }
 
-// ── Pointer-drag for things already ON the map ──
-function clientToNorm(cx,cy){
-  const r=mapBox.getBoundingClientRect();
-  return {x:Math.max(0,Math.min(1,(cx-r.left)/r.width)), y:Math.max(0,Math.min(1,(cy-r.top)/r.height))};
-}
-function enableTokenDrag(el,h){
-  el.addEventListener('pointerdown',e=>{
-    if(state.tool!=='drag')return;          // only move heroes in Drag mode
-    if(e.button!==0)return;
-    e.preventDefault(); el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
-    const startX=e.clientX,startY=e.clientY; let moved=false;
-    // holding still (no drag) for ~500ms opens the switch-team/bench menu —
-    // this is the touch equivalent of a right-click.
-    const lpTimer=setTimeout(()=>{
-      if(moved)return;
-      el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId);
-      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
-      openTokenMenu(h,startX,startY);
-    },500);
-    const move=ev=>{
-      if(!moved&&(Math.abs(ev.clientX-startX)>6||Math.abs(ev.clientY-startY)>6)){ moved=true; clearTimeout(lpTimer); }
-      const n=clientToNorm(ev.clientX,ev.clientY); h.x=n.x;h.y=n.y; el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%';
-    };
-    const up=ev=>{ clearTimeout(lpTimer); el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); };
-    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
-  });
-}
-function enableObjectiveDrag(el){      // dragon — draggable at all times
-  el.addEventListener('pointerdown',e=>{
-    if(e.button!==0)return; e.preventDefault(); el.setPointerCapture(e.pointerId); el.style.cursor='grabbing';
-    const move=ev=>{ const n=clientToNorm(ev.clientX,ev.clientY); state.dragonPos={x:n.x,y:n.y}; el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%'; };
-    const up=()=>{ el.style.cursor='grab'; el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); };
-    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
-  });
-}
-function enableSummonDrag(el,s){        // summon tokens — draggable any time
-  el.addEventListener('pointerdown',e=>{
-    if(e.button!==0)return; e.preventDefault(); el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
-    const move=ev=>{ const n=clientToNorm(ev.clientX,ev.clientY); s.x=n.x;s.y=n.y; el.style.left=(n.x*100)+'%'; el.style.top=(n.y*100)+'%'; };
-    const up=ev=>{
-      el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId);
-      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
-      // dropped over trash zone? delete
-      const tz=document.getElementById('trashZone').getBoundingClientRect();
-      if(ev.clientX>=tz.left&&ev.clientX<=tz.right&&ev.clientY>=tz.top&&ev.clientY<=tz.bottom){
-        state.summons=state.summons.filter(x=>x.id!==s.id); renderMap();
-      }
-      document.getElementById('trashZone').classList.remove('over');
-    };
-    el.addEventListener('pointermove',ev=>{
-      const tz=document.getElementById('trashZone').getBoundingClientRect();
-      document.getElementById('trashZone').classList.toggle('over', ev.clientX>=tz.left&&ev.clientX<=tz.right&&ev.clientY>=tz.top&&ev.clientY<=tz.bottom);
-    });
-    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
-  });
-}
-
-// ── Native drag-and-drop: spawn things onto the map ──
+// ── Native drag-and-drop from the bench (desktop) ──
 mapBox.addEventListener('dragover',e=>e.preventDefault());
 mapBox.addEventListener('drop',e=>{
   e.preventDefault();
   const n=clientToNorm(e.clientX,e.clientY);
   const bench=e.dataTransfer.getData('text/bench');
-  const summon=e.dataTransfer.getData('text/summon');
   if(bench){
     const {team,id}=JSON.parse(bench);
     const item=state.bench[team].find(x=>x.id===id); if(!item)return;
     removeFromBench(team,id);
     placeHero(item.hero,team,n.x,n.y);
-  }else if(summon){
-    state.summons.push({id:uid(),type:summon,x:n.x,y:n.y}); renderMap();
   }
 });
 
-// ── Tap-to-place: touch-friendly alternative to the native drag above.
-// Tap a bench token or a summon source to select it, then tap the map to
-// place it there. Tapping the same source again (or Escape, or tapping
-// anywhere outside the map/bench/summon list) cancels the selection. ──
+// ── Tap-to-place: touch-friendly flow for bench heroes, wards, summons.
+// Select a source, a pill appears over the map, tap the map to drop it. ──
 function startPending(p){
   state.pending=p;
   highlightPending();
-  mapBox.style.cursor='crosshair';
-  const label=p.kind==='bench'?p.hero:(p.type==='vanguard'?'Vanguard':'Summoned Darkslayer');
-  toast('Tap the map to place '+label+' — tap it again to cancel.');
+  const label=p.kind==='bench'?p.hero : p.kind==='ward'?(p.team+' ward') : (p.type==='vanguard'?'Vanguard':'Darkslayer');
+  $('pendingTxt').textContent='Tap the map to place '+label;
+  $('pendingPill').style.display='flex';
+  closeSheets();
 }
 function cancelPending(){
   state.pending=null;
-  mapBox.style.cursor='';
+  $('pendingPill').style.display='none';
   document.querySelectorAll('.selected-for-place').forEach(n=>n.classList.remove('selected-for-place'));
 }
 function highlightPending(){
@@ -844,104 +1051,291 @@ function highlightPending(){
   if(!state.pending)return;
   const sel=state.pending.kind==='bench'
     ? '.bench-token[data-id="'+state.pending.id+'"]'
-    : '.summon-src[data-summon="'+state.pending.type+'"]';
+    : '.src[data-place="'+state.pending.kind+':'+(state.pending.team||state.pending.type)+'"]';
   const el=document.querySelector(sel); if(el)el.classList.add('selected-for-place');
 }
 mapBox.addEventListener('click',e=>{
-  if(!state.pending)return;
+  if(!state.pending||state.playing)return;
   const n=clientToNorm(e.clientX,e.clientY);
-  if(state.pending.kind==='bench'){
-    const {team,id,hero}=state.pending;
-    removeFromBench(team,id);
-    placeHero(hero,team,n.x,n.y);
-  }else{
-    state.summons.push({id:uid(),type:state.pending.type,x:n.x,y:n.y}); renderMap();
-  }
-  cancelPending();
-});
-document.addEventListener('click',e=>{
-  if(!state.pending)return;
-  if(e.target.closest('#mapBox')||e.target.closest('.bench-token')||e.target.closest('.summon-src'))return;
+  const p=state.pending;
+  if(p.kind==='bench'){ removeFromBench(p.team,p.id); placeHero(p.hero,p.team,n.x,n.y); }
+  else if(p.kind==='ward'){ F().wards.push({id:uid(),team:p.team,x:n.x,y:n.y,range:true}); renderMap(); renderShapes(); markDirty(); }
+  else { F().summons.push({id:uid(),type:p.type,x:n.x,y:n.y}); renderMap(); markDirty(); }
   cancelPending();
 });
 
 // objectives toggle
 function toggleObjective(which){
   state.objectives[which]=!state.objectives[which];
-  document.getElementById('tgl'+which[0].toUpperCase()+which.slice(1)).classList.toggle('on',state.objectives[which]);
-  renderMap();
+  $('tgl'+which[0].toUpperCase()+which.slice(1)).classList.toggle('on',state.objectives[which]);
+  renderMap(); markDirty();
+}
+function toggleNames(){
+  state.showNames=!state.showNames;
+  $('tglNames').classList.toggle('on',state.showNames);
+  document.body.classList.toggle('hide-names',!state.showNames);
 }
 
 // ════════════════════════════════════════════════════════════════
-//  TOWERS TAB
+//  TOWERS UI (board sheet) — tap pips; tap a lane name for the row
 // ════════════════════════════════════════════════════════════════
-function buildTowersTab(){
-  const wrap=document.getElementById('envTowers');
-  wrap.innerHTML=towerGridHTML('blue')+towerGridHTML('red');
-  wrap.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-    cb.onchange=()=>{ state.towers[cb.dataset.side][cb.dataset.lane][+cb.dataset.tier]=cb.checked; renderMap(); };
+function buildTowersUI(){
+  const wrap=$('towersWrap');
+  wrap.innerHTML=['blue','red'].map(side=>
+    '<div class="tower-side '+side+'"><h4>'+side+' side</h4>'+
+    ['top','mid','bot'].map(lane=>
+      '<div class="tw-row"><button class="tw-lane" data-side="'+side+'" data-lane="'+lane+'">'+lane.toUpperCase()+'</button>'+
+      [0,1,2].map(t=>'<button class="tw-pip" data-side="'+side+'" data-lane="'+lane+'" data-tier="'+t+'">T'+(t+1)+'</button>').join('')+
+      '</div>').join('')+'</div>').join('');
+  wrap.querySelectorAll('.tw-pip').forEach(b=>b.onclick=()=>{
+    const a=state.towers[b.dataset.side][b.dataset.lane];
+    a[+b.dataset.tier]=!a[+b.dataset.tier];
+    syncTowersUI(); renderMap(); markDirty();
   });
-  // header toggles
-  wrap.querySelectorAll('.hc.rh').forEach(h=>h.onclick=()=>toggleLane(h.dataset.side,h.dataset.lane));
-  wrap.querySelectorAll('.hc.ch').forEach(h=>h.onclick=()=>toggleTier(h.dataset.side,+h.dataset.tier));
+  wrap.querySelectorAll('.tw-lane').forEach(b=>b.onclick=()=>{
+    const a=state.towers[b.dataset.side][b.dataset.lane];
+    const all=a.every(Boolean);
+    state.towers[b.dataset.side][b.dataset.lane]=[!all,!all,!all];
+    syncTowersUI(); renderMap(); markDirty();
+  });
+  syncTowersUI();
 }
-function towerGridHTML(side){
-  const lanes=['top','mid','bot'];
-  let h='<div class="tower-side '+side+'"><h4>'+(side==='blue'?'BLUE side towers':'RED side towers')+'</h4><div class="tower-grid">';
-  h+='<div class="hc"></div><div class="hc ch" data-side="'+side+'" data-tier="0">T1</div><div class="hc ch" data-side="'+side+'" data-tier="1">T2</div><div class="hc ch" data-side="'+side+'" data-tier="2">T3</div>';
-  lanes.forEach(lane=>{
-    h+='<div class="hc rh" data-side="'+side+'" data-lane="'+lane+'">'+lane.toUpperCase()+'</div>';
-    for(let tr=0;tr<3;tr++){
-      h+='<div class="cell"><input type="checkbox" '+(state.towers[side][lane][tr]?'checked':'')+
-         ' data-side="'+side+'" data-lane="'+lane+'" data-tier="'+tr+'"/></div>';
+function syncTowersUI(){
+  document.querySelectorAll('#towersWrap .tw-pip').forEach(b=>{
+    b.classList.toggle('on',state.towers[b.dataset.side][b.dataset.lane][+b.dataset.tier]);
+  });
+}
+
+function setTokenSize(v){ state.tokenSize=+v; $('tokSizeVal').textContent=v+'px'; renderMap(); }
+
+// ════════════════════════════════════════════════════════════════
+//  SHAPES — arrows & zones on an SVG overlay, ward vision circles.
+//  Coordinates are stored normalized; the SVG viewBox tracks the
+//  map's pixel size so stroke widths stay sane at any screen size.
+// ════════════════════════════════════════════════════════════════
+let _creating=null;   // shape being dragged out right now
+function markerId(color){ return 'ah-'+color.replace('#',''); }
+function shapeDefs(){
+  return '<defs>'+SWATCHES.map(c=>
+    '<marker id="'+markerId(c)+'" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="5.4" markerHeight="5.4" orient="auto-start-reverse">'+
+    '<path d="M0 0L10 5L0 10z" fill="'+c+'"/></marker>').join('')+'</defs>';
+}
+function px(n,axis){ return axis==='x'?n*mapW:n*mapH; }
+function arrowSVG(s){
+  const x1=px(s.x1,'x'),y1=px(s.y1,'y'),x2=px(s.x2,'x'),y2=px(s.y2,'y');
+  const sel=s.id===state.sel;
+  return '<g class="shp" data-id="'+s.id+'">'+
+    '<line data-part="hit" x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="#000" stroke-opacity="0" stroke-width="20"/>'+
+    '<line data-part="main" x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+s.color+'" stroke-width="3.5" stroke-linecap="round" marker-end="url(#'+markerId(s.color)+')"'+(sel?' stroke-dasharray="7 5"':'')+'/></g>';
+}
+function zoneSVG(s){
+  const x1=px(s.x1,'x'),y1=px(s.y1,'y'),x2=px(s.x2,'x'),y2=px(s.y2,'y');
+  const cx=(x1+x2)/2, cy=(y1+y2)/2, rx=Math.abs(x2-x1)/2, ry=Math.abs(y2-y1)/2;
+  const sel=s.id===state.sel;
+  return '<g class="shp" data-id="'+s.id+'">'+
+    '<ellipse data-part="main" cx="'+cx+'" cy="'+cy+'" rx="'+Math.max(rx,2)+'" ry="'+Math.max(ry,2)+'" fill="'+s.color+'" fill-opacity="0.13" stroke="'+s.color+'" stroke-width="2" stroke-dasharray="'+(sel?'3 3':'6 5')+'" pointer-events="stroke"/></g>';
+}
+function handleSVG(s){
+  const h=(x,y,part)=>'<circle class="handle" data-id="'+s.id+'" data-part="'+part+'" cx="'+px(x,'x')+'" cy="'+px(y,'y')+'" r="8" fill="#0a0a0a" stroke="'+s.color+'" stroke-width="2"/>';
+  return h(s.x1,s.y1,'h1')+h(s.x2,s.y2,'h2');
+}
+// A ward sees a circle on the ground, but the map art is a perspective
+// render — so the circle is drawn in world space and projected point by
+// point, coming out wider near the bottom of the image than the top.
+function wardRangeSVG(w){
+  if(!w.range)return '';
+  const c=imgToWorld(w.x,w.y), col=w.team==='blue'?'#4488FF':'#FF4444';
+  let d='';
+  const N=44;
+  for(let i=0;i<=N;i++){
+    const a=i/N*2*Math.PI;
+    const p=worldToImg(c.u+WARD_RANGE_W*Math.cos(a), c.v+WARD_RANGE_W*Math.sin(a));
+    d+=(i?'L':'M')+(p.x*mapW).toFixed(1)+' '+(p.y*mapH).toFixed(1);
+  }
+  return '<path d="'+d+'Z" fill="'+col+'" fill-opacity="0.07" stroke="'+col+'" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="4 4" pointer-events="none"/>';
+}
+// ?cal=1 overlay: projected world grid + corner/pit markers, for lining the
+// homography up with the art. Draws into the same SVG as the shapes.
+function calGridSVG(){
+  if(!CAL)return '';
+  let h='';
+  for(let g=0;g<=10;g++){
+    const t=g/10;
+    ['u','v'].forEach(axis=>{
+      let d='';
+      for(let i=0;i<=40;i++){
+        const s=i/40;
+        const p=axis==='u'?worldToImg(t,s):worldToImg(s,t);
+        d+=(i?'L':'M')+(p.x*mapW).toFixed(1)+' '+(p.y*mapH).toFixed(1);
+      }
+      h+='<path d="'+d+'" fill="none" stroke="#00e5ff" stroke-opacity="'+(t===0||t===1?0.9:0.35)+'" stroke-width="1" pointer-events="none"/>';
+    });
+  }
+  ARENA_CORNERS.forEach((c,i)=>{
+    h+='<circle cx="'+(c.x*mapW)+'" cy="'+(c.y*mapH)+'" r="6" fill="none" stroke="#ffcc44" stroke-width="2" pointer-events="none"/>'+
+       '<text x="'+(c.x*mapW+9)+'" y="'+(c.y*mapH+4)+'" fill="#ffcc44" font-size="12" font-family="monospace" pointer-events="none">'+(i+1)+'</text>';
+  });
+  [{p:SLAYER_POS,l:'SLAYER'},{p:DRAGON_POS,l:'DRAGON'}].forEach(m=>{
+    h+='<circle cx="'+(m.p.x*mapW)+'" cy="'+(m.p.y*mapH)+'" r="5" fill="#ff44ff" pointer-events="none"/>'+
+       '<text x="'+(m.p.x*mapW+8)+'" y="'+(m.p.y*mapH-6)+'" fill="#ff44ff" font-size="11" font-family="monospace" pointer-events="none">'+m.l+'</text>';
+  });
+  return h;
+}
+function renderShapes(){
+  svg.setAttribute('viewBox','0 0 '+mapW+' '+mapH);
+  const f=F();
+  let h=shapeDefs();
+  f.wards.forEach(w=>h+=wardRangeSVG(w));
+  f.shapes.filter(s=>s.kind==='zone').forEach(s=>h+=zoneSVG(s));
+  f.shapes.filter(s=>s.kind==='arrow').forEach(s=>h+=arrowSVG(s));
+  if(_creating) h+=_creating.kind==='zone'?zoneSVG(_creating):arrowSVG(_creating);
+  const sel=f.shapes.find(s=>s.id===state.sel);
+  if(sel) h+=handleSVG(sel);
+  h+=calGridSVG();
+  svg.innerHTML=h;
+
+  // select on tap (move tool only — CSS gates pointer-events)
+  svg.querySelectorAll('.shp').forEach(g=>{
+    g.addEventListener('pointerdown',e=>{
+      if(state.tool!=='move'||state.playing)return;
+      e.stopPropagation();
+      setSel(g.dataset.id);
+    });
+  });
+  // endpoint handles: drag to reshape. Attributes are updated in place —
+  // rebuilding the SVG mid-drag would destroy the captured element.
+  svg.querySelectorAll('.handle').forEach(hd=>{
+    hd.addEventListener('pointerdown',e=>{
+      e.stopPropagation(); e.preventDefault();
+      const s=F().shapes.find(x=>x.id===hd.dataset.id); if(!s)return;
+      hd.setPointerCapture(e.pointerId);
+      const part=hd.dataset.part;
+      const move=ev=>{
+        const n=clientToNorm(ev.clientX,ev.clientY);
+        if(part==='h1'){ s.x1=n.x; s.y1=n.y; } else { s.x2=n.x; s.y2=n.y; }
+        updateShapeAttrs(s); markDirty();
+      };
+      const up=()=>{ hd.removeEventListener('pointermove',move); hd.removeEventListener('pointerup',up); renderShapes(); };
+      hd.addEventListener('pointermove',move); hd.addEventListener('pointerup',up);
+    });
+  });
+  renderSelPill();
+}
+function updateShapeAttrs(s){
+  const g=svg.querySelector('.shp[data-id="'+s.id+'"]'); if(!g)return;
+  if(s.kind==='arrow'){
+    ['hit','main'].forEach(part=>{
+      const l=g.querySelector('[data-part="'+part+'"]');
+      l.setAttribute('x1',px(s.x1,'x')); l.setAttribute('y1',px(s.y1,'y'));
+      l.setAttribute('x2',px(s.x2,'x')); l.setAttribute('y2',px(s.y2,'y'));
+    });
+  }else{
+    const el=g.querySelector('[data-part="main"]');
+    el.setAttribute('cx',(px(s.x1,'x')+px(s.x2,'x'))/2); el.setAttribute('cy',(px(s.y1,'y')+px(s.y2,'y'))/2);
+    el.setAttribute('rx',Math.max(Math.abs(px(s.x2,'x')-px(s.x1,'x'))/2,2));
+    el.setAttribute('ry',Math.max(Math.abs(px(s.y2,'y')-px(s.y1,'y'))/2,2));
+  }
+  svg.querySelectorAll('.handle[data-id="'+s.id+'"]').forEach(hd=>{
+    const p=hd.dataset.part==='h1'?{x:s.x1,y:s.y1}:{x:s.x2,y:s.y2};
+    hd.setAttribute('cx',px(p.x,'x')); hd.setAttribute('cy',px(p.y,'y'));
+  });
+}
+function setSel(id){
+  if(state.sel===id)return;
+  state.sel=id;
+  renderShapes();
+}
+// floating Delete pill for the selected shape
+function renderSelPill(){
+  const old=$('selPill'); if(old)old.remove();
+  const s=F().shapes.find(x=>x.id===state.sel); if(!s)return;
+  const d=document.createElement('div'); d.id='selPill';
+  d.style.left=((s.x1+s.x2)/2*100)+'%'; d.style.top=(Math.min(s.y1,s.y2)*100)+'%';
+  d.innerHTML='<button class="btn btn-sm btn-danger">Delete</button>';
+  d.querySelector('button').onclick=e=>{ e.stopPropagation(); deleteShape(s.id); };
+  d.addEventListener('pointerdown',e=>e.stopPropagation());
+  mapBox.appendChild(d);
+}
+function deleteShape(id){
+  const f=F(); const idx=f.shapes.findIndex(x=>x.id===id); if(idx<0)return;
+  pushH({t:'delShape',f:state.cur,idx,s:f.shapes[idx]});
+  f.shapes.splice(idx,1);
+  state.sel=null; renderShapes(); markDirty();
+}
+
+// ── shape creation + deselect + pan, all from one mapBox pointerdown ──
+mapBox.addEventListener('pointerdown',e=>{
+  if(state.playing)return;
+  if(state.tool==='arrow'||state.tool==='zone'){
+    e.preventDefault();
+    const n=clientToNorm(e.clientX,e.clientY);
+    _creating={id:uid(),kind:state.tool,color:penState.color,x1:n.x,y1:n.y,x2:n.x,y2:n.y};
+    mapBox.setPointerCapture(e.pointerId);
+    const move=ev=>{ const m=clientToNorm(ev.clientX,ev.clientY); _creating.x2=m.x; _creating.y2=m.y; renderShapes(); };
+    const up=()=>{
+      mapBox.removeEventListener('pointermove',move); mapBox.removeEventListener('pointerup',up);
+      try{mapBox.releasePointerCapture(e.pointerId);}catch(_){}
+      const s=_creating; _creating=null;
+      // ignore accidental taps that didn't drag anywhere
+      if(s&&(Math.abs(s.x2-s.x1)*mapW>8||Math.abs(s.y2-s.y1)*mapH>8)){
+        F().shapes.push(s); pushH({t:'shape',f:state.cur,s}); markDirty();
+      }
+      renderShapes();
+    };
+    mapBox.addEventListener('pointermove',move); mapBox.addEventListener('pointerup',up);
+    return;
+  }
+  if(state.tool==='move'){
+    if(state.sel)setSel(null);                    // tap empty map = deselect
+    if(state.view.s>1){                           // drag empty map = pan when zoomed
+      e.preventDefault();
+      const sx=e.clientX-state.view.tx, sy=e.clientY-state.view.ty;
+      mapBox.setPointerCapture(e.pointerId);
+      const move=ev=>{ state.view.tx=ev.clientX-sx; state.view.ty=ev.clientY-sy; applyView(); };
+      const up=()=>{ mapBox.removeEventListener('pointermove',move); mapBox.removeEventListener('pointerup',up); try{mapBox.releasePointerCapture(e.pointerId);}catch(_){} };
+      mapBox.addEventListener('pointermove',move); mapBox.addEventListener('pointerup',up);
     }
-  });
-  return h+'</div></div>';
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+//  ZOOM / PAN
+// ════════════════════════════════════════════════════════════════
+function zoomBy(f){
+  state.view.s=Math.max(1,Math.min(3,state.view.s*f));
+  if(state.view.s===1){ state.view.tx=0; state.view.ty=0; }
+  applyView(); resizeCanvas();
 }
-function toggleLane(side,lane){
-  const all=state.towers[side][lane].every(Boolean); state.towers[side][lane]=[!all,!all,!all];
-  syncTowerCheckboxes(); renderMap();
-}
-function toggleTier(side,tier){
-  const lanes=['top','mid','bot']; const all=lanes.every(l=>state.towers[side][l][tier]);
-  lanes.forEach(l=>state.towers[side][l][tier]=!all); syncTowerCheckboxes(); renderMap();
-}
-function syncTowerCheckboxes(){
-  document.querySelectorAll('#envTowers input[type=checkbox]').forEach(cb=>{
-    cb.checked=state.towers[cb.dataset.side][cb.dataset.lane][+cb.dataset.tier];
-  });
+function applyView(){
+  const v=state.view;
+  const maxX=(v.s-1)*mapW/2, maxY=(v.s-1)*mapH/2;
+  v.tx=Math.max(-maxX,Math.min(maxX,v.tx));
+  v.ty=Math.max(-maxY,Math.min(maxY,v.ty));
+  mapBox.style.transform='translate('+v.tx+'px,'+v.ty+'px) scale('+v.s+')';
 }
 
 // ════════════════════════════════════════════════════════════════
-//  TOKEN SIZE SLIDER (right panel header injected)
-// ════════════════════════════════════════════════════════════════
-function setTokenSize(v){ state.tokenSize=+v; document.getElementById('tokSizeVal').textContent=v+'px'; renderBench(); renderMap(); }
-
-// ════════════════════════════════════════════════════════════════
-//  DRAWING SYSTEM (canvas overlay)
+//  DRAWING SYSTEM (canvas overlay — pen + eraser)
 // ════════════════════════════════════════════════════════════════
 function resizeCanvas(){
-  const r=mapBox.getBoundingClientRect();
-  canvas.width=r.width; canvas.height=r.height;
+  const dpr=Math.min(window.devicePixelRatio||1,2)*state.view.s;
+  canvas.width=Math.max(1,Math.round(mapW*dpr)); canvas.height=Math.max(1,Math.round(mapH*dpr));
   redraw();
 }
 function redraw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  state.strokes.forEach(drawStroke);
+  F().strokes.forEach(drawStroke);
 }
-// paints one segment (or a dot, if from===to) straight onto the canvas
-// without clearing it — used both to replay a whole stroke (redraw) and to
-// draw just the newest bit while the pen is moving (fast path below).
+// paints one segment (or a dot) straight onto the canvas without clearing —
+// used both to replay a stroke (redraw) and for the newest bit while drawing.
 function paintSegment(s,from,to){
   ctx.save();
   ctx.globalCompositeOperation = s.erase?'destination-out':'source-over';
-  ctx.strokeStyle=s.color; ctx.fillStyle=s.color; ctx.lineWidth=s.size; ctx.lineCap='round'; ctx.lineJoin='round';
+  const k=canvas.width/mapW;   // stroke size is in layout px → scale to buffer px
+  ctx.strokeStyle=s.color; ctx.fillStyle=s.color; ctx.lineWidth=s.size*k; ctx.lineCap='round'; ctx.lineJoin='round';
   const fx=from.x*canvas.width, fy=from.y*canvas.height, tx=to.x*canvas.width, ty=to.y*canvas.height;
-  if(fx===tx&&fy===ty){
-    ctx.beginPath(); ctx.arc(tx,ty,s.size/2,0,Math.PI*2); ctx.fill();
-  }else{
-    ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(tx,ty); ctx.stroke();
-  }
+  if(fx===tx&&fy===ty){ ctx.beginPath(); ctx.arc(tx,ty,s.size*k/2,0,Math.PI*2); ctx.fill(); }
+  else{ ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(tx,ty); ctx.stroke(); }
   ctx.restore();
 }
 function drawStroke(s){
@@ -951,11 +1345,12 @@ function drawStroke(s){
 }
 let _cur=null;
 canvas.addEventListener('pointerdown',e=>{
-  if(state.tool!=='pen'&&state.tool!=='eraser')return;
-  e.preventDefault(); canvas.setPointerCapture(e.pointerId);
+  if(state.tool!=='pen'&&state.tool!=='erase')return;
+  if(state.playing)return;
+  e.preventDefault(); e.stopPropagation(); canvas.setPointerCapture(e.pointerId);
   const n=clientToNorm(e.clientX,e.clientY);
-  _cur={color:penState.color,size:penState.size,erase:state.tool==='eraser',pts:[n]};
-  state.strokes.push(_cur); state.redo=[];
+  _cur={color:penState.color,size:penState.size,erase:state.tool==='erase',pts:[n]};
+  F().strokes.push(_cur);
   paintSegment(_cur,n,n);
 });
 canvas.addEventListener('pointermove',e=>{
@@ -965,30 +1360,140 @@ canvas.addEventListener('pointermove',e=>{
   _cur.pts.push(n);
   paintSegment(_cur,prev,n);
 });
-function endStroke(){ if(_cur)_cur=null; }
+function endStroke(){
+  if(!_cur)return;
+  pushH({t:'stroke',f:state.cur,s:_cur});
+  _cur=null; markDirty();
+}
 canvas.addEventListener('pointerup',endStroke);
 canvas.addEventListener('pointercancel',endStroke);
 
-function undoStroke(){ if(state.strokes.length){ state.redo.push(state.strokes.pop()); redraw(); } }
-function redoStroke(){ if(state.redo.length){ state.strokes.push(state.redo.pop()); redraw(); } }
-function clearDrawing(){ state.strokes=[]; state.redo=[]; redraw(); }
+function clearDrawing(){
+  const f=F(); if(!f.strokes.length)return;
+  pushH({t:'clear',f:state.cur,list:f.strokes});
+  f.strokes=[]; redraw(); markDirty();
+}
 
-// keyboard hotkeys: A/S/D for tools, Ctrl/Cmd+S/Z/Y for save/undo/redo, Escape to back out
+// ════════════════════════════════════════════════════════════════
+//  UNDO / REDO — one history across pen strokes and shapes
+// ════════════════════════════════════════════════════════════════
+const hist={undo:[],redo:[]};
+function pushH(a){ hist.undo.push(a); hist.redo=[]; if(hist.undo.length>120)hist.undo.shift(); }
+function applyH(a,undoing){
+  const fr=state.frames[a.f]; if(!fr)return;
+  if(a.t==='stroke'){ if(undoing)fr.strokes.pop(); else fr.strokes.push(a.s); }
+  else if(a.t==='shape'){ if(undoing)fr.shapes.pop(); else fr.shapes.push(a.s); }
+  else if(a.t==='delShape'){ if(undoing)fr.shapes.splice(a.idx,0,a.s); else fr.shapes.splice(a.idx,1); }
+  else if(a.t==='clear'){ fr.strokes=undoing?a.list:[]; }
+  if(a.f===state.cur){ state.sel=null; redraw(); renderShapes(); }
+}
+function doUndo(){ const a=hist.undo.pop(); if(!a)return; applyH(a,true);  hist.redo.push(a); }
+function doRedo(){ const a=hist.redo.pop(); if(!a)return; applyH(a,false); hist.undo.push(a); }
+
+// ════════════════════════════════════════════════════════════════
+//  STEPS (frames) — + duplicates the current step; tap chips to jump;
+//  tap the active chip for step actions; play animates the sequence
+// ════════════════════════════════════════════════════════════════
+function renderFrames(){
+  const w=$('frameChips');
+  w.innerHTML=state.frames.map((f,i)=>
+    '<button class="f-chip'+(i===state.cur?' on':'')+'" data-i="'+i+'" title="Step '+(i+1)+'">'+(i+1)+'</button>').join('');
+  w.querySelectorAll('.f-chip').forEach(b=>b.onclick=e=>{
+    if(state.playing)return;
+    const i=+b.dataset.i;
+    if(i===state.cur){ openFrameMenu(e.clientX,e.clientY); return; }
+    setFrame(i);
+  });
+  const on=w.querySelector('.f-chip.on'); if(on)on.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+function setFrame(i){
+  state.cur=i; state.sel=null; cancelPending();
+  renderAll();
+}
+function addFrame(){
+  if(state.playing)return;
+  state.frames.splice(state.cur+1,0,clone(F()));
+  state.cur++;
+  renderAll(); markDirty();
+  toast('Step '+(state.cur+1)+' added — move pieces to build the play.');
+}
+function openFrameMenu(cx,cy){
+  const items=[{label:'Clear drawings on this step',fn:clearDrawing}];
+  if(state.frames.length>1)
+    items.push({label:'Delete step '+(state.cur+1),style:'border-color:var(--red);color:var(--red);',fn:()=>{
+      state.frames.splice(state.cur,1);
+      state.cur=Math.min(state.cur,state.frames.length-1);
+      hist.undo=[]; hist.redo=[];   // frame indices shift — drop stale history
+      renderAll(); markDirty();
+    }});
+  miniMenu('Step '+(state.cur+1),items,cx,cy);
+}
+
+// playback: glide pieces between consecutive steps via CSS transitions
+async function togglePlay(){
+  if(state.playing){ state.playing=false; return; }
+  if(state.frames.length<2){ toast('Add a second step with + to play a sequence.'); return; }
+  state.playing=true; cancelPending(); setSel(null); closePop();
+  $('btnPlay').classList.add('playing'); $('btnPlay').innerHTML=ICONS.stop;
+  state.cur=0; renderAll();
+  await wait(PAUSE_MS);
+  for(let i=1;i<state.frames.length;i++){
+    if(!state.playing)break;
+    await animateTo(i);
+    await wait(PAUSE_MS);
+  }
+  state.playing=false;
+  $('btnPlay').classList.remove('playing'); $('btnPlay').innerHTML=ICONS.play;
+  renderFrames();
+}
+function animateTo(i){
+  return new Promise(res=>{
+    const next=state.frames[i];
+    mapBox.classList.add('anim');
+    canvas.style.opacity=0; svg.style.opacity=0;   // drawings snap per step; fade them
+    const target={};
+    next.heroes.forEach(h=>target[h.id]=h);
+    next.summons.forEach(s=>target[s.id]=s);
+    next.wards.forEach(w=>target[w.id]=w);
+    mapBox.querySelectorAll('.token,.summon-token,.ward').forEach(el=>{
+      const t=target[el.id];
+      if(t){ el.style.left=(t.x*100)+'%'; el.style.top=(t.y*100)+'%'; }
+      else el.style.opacity=0;
+    });
+    const dr=$('dragonIcon');
+    if(dr){ dr.style.left=(next.dragonPos.x*100)+'%'; dr.style.top=(next.dragonPos.y*100)+'%'; }
+    setTimeout(()=>{
+      mapBox.classList.remove('anim');
+      state.cur=i; renderAll();
+      canvas.style.opacity=1; svg.style.opacity=1;
+      res();
+    },MOVE_MS+40);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  KEYBOARD (desktop)
+// ════════════════════════════════════════════════════════════════
 document.addEventListener('keydown',e=>{
   const t=e.target;
   if(/input|textarea|select/i.test(t.tagName)||t.isContentEditable)return;
   if(e.ctrlKey||e.metaKey){
     const k=e.key.toLowerCase();
     if(k==='s'){ e.preventDefault(); openSave(); }
-    else if(k==='z'&&!e.shiftKey){ e.preventDefault(); undoStroke(); }
-    else if((k==='z'&&e.shiftKey)||k==='y'){ e.preventDefault(); redoStroke(); }
+    else if(k==='z'&&!e.shiftKey){ e.preventDefault(); doUndo(); }
+    else if((k==='z'&&e.shiftKey)||k==='y'){ e.preventDefault(); doRedo(); }
     return;
   }
-  if(e.key==='Escape'){ cancelPending(); closePop(); closeModal(); return; }
+  if(e.key==='Escape'){ cancelPending(); closePop(); closeModal(); closeSheets(); setSel(null); return; }
+  if(e.key==='Delete'||e.key==='Backspace'){ if(state.sel){e.preventDefault();deleteShape(state.sel);} return; }
+  if(e.key==='ArrowLeft'&&state.cur>0&&!state.playing){ setFrame(state.cur-1); return; }
+  if(e.key==='ArrowRight'&&state.cur<state.frames.length-1&&!state.playing){ setFrame(state.cur+1); return; }
   const k=e.key.toLowerCase();
-  if(k==='a')setTool('drag');
-  else if(k==='s')setTool('pen');
-  else if(k==='d')setTool('eraser');
+  if(k==='v')setTool('move');
+  else if(k==='p')setTool('pen');
+  else if(k==='a')setTool('arrow');
+  else if(k==='z')setTool('zone');
+  else if(k==='e')setTool('erase');
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -997,100 +1502,159 @@ document.addEventListener('keydown',e=>{
 let _rt=null;
 function requestResize(){ clearTimeout(_rt); _rt=setTimeout(layoutMap,60); }
 function layoutMap(){
-  const wrap=document.getElementById('mapWrap');
+  const wrap=$('mapWrap');
   const pad=16;
   const availW=wrap.clientWidth-pad, availH=wrap.clientHeight-pad;
   const asp=mapImgAspect||MAP_ASPECT;       // h/w
   let w=availW, h=w*asp;
   if(h>availH){ h=availH; w=h/asp; }
-  mapBox.style.width=w+'px'; mapBox.style.height=h+'px';
-  resizeCanvas();
+  mapW=Math.max(50,Math.round(w)); mapH=Math.max(50,Math.round(h));
+  mapBox.style.width=mapW+'px'; mapBox.style.height=mapH+'px';
+  applyView(); resizeCanvas(); renderShapes();
 }
 let mapImgAspect=null;
-const mapImg=document.getElementById('mapImg');
+const mapImg=$('mapImg');
 mapImg.addEventListener('load',()=>{ mapImgAspect=mapImg.naturalHeight/mapImg.naturalWidth; layoutMap(); });
 window.addEventListener('resize',requestResize);
 
 // ════════════════════════════════════════════════════════════════
-//  SAVE / LOAD  (Supabase: tactic_scenarios)
+//  SAVE / LOAD  (Supabase: tactic_scenarios — v1 saves still load)
 // ════════════════════════════════════════════════════════════════
+const r4=v=>+(+v).toFixed(4);
 function boardState(){
   return {
-    heroes:state.mapHeroes.map(h=>({id:h.id,hero:h.hero,team:h.team,x:+h.x.toFixed(4),y:+h.y.toFixed(4),size:state.tokenSize})),
-    summons:state.summons.map(s=>({type:s.type,x:+s.x.toFixed(4),y:+s.y.toFixed(4)})),
-    strokes:state.strokes,
+    version:2,
+    tokenSize:state.tokenSize,
     towers:state.towers,
     objectives:state.objectives,
-    dragonPos:state.dragonPos,
-    tokenSize:state.tokenSize
+    notes:state.notes,
+    frames:state.frames.map(f=>({
+      heroes:f.heroes.map(h=>({id:h.id,hero:h.hero,team:h.team,x:r4(h.x),y:r4(h.y)})),
+      summons:f.summons.map(s=>({id:s.id,type:s.type,x:r4(s.x),y:r4(s.y)})),
+      wards:f.wards.map(w=>({id:w.id,team:w.team,x:r4(w.x),y:r4(w.y),range:!!w.range})),
+      strokes:f.strokes,
+      shapes:f.shapes.map(s=>({id:s.id,kind:s.kind,color:s.color,x1:r4(s.x1),y1:r4(s.y1),x2:r4(s.x2),y2:r4(s.y2)})),
+      dragonPos:{x:r4(f.dragonPos.x),y:r4(f.dragonPos.y)},
+    })),
   };
 }
 function applyBoardState(bs){
   if(!bs)return;
-  state.tokenSize=bs.tokenSize||(bs.heroes&&bs.heroes[0]&&bs.heroes[0].size)||40;
-  document.getElementById('tokSize').value=state.tokenSize; setTokenSize(state.tokenSize);
-  state.mapHeroes=(bs.heroes||[]).map(h=>({id:uid(),hero:h.hero,team:h.team,x:h.x,y:h.y}));
-  state.summons=(bs.summons||[]).map(s=>({id:uid(),type:s.type,x:s.x,y:s.y}));
-  state.strokes=bs.strokes||[]; state.redo=[];
+  if(bs.frames&&bs.frames.length){
+    // v2 format
+    state.frames=bs.frames.map(f=>({
+      heroes:(f.heroes||[]).map(h=>({id:h.id||uid(),hero:h.hero,team:h.team,x:h.x,y:h.y})),
+      summons:(f.summons||[]).map(s=>({id:s.id||uid(),type:s.type,x:s.x,y:s.y})),
+      wards:(f.wards||[]).map(w=>({id:w.id||uid(),team:w.team,x:w.x,y:w.y,range:!!w.range})),
+      strokes:f.strokes||[],
+      shapes:(f.shapes||[]).map(s=>({id:s.id||uid(),kind:s.kind,color:s.color,x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2})),
+      dragonPos:f.dragonPos||{x:DRAGON_POS.x,y:DRAGON_POS.y},
+    }));
+    state.tokenSize=bs.tokenSize||42;
+  }else{
+    // v1 format: one flat board → wrap it in a single step
+    const f=blankFrame();
+    f.heroes=(bs.heroes||[]).map(h=>({id:h.id||uid(),hero:h.hero,team:h.team,x:h.x,y:h.y}));
+    f.summons=(bs.summons||[]).map(s=>({id:uid(),type:s.type,x:s.x,y:s.y}));
+    f.strokes=bs.strokes||[];
+    if(bs.dragonPos)f.dragonPos=bs.dragonPos;
+    state.frames=[f];
+    state.tokenSize=bs.tokenSize||(bs.heroes&&bs.heroes[0]&&bs.heroes[0].size)||42;
+  }
+  state.cur=0;
   if(bs.towers)state.towers=bs.towers;
   if(bs.objectives)state.objectives=bs.objectives;
-  if(bs.dragonPos)state.dragonPos=bs.dragonPos;
-  ['dragon','slayer'].forEach(o=>document.getElementById('tgl'+o[0].toUpperCase()+o.slice(1)).classList.toggle('on',!!state.objectives[o]));
-  syncTowerCheckboxes(); renderMap(); redraw();
+  state.notes=bs.notes||'';
+  state.sel=null; hist.undo=[]; hist.redo=[];
+  // sync controls
+  $('tokSize').value=state.tokenSize; $('tokSizeVal').textContent=state.tokenSize+'px';
+  $('notesBox').value=state.notes;
+  ['dragon','slayer'].forEach(o=>$('tgl'+o[0].toUpperCase()+o.slice(1)).classList.toggle('on',!!state.objectives[o]));
+  syncTowersUI();
+  renderAll();
+  dirty=false;
 }
 
-// build a 400x244 preview thumbnail
+// 400x244 preview thumbnail: map + arrows/zones + strokes + token dots
 function buildPreview(){
   const W=400,H=244, c=document.createElement('canvas'); c.width=W;c.height=H;
   const x=c.getContext('2d');
   x.fillStyle='#0a0a0a'; x.fillRect(0,0,W,H);
   try{ x.drawImage(mapImg,0,0,W,H); }catch(e){}
-  // hero tokens as colored dots
-  state.mapHeroes.forEach(h=>{
+  const f=state.frames[0];
+  f.shapes.forEach(s=>{
+    x.strokeStyle=s.color; x.lineWidth=2;
+    if(s.kind==='zone'){
+      x.beginPath(); x.ellipse((s.x1+s.x2)/2*W,(s.y1+s.y2)/2*H,Math.abs(s.x2-s.x1)/2*W||2,Math.abs(s.y2-s.y1)/2*H||2,0,0,7); x.stroke();
+    }else{ x.beginPath(); x.moveTo(s.x1*W,s.y1*H); x.lineTo(s.x2*W,s.y2*H); x.stroke(); }
+  });
+  f.strokes.forEach(s=>{
+    if(s.erase)return; x.strokeStyle=s.color; x.lineWidth=Math.max(1,s.size*0.5); x.lineCap='round'; x.beginPath();
+    s.pts.forEach((p,i)=>{ const px=p.x*W,py=p.y*H; i?x.lineTo(px,py):x.moveTo(px,py); }); x.stroke();
+  });
+  f.heroes.forEach(h=>{
     x.beginPath(); x.arc(h.x*W,h.y*H,9,0,7); x.fillStyle=h.team==='blue'?'#4488FF':'#FF4444'; x.fill();
     x.fillStyle='#fff'; x.font='8px monospace'; x.textAlign='center'; x.textBaseline='middle';
     x.fillText(initials(h.hero),h.x*W,h.y*H);
   });
-  // strokes
-  state.strokes.forEach(s=>{
-    if(s.erase)return; x.strokeStyle=s.color; x.lineWidth=Math.max(1,s.size*(W/canvas.width||0.5)); x.lineCap='round'; x.beginPath();
-    s.pts.forEach((p,i)=>{ const px=p.x*W,py=p.y*H; i?x.lineTo(px,py):x.moveTo(px,py); }); x.stroke();
-  });
+  if(state.frames.length>1){
+    x.fillStyle='rgba(8,8,8,.8)'; x.fillRect(W-74,H-22,74,22);
+    x.fillStyle='#44ff88'; x.font='10px monospace'; x.textAlign='center'; x.textBaseline='middle';
+    x.fillText(state.frames.length+' steps',W-37,H-11);
+  }
   return c.toDataURL('image/jpeg',0.7);
 }
 
-async function openSave(){
+function openSave(){
   if(!sb)return toast('Supabase library not loaded.',true);
   if(!requirePasscode('save'))return;
-  const name=prompt('Save scenario as:'); if(!name)return;
-  const payload={name:name.trim(),board_state:boardState(),preview_image:buildPreview(),updated_at:new Date().toISOString()};
-  toast('Saving…');
-  // try update-by-name first, else insert (works whether or not a unique constraint exists)
-  let {data:existing}=await sb.from('tactic_scenarios').select('id').eq('name',payload.name).limit(1);
-  let res;
-  if(existing&&existing.length){ res=await sb.from('tactic_scenarios').update(payload).eq('id',existing[0].id); }
-  else { res=await sb.from('tactic_scenarios').insert(payload); }
-  if(res.error)return toast('Save failed: '+res.error.message,true);
-  toast('Saved “'+payload.name+'”');
+  closeSheets();
+  showModal('Save scenario',
+    '<span class="input-label">Scenario name</span>'+
+    '<input class="modal-search" id="svName" value="'+esc(state.scnName)+'" placeholder="e.g. Dragon setup vs Team X"/>'+
+    '<div class="note" style="margin-bottom:14px;">Saving with an existing name overwrites that scenario. '+
+    state.frames.length+' step'+(state.frames.length>1?'s':'')+' will be saved.</div>'+
+    '<button class="btn btn-primary" id="svGo" style="width:100%;">Save scenario</button>',
+    (modal)=>{
+      const inp=modal.querySelector('#svName');
+      const go=async()=>{
+        const name=inp.value.trim(); if(!name)return inp.focus();
+        const payload={name,board_state:boardState(),preview_image:buildPreview(),updated_at:new Date().toISOString()};
+        toast('Saving…');
+        let {data:existing}=await sb.from('tactic_scenarios').select('id').eq('name',name).limit(1);
+        let res;
+        if(existing&&existing.length){ res=await sb.from('tactic_scenarios').update(payload).eq('id',existing[0].id); }
+        else { res=await sb.from('tactic_scenarios').insert(payload); }
+        if(res.error)return toast('Save failed: '+res.error.message,true);
+        state.scnName=name; dirty=false; closeModal();
+        toast('Saved “'+name+'”');
+      };
+      modal.querySelector('#svGo').onclick=go;
+      inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); });
+      setTimeout(()=>inp.focus(),60);
+    });
 }
 
 async function openLoad(){
   if(!sb)return toast('Supabase library not loaded.',true);
+  closeSheets();
   const {data,error}=await sb.from('tactic_scenarios').select('*').order('updated_at',{ascending:false});
   if(error)return toast('Load failed: '+error.message,true);
   showModal('Load scenario',
     !data.length ? '<div class="note">No saved scenarios yet.</div>' :
-    '<div class="scenario-grid">'+data.map(s=>
-      '<div class="scenario-card" data-id="'+s.id+'">'+
+    '<div class="scenario-grid">'+data.map(s=>{
+      const steps=(s.board_state&&s.board_state.frames)?s.board_state.frames.length:1;
+      return '<div class="scenario-card" data-id="'+s.id+'">'+
       '<img src="'+(s.preview_image||'')+'" alt="" onerror="this.style.background=\'#111\'"/>'+
-      '<div class="cap"><span>'+esc(s.name)+'</span><span class="del" data-del="'+s.id+'" title="delete">✕</span></div></div>'
-    ).join('')+'</div>',
+      '<div class="cap"><span class="nmm">'+esc(s.name)+'</span><span class="steps">'+steps+' step'+(steps>1?'s':'')+'</span><span class="del" data-del="'+s.id+'" title="delete">✕</span></div></div>';
+    }).join('')+'</div>',
     (modal)=>{
       modal.querySelectorAll('.scenario-card').forEach(card=>{
         card.addEventListener('click',e=>{
           if(e.target.dataset.del)return;
           const rec=data.find(d=>String(d.id)===card.dataset.id);
-          applyBoardState(rec.board_state); closeModal(); toast('Loaded “'+rec.name+'”');
+          applyBoardState(rec.board_state); state.scnName=rec.name;
+          closeModal(); toast('Loaded “'+rec.name+'”');
         });
       });
       modal.querySelectorAll('.del').forEach(d=>d.addEventListener('click',async e=>{
@@ -1132,10 +1696,11 @@ function dlSavedGames(){
 function openImport(){
   const games=dlSavedGames();
   if(!games.length)return toast('No DraftLab saves found — save a draft in DraftLab first.',true);
+  closeSheets();
   const rowHTML=(g,i)=>'<div class="import-row" data-id="'+i+'">'+
     '<span class="date">'+esc(g.date)+'</span>'+
     '<span class="vs">'+esc(g.teamB)+' vs '+esc(g.teamR)+'</span>'+
-    '<span class="gm">Game '+g.gameNum+' · '+esc(g.scn)+'</span></div>';
+    '<span class="gm">G'+g.gameNum+' · '+esc(g.scn)+'</span></div>';
   showModal('Import draft (from DraftLab)',
     '<input class="modal-search" id="impSearch" placeholder="search team / series / date…"/>'+
     '<div class="import-list" id="impList">'+games.map(rowHTML).join('')+'</div>',
@@ -1153,8 +1718,8 @@ function openImport(){
 function importGame(g){
   state.bench.blue=g.blue.map(h=>({id:uid(),hero:h}));
   state.bench.red =g.red.map(h=>({id:uid(),hero:h}));
-  renderBench();
-  toast('Imported '+g.teamB+' vs '+g.teamR+' (Game '+g.gameNum+') → bench');
+  renderBench(); markDirty();
+  toast('Imported '+g.teamB+' vs '+g.teamR+' (Game '+g.gameNum+') → bench. Open Heroes to place them.');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1172,35 +1737,59 @@ function showModal(title,bodyHTML,after){
   if(after)after(bg);
 }
 function closeModal(){ if(_modal){_modal.remove();_modal=null;} }
+let _toastEl=null;
 function toast(msg,err){
+  if(_toastEl)_toastEl.remove();
   const t=document.createElement('div'); t.className='toast'+(err?' err':''); t.textContent=msg;
-  document.body.appendChild(t); setTimeout(()=>t.remove(),err?4200:2200);
+  document.body.appendChild(t); _toastEl=t;
+  setTimeout(()=>{ if(_toastEl===t){t.remove();_toastEl=null;} },err?4200:2600);
 }
 
 // ════════════════════════════════════════════════════════════════
 //  BOOT
 // ════════════════════════════════════════════════════════════════
-function injectSizeRow(){
-  // token-size slider lives at the top of the right panel body
-  const body=document.querySelector('#rightPanel .panel-body');
-  const row=document.createElement('div'); row.className='size-row';
-  row.innerHTML='<label>Token size (bench + map)</label><div class="rr">'+
-    '<input type="range" id="tokSize" min="20" max="80" value="40" oninput="setTokenSize(this.value)"/>'+
-    '<span class="val" id="tokSizeVal">40px</span></div>';
-  const tabs=body.querySelector('.env-tabs');                 // place right after the tabs
-  body.insertBefore(row, tabs ? tabs.nextSibling : body.firstChild);
-}
+function renderAll(){ renderMap(); redraw(); renderShapes(); renderFrames(); renderBench(); }
 
+// ── ?cal=1: every map click prints image + world coordinates; pressing
+// 1/2/3/4 moves that arena corner to the last click and logs the new
+// ARENA_CORNERS array (paste it back into this file to persist). ──
+let _calLast=null;
+function setupCalibration(){
+  toast('Calibration mode: tap the map to read coordinates. Keys 1–4 set corners.');
+  mapBox.style.cursor='crosshair';
+  mapBox.addEventListener('click',e=>{
+    const n=clientToNorm(e.clientX,e.clientY); _calLast=n;
+    const w=imgToWorld(n.x,n.y);
+    const msg='img x:'+n.x.toFixed(4)+' y:'+n.y.toFixed(4)+' | world u:'+w.u.toFixed(3)+' v:'+w.v.toFixed(3);
+    console.log('[cal] '+msg);
+    toast(msg);
+  });
+  document.addEventListener('keydown',e=>{
+    const i='1234'.indexOf(e.key);
+    if(i<0||!_calLast)return;
+    ARENA_CORNERS[i]={x:+_calLast.x.toFixed(4),y:+_calLast.y.toFixed(4)};
+    rebuildHomography(); renderShapes();
+    console.log('[cal] ARENA_CORNERS='+JSON.stringify(ARENA_CORNERS));
+    toast('Corner '+(i+1)+' set — new values logged to console.');
+  });
+}
 (function boot(){
   buildStaticUI();
-  injectSizeRow();
-  setTool('drag');
-  renderBench();
-  renderMap();
+  // smaller default tokens on phone-sized maps
+  if(Math.min(window.innerWidth,window.innerHeight)<700&&window.innerWidth<900){
+    state.tokenSize=34; $('tokSize').value=34; $('tokSizeVal').textContent='34px';
+  }
+  setTool('move');
+  renderAll();
   layoutMap();
   loadData();
-  // observe map area size changes (panel collapse etc.)
-  if(window.ResizeObserver){ new ResizeObserver(requestResize).observe(document.getElementById('mapWrap')); }
+  if(window.ResizeObserver){ new ResizeObserver(requestResize).observe($('mapWrap')); }
+  if(CAL) setupCalibration();
+  // one-time nudge: the map is landscape, phones usually aren't
+  if(window.innerHeight>window.innerWidth&&window.innerWidth<700&&!sessionStorage.getItem('tactic_rotate_hint')){
+    sessionStorage.setItem('tactic_rotate_hint','1');
+    setTimeout(()=>toast('Tip: rotate your phone for a bigger board.'),900);
+  }
 })();
 </script>
 </body>
