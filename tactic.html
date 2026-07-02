@@ -493,9 +493,77 @@ const TOWER_POSITIONS=[
   {side:'red',lane:'bot',tier:2,x:78.6,y:22.5},
 ];
 const MAP_ASPECT=0.62;                 // height / width fallback until real image loads
-const SLAYER_POS={x:0.394,y:0.350};    // fixed, not draggable
-const WARD_RANGE=0.085;                // vision radius, as a fraction of map width
 const MOVE_MS=700, PAUSE_MS=450;       // playback timing per step
+
+// ════════════════════════════════════════════════════════════════
+//  PERSPECTIVE MAPPING
+//  The map art is a 3D perspective render of a square arena, so equal
+//  in-game distances shrink toward the top of the image. ARENA_CORNERS
+//  pins the arena's four corners on the image (normalized 0..1) in world
+//  order TL, TR, BR, BL — "world" being the flat top-down square map.
+//  From those a homography H maps world → image. Ward vision is a true
+//  circle in world space projected through H, which is why it renders
+//  wider near the bottom of the screen and flatter near the top.
+//  To recalibrate: open the page with ?cal=1 — a world grid is drawn over
+//  the map, every click prints its coordinates, and pressing 1/2/3/4
+//  moves the matching corner to the last click (new values are logged).
+// ════════════════════════════════════════════════════════════════
+// Fitted numerically so the hand-tuned TOWER_POSITIONS obey in-game
+// geometry (point symmetry, mid towers on the diagonal, side lanes at a
+// fixed offset from their wall) — see PR notes. Refine with ?cal=1.
+const ARENA_CORNERS=[
+  {x:0.2266,y:0.0809},   // 1 · TL
+  {x:0.7845,y:0.0774},   // 2 · TR (red base corner)
+  {x:0.9738,y:0.9261},   // 3 · BR
+  {x:0.0812,y:0.9347},   // 4 · BL (blue base corner)
+];
+// Gaussian elimination for the 8x8 DLT system (partial pivoting)
+function solveLin(A,b){
+  const n=A.length, M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<n;c++){
+    let p=c; for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;
+    const t=M[c]; M[c]=M[p]; M[p]=t;
+    for(let r=0;r<n;r++){ if(r===c)continue; const f=M[r][c]/M[c][c];
+      for(let k=c;k<=n;k++)M[r][k]-=f*M[c][k]; }
+  }
+  return M.map((r,i)=>r[n]/r[i]);
+}
+function computeHomography(dst){   // world unit square TL,TR,BR,BL → dst
+  const src=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+  const A=[],b=[];
+  for(let i=0;i<4;i++){
+    const u=src[i].x,v=src[i].y,x=dst[i].x,y=dst[i].y;
+    A.push([u,v,1,0,0,0,-u*x,-v*x]); b.push(x);
+    A.push([0,0,0,u,v,1,-u*y,-v*y]); b.push(y);
+  }
+  const h=solveLin(A,b);
+  return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+}
+function inv3(m){
+  const [a,b,c,d,e,f,g,h,i]=m;
+  const A=e*i-f*h,B=c*h-b*i,C=b*f-c*e,D=f*g-d*i,E=a*i-c*g,F=c*d-a*f,G=d*h-e*g,Hh=b*g-a*h,I=a*e-b*d;
+  const det=a*A+b*D+c*G;
+  return [A/det,B/det,C/det,D/det,E/det,F/det,G/det,Hh/det,I/det];
+}
+let Hm=null,HmInv=null;
+function rebuildHomography(){ Hm=computeHomography(ARENA_CORNERS); HmInv=inv3(Hm); }
+rebuildHomography();
+function worldToImg(u,v){
+  const w=Hm[6]*u+Hm[7]*v+Hm[8];
+  return {x:(Hm[0]*u+Hm[1]*v+Hm[2])/w, y:(Hm[3]*u+Hm[4]*v+Hm[5])/w};
+}
+function imgToWorld(x,y){
+  const w=HmInv[6]*x+HmInv[7]*y+HmInv[8];
+  return {u:(HmInv[0]*x+HmInv[1]*y+HmInv[2])/w, v:(HmInv[3]*x+HmInv[4]*y+HmInv[5])/w};
+}
+
+// Pit positions calibrated by the coach against the in-game map
+// (normalized image coords). Slayer is fixed; dragon is the draggable
+// objective's default spot.
+const SLAYER_POS={x:0.416,y:0.267};
+const DRAGON_POS={x:0.639,y:0.609};
+const WARD_RANGE_W=0.115;              // ward vision radius, as a fraction of the arena side
+const CAL=new URLSearchParams(location.search).has('cal');
 
 // ════════════════════════════════════════════════════════════════
 //  ICONS  (inline SVG, stroke = currentColor)
@@ -530,7 +598,7 @@ function blankFrame(){
           wards:[],    // [{id,team,x,y,range}]
           strokes:[],  // [{color,size,erase,pts:[{x,y}]}]
           shapes:[],   // [{id,kind:'arrow'|'zone',color,x1,y1,x2,y2}]
-          dragonPos:{x:0.666,y:0.666}};
+          dragonPos:{x:DRAGON_POS.x,y:DRAGON_POS.y}};
 }
 const state={
   heroes:[], heroPos:{}, posFilter:'All',
@@ -1071,10 +1139,47 @@ function handleSVG(s){
   const h=(x,y,part)=>'<circle class="handle" data-id="'+s.id+'" data-part="'+part+'" cx="'+px(x,'x')+'" cy="'+px(y,'y')+'" r="8" fill="#0a0a0a" stroke="'+s.color+'" stroke-width="2"/>';
   return h(s.x1,s.y1,'h1')+h(s.x2,s.y2,'h2');
 }
+// A ward sees a circle on the ground, but the map art is a perspective
+// render — so the circle is drawn in world space and projected point by
+// point, coming out wider near the bottom of the image than the top.
 function wardRangeSVG(w){
   if(!w.range)return '';
-  const r=WARD_RANGE*mapW, col=w.team==='blue'?'#4488FF':'#FF4444';
-  return '<circle cx="'+px(w.x,'x')+'" cy="'+px(w.y,'y')+'" r="'+r+'" fill="'+col+'" fill-opacity="0.07" stroke="'+col+'" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="4 4" pointer-events="none"/>';
+  const c=imgToWorld(w.x,w.y), col=w.team==='blue'?'#4488FF':'#FF4444';
+  let d='';
+  const N=44;
+  for(let i=0;i<=N;i++){
+    const a=i/N*2*Math.PI;
+    const p=worldToImg(c.u+WARD_RANGE_W*Math.cos(a), c.v+WARD_RANGE_W*Math.sin(a));
+    d+=(i?'L':'M')+(p.x*mapW).toFixed(1)+' '+(p.y*mapH).toFixed(1);
+  }
+  return '<path d="'+d+'Z" fill="'+col+'" fill-opacity="0.07" stroke="'+col+'" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="4 4" pointer-events="none"/>';
+}
+// ?cal=1 overlay: projected world grid + corner/pit markers, for lining the
+// homography up with the art. Draws into the same SVG as the shapes.
+function calGridSVG(){
+  if(!CAL)return '';
+  let h='';
+  for(let g=0;g<=10;g++){
+    const t=g/10;
+    ['u','v'].forEach(axis=>{
+      let d='';
+      for(let i=0;i<=40;i++){
+        const s=i/40;
+        const p=axis==='u'?worldToImg(t,s):worldToImg(s,t);
+        d+=(i?'L':'M')+(p.x*mapW).toFixed(1)+' '+(p.y*mapH).toFixed(1);
+      }
+      h+='<path d="'+d+'" fill="none" stroke="#00e5ff" stroke-opacity="'+(t===0||t===1?0.9:0.35)+'" stroke-width="1" pointer-events="none"/>';
+    });
+  }
+  ARENA_CORNERS.forEach((c,i)=>{
+    h+='<circle cx="'+(c.x*mapW)+'" cy="'+(c.y*mapH)+'" r="6" fill="none" stroke="#ffcc44" stroke-width="2" pointer-events="none"/>'+
+       '<text x="'+(c.x*mapW+9)+'" y="'+(c.y*mapH+4)+'" fill="#ffcc44" font-size="12" font-family="monospace" pointer-events="none">'+(i+1)+'</text>';
+  });
+  [{p:SLAYER_POS,l:'SLAYER'},{p:DRAGON_POS,l:'DRAGON'}].forEach(m=>{
+    h+='<circle cx="'+(m.p.x*mapW)+'" cy="'+(m.p.y*mapH)+'" r="5" fill="#ff44ff" pointer-events="none"/>'+
+       '<text x="'+(m.p.x*mapW+8)+'" y="'+(m.p.y*mapH-6)+'" fill="#ff44ff" font-size="11" font-family="monospace" pointer-events="none">'+m.l+'</text>';
+  });
+  return h;
 }
 function renderShapes(){
   svg.setAttribute('viewBox','0 0 '+mapW+' '+mapH);
@@ -1086,6 +1191,7 @@ function renderShapes(){
   if(_creating) h+=_creating.kind==='zone'?zoneSVG(_creating):arrowSVG(_creating);
   const sel=f.shapes.find(s=>s.id===state.sel);
   if(sel) h+=handleSVG(sel);
+  h+=calGridSVG();
   svg.innerHTML=h;
 
   // select on tap (move tool only — CSS gates pointer-events)
@@ -1442,7 +1548,7 @@ function applyBoardState(bs){
       wards:(f.wards||[]).map(w=>({id:w.id||uid(),team:w.team,x:w.x,y:w.y,range:!!w.range})),
       strokes:f.strokes||[],
       shapes:(f.shapes||[]).map(s=>({id:s.id||uid(),kind:s.kind,color:s.color,x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2})),
-      dragonPos:f.dragonPos||{x:0.666,y:0.666},
+      dragonPos:f.dragonPos||{x:DRAGON_POS.x,y:DRAGON_POS.y},
     }));
     state.tokenSize=bs.tokenSize||42;
   }else{
@@ -1643,6 +1749,30 @@ function toast(msg,err){
 //  BOOT
 // ════════════════════════════════════════════════════════════════
 function renderAll(){ renderMap(); redraw(); renderShapes(); renderFrames(); renderBench(); }
+
+// ── ?cal=1: every map click prints image + world coordinates; pressing
+// 1/2/3/4 moves that arena corner to the last click and logs the new
+// ARENA_CORNERS array (paste it back into this file to persist). ──
+let _calLast=null;
+function setupCalibration(){
+  toast('Calibration mode: tap the map to read coordinates. Keys 1–4 set corners.');
+  mapBox.style.cursor='crosshair';
+  mapBox.addEventListener('click',e=>{
+    const n=clientToNorm(e.clientX,e.clientY); _calLast=n;
+    const w=imgToWorld(n.x,n.y);
+    const msg='img x:'+n.x.toFixed(4)+' y:'+n.y.toFixed(4)+' | world u:'+w.u.toFixed(3)+' v:'+w.v.toFixed(3);
+    console.log('[cal] '+msg);
+    toast(msg);
+  });
+  document.addEventListener('keydown',e=>{
+    const i='1234'.indexOf(e.key);
+    if(i<0||!_calLast)return;
+    ARENA_CORNERS[i]={x:+_calLast.x.toFixed(4),y:+_calLast.y.toFixed(4)};
+    rebuildHomography(); renderShapes();
+    console.log('[cal] ARENA_CORNERS='+JSON.stringify(ARENA_CORNERS));
+    toast('Corner '+(i+1)+' set — new values logged to console.');
+  });
+}
 (function boot(){
   buildStaticUI();
   // smaller default tokens on phone-sized maps
@@ -1654,6 +1784,7 @@ function renderAll(){ renderMap(); redraw(); renderShapes(); renderFrames(); ren
   layoutMap();
   loadData();
   if(window.ResizeObserver){ new ResizeObserver(requestResize).observe($('mapWrap')); }
+  if(CAL) setupCalibration();
   // one-time nudge: the map is landscape, phones usually aren't
   if(window.innerHeight>window.innerWidth&&window.innerWidth<700&&!sessionStorage.getItem('tactic_rotate_hint')){
     sessionStorage.setItem('tactic_rotate_hint','1');
